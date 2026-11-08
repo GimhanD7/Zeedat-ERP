@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.local/
+*.log
+package-lock.json
+database/schema.sql
