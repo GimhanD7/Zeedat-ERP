@@ -1,0 +1,14 @@
+{
+  "name": "zeedat/pos-api",
+  "description": "Zeedat POS & ERP API - PSR-4 Architecture",
+  "type": "project",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "Zeedat\\": "src/"
+    }
+  }
+}

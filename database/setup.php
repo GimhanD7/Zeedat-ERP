@@ -5,7 +5,27 @@ if (PHP_SAPI !== 'cli') {
     http_response_code(404);
     exit;
 }
-require __DIR__ . '/../api/bootstrap.php';
+require_once __DIR__ . '/../api/src/Autoloader.php';
+\Zeedat\Autoloader::register();
+
+use Zeedat\Config\Database;
+use Zeedat\Repositories\BaseRepository;
+
+function db(): PDO {
+    return Database::getConnection();
+}
+function run(string $sql, array $params = []): PDOStatement {
+    return BaseRepository::run($sql, $params);
+}
+function scalar(string $sql, array $params = []): mixed {
+    return BaseRepository::scalar($sql, $params);
+}
+function one(string $sql, array $params = []): ?array {
+    return BaseRepository::one($sql, $params);
+}
+function insert(string $sql, array $params): int {
+    return BaseRepository::insert($sql, $params);
+}
 
 $email = strtolower(getenv('ZEEDAT_OWNER_EMAIL') ?: '');
 $password = getenv('ZEEDAT_OWNER_PASSWORD') ?: '';
@@ -18,8 +38,9 @@ $db = db();
 $db->beginTransaction();
 try {
     if (scalar("SELECT id FROM users WHERE role='owner' LIMIT 1")) throw new RuntimeException('Setup already ran. Existing data was preserved.');
-    $a = insert('INSERT INTO branches(name) VALUES (?)', ['Colombo – Main']);
-    $b = insert('INSERT INTO branches(name) VALUES (?)', ['Kandy']);
+    $a = insert('INSERT INTO branches(name) VALUES (?)', ['Battaramulla Mobile']);
+    $b = insert('INSERT INTO branches(name) VALUES (?)', ['Battaramulla PC']);
+    $c = insert('INSERT INTO branches(name) VALUES (?)', ['Malabe']);
     $hash = password_hash($password,PASSWORD_DEFAULT);
     $owner = insert("INSERT INTO users(name,email,password_hash,role) VALUES (?,?,?,'owner')",[$demo?'Damindu Perera':'Owner',$email,$hash]);
     if ($demo) {

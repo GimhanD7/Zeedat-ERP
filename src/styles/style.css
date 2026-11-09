@@ -1,0 +1,840 @@
+@import '../style.css';
+
+/* Barcode & Branch Stock enhancements */
+.barcode-container {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+}
+.barcode-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.barcode-fallback {
+  padding: 2px 6px;
+  background: var(--bg-hover, #f3f4f6);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.barcode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--primary, #4f46e5);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.barcode-pill:hover {
+  background: rgba(99, 102, 241, 0.16);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+.badge-no-barcode {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+}
+.no-barcode-notice {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #475569;
+}
+.no-barcode-notice p {
+  margin: 0 0 4px;
+}
+.no-barcode-notice p:last-child {
+  margin: 0;
+}
+
+/* Branch stock pills in product table */
+.branch-stock-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.branch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.branch-pill .branch-name {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.branch-pill.ok {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.branch-pill.low {
+  background: #fefce8;
+  color: #854d0e;
+  border-color: #fef08a;
+}
+.branch-pill.zero {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+/* Branch stock matrix table */
+.branch-matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px;
+}
+.branch-matrix-cell .badge-stock {
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  min-width: 32px;
+  text-align: center;
+  font-size: 12px;
+}
+.branch-matrix-cell .badge-stock.ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+.branch-matrix-cell .badge-stock.low {
+  background: #fef3c7;
+  color: #b45309;
+}
+.branch-matrix-cell .badge-stock.zero {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Barcode Modal Styles */
+.barcode-modal-body {
+  padding: 16px 20px;
+}
+.barcode-modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .barcode-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.barcode-controls .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.barcode-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.barcode-input-row input {
+  flex: 1;
+}
+.copies-selector {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.copies-selector input {
+  width: 90px;
+}
+.product-info-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.product-info-summary .info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.product-info-summary .info-label {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+.product-info-summary .price-tag {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Barcode Preview Label Card */
+.barcode-preview-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.barcode-preview-area h4 {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.barcode-label-card {
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+.barcode-label-card.sticker58 {
+  width: 210px;
+}
+.barcode-label-card.tag80 {
+  width: 270px;
+}
+.barcode-label-card.compact {
+  width: 170px;
+  padding: 8px 10px;
+}
+.barcode-label-card .label-header {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+}
+.barcode-label-card .label-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.barcode-label-card .label-barcode {
+  margin: 4px 0 8px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.barcode-label-card .label-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 6px;
+}
+.barcode-label-card .label-price {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.barcode-label-card .label-vat {
+  font-size: 9px;
+  color: #94a3b8;
+}
+
+/* Printable Labels Sheet (Hidden on screen, shown in print) */
+.printable-labels-sheet {
+  display: none;
+}
+@media print {
+  .printable-labels-sheet {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 4mm;
+    padding: 2mm;
+    background: #fff;
+  }
+  .print-label-item {
+    page-break-inside: avoid;
+    border: 1px solid #e2e8f0;
+    padding: 2mm 3mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  .print-label-item.sticker58 {
+    width: 54mm;
+    height: 38mm;
+  }
+  .print-label-item.tag80 {
+    width: 76mm;
+    height: 48mm;
+  }
+  .print-label-item.compact {
+    width: 40mm;
+    height: 25mm;
+  }
+  .print-label-item .label-header {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 8px;
+    font-weight: 700;
+    margin-bottom: 1mm;
+  }
+  .print-label-item .label-title {
+    font-size: 9px;
+    font-weight: 600;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .print-label-item .label-barcode {
+    margin: 1mm 0;
+  }
+  .print-label-item .label-footer {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 10px;
+    font-weight: 800;
+  }
+}
+
+/* Batch Barcode Modal */
+.batch-barcode-modal {
+  padding: 14px 18px;
+}
+.batch-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+.batch-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.batch-filters .search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+.batch-filters .search-wrap input {
+  border: none;
+  outline: none;
+  font-size: 13px;
+  width: 180px;
+}
+.batch-actions-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.selection-helpers {
+  display: flex;
+  gap: 6px;
+}
+
+.batch-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .batch-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.batch-products-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.batch-table th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  z-index: 2;
+}
+.batch-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.batch-table tr.row-dimmed {
+  opacity: 0.6;
+}
+.batch-table tr.row-selected {
+  background: rgba(99, 102, 241, 0.03);
+}
+.btn-checkbox {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+.product-title-cell strong {
+  display: block;
+}
+.copies-input {
+  width: 65px;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.options-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+.options-card h4 {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #475569;
+  margin-bottom: 10px;
+}
+.batch-summary-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.batch-summary-stats .stat-row {
+  display: flex;
+  justify-content: space-between;
+}
+.single-preview-wrap h5 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+/* Printable batch sheet for print window */
+.batch-print-sheet {
+  display: none;
+}
+@media print {
+  .batch-print-sheet {
+    display: flex !important;
+    flex-wrap: wrap;
+    background: #fff;
+    padding: 2mm;
+    margin: 0;
+    box-sizing: border-box;
+  }
+  .batch-print-sheet.a4grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+    grid-gap: 2.5mm;
+    width: 210mm;
+    padding: 8mm 6mm;
+  }
+  .batch-print-sheet.sticker58 {
+    gap: 3mm;
+    width: 58mm;
+  }
+  .batch-print-sheet.tag80 {
+    gap: 4mm;
+    width: 80mm;
+  }
+  .batch-print-label {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border: 1px dashed #cbd5e1;
+    padding: 2mm 3mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    background: #fff;
+    box-sizing: border-box;
+  }
+  .batch-print-label.sticker58 {
+    width: 54mm;
+    height: 38mm;
+  }
+  .batch-print-label.tag80 {
+    width: 76mm;
+    height: 48mm;
+  }
+  .batch-print-label.compact {
+    width: 40mm;
+    height: 25mm;
+  }
+  .batch-print-label.a4grid {
+    width: 65mm;
+    height: 34mm;
+  }
+  .batch-print-label .label-header {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 8px;
+    font-weight: 700;
+  }
+  .batch-print-label .label-title {
+    font-size: 9px;
+    font-weight: 600;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    margin: 1mm 0;
+  }
+  .batch-print-label .label-barcode {
+    margin: 0.5mm 0;
+  }
+  .batch-print-label .label-footer {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 9px;
+    font-weight: 800;
+  }
+}
+
+/* Barcode Uniqueness & Duplicate Prevention Warning */
+.barcode-conflict-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #f87171;
+  color: #991b1b;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+.barcode-conflict-warning strong {
+  color: #7f1d1d;
+}
+
+/* Role-Wise Permissions Management & Access Control */
+.permissions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.role-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.role-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s ease;
+}
+
+.role-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06);
+}
+
+.role-card.is-owner {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.role-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.role-card-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.role-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.role-perm-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  justify-content: space-between;
+}
+
+.role-perm-bar {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.role-perm-fill {
+  height: 100%;
+  background: #0ea5e9;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.role-card.is-owner .role-perm-fill {
+  background: #f59e0b;
+}
+
+.role-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.role-quick-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.role-quick-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.permissions-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+}
+
+.matrix-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 12px 18px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  gap: 16px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+.matrix-actions-bar.unsaved {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.matrix-status-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.matrix-actions-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.permissions-matrix-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.permissions-matrix-table th {
+  background: #f8fafc;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: center;
+}
+
+.permissions-matrix-table th.col-module {
+  text-align: left;
+  width: 40%;
+}
+
+.permissions-matrix-table tr.category-row th {
+  background: #f1f5f9;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid #cbd5e1;
+  border-top: 1px solid #cbd5e1;
+}
+
+.permissions-matrix-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.permissions-matrix-table tr:last-child td {
+  border-bottom: none;
+}
+
+.permissions-matrix-table tr:hover td {
+  background-color: #fafbfd;
+}
+
+.perm-info-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.perm-info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.perm-info-desc {
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.perm-check-cell {
+  text-align: center;
+}
+
+.perm-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.perm-toggle-btn:hover:not(:disabled) {
+  border-color: #0ea5e9;
+  background: #f0f9ff;
+  transform: scale(1.05);
+}
+
+.perm-toggle-btn.checked {
+  background: #10b981;
+  border-color: #059669;
+  color: #ffffff;
+}
+
+.perm-toggle-btn.checked:hover:not(:disabled) {
+  background: #059669;
+  border-color: #047857;
+}
+
+.perm-toggle-btn.locked {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #b45309;
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+

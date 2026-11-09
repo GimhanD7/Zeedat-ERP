@@ -137,6 +137,11 @@ CREATE TABLE IF NOT EXISTS settings (
  paper_width ENUM('58','80') NOT NULL DEFAULT '80'
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO settings (id) VALUES (1);
+CREATE TABLE IF NOT EXISTS role_permissions (
+ role ENUM('owner','manager','cashier','technician','stock') NOT NULL,
+ permission VARCHAR(60) NOT NULL,
+ PRIMARY KEY(role, permission)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS audit_log (
  id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, branch_id INT NULL, action VARCHAR(50) NOT NULL,
  details JSON NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
