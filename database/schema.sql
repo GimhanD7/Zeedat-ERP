@@ -134,9 +134,20 @@ CREATE TABLE IF NOT EXISTS exchanges (
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS settings (
  id INT PRIMARY KEY, tax_bps INT UNSIGNED NOT NULL DEFAULT 0, shop_name VARCHAR(100) NOT NULL DEFAULT 'ZEEDAT POS',
- paper_width ENUM('58','80') NOT NULL DEFAULT '80'
+ paper_width ENUM('58','80') NOT NULL DEFAULT '80',
+ cloud_backup_url VARCHAR(255) NOT NULL DEFAULT '',
+ cloud_api_key VARCHAR(255) NOT NULL DEFAULT '',
+ auto_sync_enabled TINYINT(1) NOT NULL DEFAULT 1,
+ sync_interval_minutes INT NOT NULL DEFAULT 15,
+ last_synced_at TIMESTAMP NULL
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO settings (id) VALUES (1);
+CREATE TABLE IF NOT EXISTS backup_logs (
+ id INT AUTO_INCREMENT PRIMARY KEY, branch_id INT NULL, filename VARCHAR(255) NOT NULL,
+ file_size BIGINT UNSIGNED NOT NULL DEFAULT 0, status ENUM('local_saved','synced','failed') NOT NULL DEFAULT 'local_saved',
+ remote_url VARCHAR(255) NULL, error_message TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ INDEX(status, created_at)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS role_permissions (
  role ENUM('owner','manager','cashier','technician','stock') NOT NULL,
  permission VARCHAR(60) NOT NULL,

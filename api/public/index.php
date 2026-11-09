@@ -7,6 +7,7 @@ require_once __DIR__ . '/../src/Autoloader.php';
 use Zeedat\Config\Constants;
 use Zeedat\Controllers\AdminController;
 use Zeedat\Controllers\AuthController;
+use Zeedat\Controllers\BackupController;
 use Zeedat\Controllers\DashboardController;
 use Zeedat\Controllers\DrawerController;
 use Zeedat\Controllers\InventoryController;
@@ -33,6 +34,11 @@ try {
         throw new ApiError('Method not allowed.', 405);
     }
 
+    // Public / Remote backup receiver (allows multipart upload with Bearer token)
+    if ($action === 'backup.receive' && $method === 'POST') {
+        BackupController::receive();
+    }
+
     if ($method === 'POST') {
         $contentType = strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0]));
         if ($contentType !== 'application/json') {
@@ -54,6 +60,12 @@ try {
         AuthController::session();
     }
 
+    if ($method === 'GET' && $action === 'backup.download') {
+        $user = AuthMiddleware::requireAuth();
+        RoleGuard::allowPermission($user, 'settings');
+        BackupController::download($user, $_GET);
+    }
+
     // Authenticated endpoints
     $user = AuthMiddleware::requireAuth();
 
@@ -66,7 +78,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'settings.save', 'supplier.create'], true);
+        $global = in_array($action, ['staff.save', 'settings.save', 'supplier.create', 'backup.create', 'backup.save_settings'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -182,6 +194,14 @@ try {
                     RoleGuard::allowPermission($user, 'settings');
                     return AdminController::saveSettings($body);
                 })(),
+                'backup.create' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'settings');
+                    return BackupController::createBackup($user, $branch, $body);
+                })(),
+                'backup.save_settings' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'settings');
+                    return BackupController::saveSettings($user, $body);
+                })(),
                 default => throw new ApiError('Route not found.', 404),
             };
         });
@@ -296,6 +316,14 @@ try {
         'barcode.generate' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'inventory');
             return InventoryController::generateBarcode();
+        })(),
+        'backup.summary' => (function () use ($user) {
+            RoleGuard::allowPermission($user, 'settings');
+            return BackupController::getSummary();
+        })(),
+        'backup.history' => (function () use ($user) {
+            RoleGuard::allowPermission($user, 'settings');
+            return BackupController::getHistory();
         })(),
         default => throw new ApiError('Route not found.', 404),
     };

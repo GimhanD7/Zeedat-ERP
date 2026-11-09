@@ -3,6 +3,7 @@ import { useData } from '../../hooks/useData';
 import { Button, Heading, Panel, Table } from '../../components/common';
 import { DataView } from '../../components/feedback';
 import { cents, timeLabel } from '../../utils';
+import { BackupSyncManager } from './BackupSyncManager';
 
 export function SettingsPage({ ctx }) {
   const state = useData(ctx, { settings: 'settings', audit: 'audit' });
@@ -62,6 +63,7 @@ export function SettingsPage({ ctx }) {
                 </div>
               </div>
             </Panel>
+            <BackupSyncManager ctx={ctx} />
             <Panel title="Recent Audit Events" icon={ClipboardList}>
               <Table
                 rows={audit}
