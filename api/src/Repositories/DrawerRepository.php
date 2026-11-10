@@ -5,9 +5,17 @@ namespace Zeedat\Repositories;
 
 class DrawerRepository extends BaseRepository {
     public static function openDrawerForBranch(int $branch): ?array {
+        if ($branch <= 0) return null;
         return self::one(
-            'SELECT d.*, c.business_date FROM drawers d JOIN cycles c ON c.id=d.cycle_id WHERE d.branch_id=? AND d.closed_at IS NULL',
+            'SELECT d.*, c.business_date, u.name AS operator FROM drawers d JOIN cycles c ON c.id=d.cycle_id LEFT JOIN users u ON u.id=d.user_id WHERE d.branch_id=? AND d.closed_at IS NULL',
             [$branch]
+        );
+    }
+
+    public static function paymentBreakdown(int $drawerId): array {
+        return self::rows(
+            'SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total FROM payments WHERE drawer_id=? GROUP BY method',
+            [$drawerId]
         );
     }
 
@@ -79,13 +87,16 @@ class DrawerRepository extends BaseRepository {
 
     public static function history(int $branch, array $user, int $limit = 20): array {
         $cashierFilter = $user['role'] === 'cashier' ? 'AND d.user_id=' . (int) $user['id'] : '';
+        $branchFilter = $branch > 0 ? 'AND d.branch_id = ?' : '';
+        $params = $branch > 0 ? [$branch] : [];
         return self::rows(
-            "SELECT d.*, c.business_date, u.name operator FROM drawers d
+            "SELECT d.*, c.business_date, u.name operator, b.name branch_name FROM drawers d
             JOIN cycles c ON c.id=d.cycle_id
             JOIN users u ON u.id=d.user_id
-            WHERE d.branch_id=? AND d.closed_at IS NOT NULL {$cashierFilter}
+            LEFT JOIN branches b ON b.id=d.branch_id
+            WHERE d.closed_at IS NOT NULL {$branchFilter} {$cashierFilter}
             ORDER BY d.id DESC LIMIT {$limit}",
-            [$branch]
+            $params
         );
     }
 

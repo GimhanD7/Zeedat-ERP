@@ -306,12 +306,12 @@ try {
         })(),
         'drawer' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'drawer');
-            if (!$branch) throw new ApiError('Select a branch.');
+            if (!$branch && !in_array($user['role'], ['owner', 'manager'], true)) throw new ApiError('Select a branch.');
             return DrawerController::getRegister($branch, $user, $_GET);
         })(),
         'cashbook' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'drawer');
-            if (!$branch) throw new ApiError('Select a branch.');
+            if (!$branch && !in_array($user['role'], ['owner', 'manager'], true)) throw new ApiError('Select a branch.');
             return DrawerController::getRegister($branch, $user, $_GET);
         })(),
         'returns' => (function () use ($user, $branch) {

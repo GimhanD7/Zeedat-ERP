@@ -40,10 +40,11 @@ class DrawerService {
         }
 
         $movements = $drawer ? DrawerRepository::movements((int) $drawer['id']) : [];
-        $history = DrawerRepository::history($branch, $user, 20);
+        $paymentBreakdown = $drawer ? DrawerRepository::paymentBreakdown((int) $drawer['id']) : [];
+        $history = DrawerRepository::history($branch, $user, 30);
 
         // Cashbook Ledger parameters
-        $filterBranch = isset($params['all_branches']) && $params['all_branches'] === '1' && in_array($user['role'], ['owner', 'manager'], true)
+        $filterBranch = (isset($params['all_branches']) && $params['all_branches'] === '1' && in_array($user['role'], ['owner', 'manager'], true)) || $branch === 0
             ? 0
             : $branch;
         $startDate = !empty($params['start_date']) ? (string) $params['start_date'] : '';
@@ -76,6 +77,7 @@ class DrawerService {
             'drawer' => $drawer,
             'blocked' => $blocked,
             'movements' => $movements,
+            'payment_breakdown' => $paymentBreakdown,
             'history' => $history,
             'ledger' => $ledger,
             'summary' => [
@@ -134,7 +136,19 @@ class DrawerService {
     }
 
     public static function movement(array $user, int $branch, array $body): array {
-        $drawer = self::openDrawer($user, $branch);
+        $drawer = DrawerRepository::openDrawerForBranch($branch);
+        if (!$drawer) {
+            if (in_array($user['role'], ['owner', 'manager'], true) || !empty($body['auto_open'])) {
+                self::open($user, $branch, ['opening' => 0]);
+                $drawer = DrawerRepository::openDrawerForBranch($branch);
+            } else {
+                throw new ApiError('Open today’s cash drawer before recording cash movements.');
+            }
+        }
+        if ((int) $drawer['user_id'] !== (int) $user['id'] && !in_array($user['role'], ['owner', 'manager'], true)) {
+            throw new ApiError('The active drawer is assigned to another cashier.');
+        }
+
         $direction = $body['direction'] ?? '';
         if (!in_array($direction, ['In', 'Out'], true)) {
             throw new ApiError('Invalid direction.');

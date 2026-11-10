@@ -2470,6 +2470,201 @@
   color: #7e22ce;
 }
 
+/* =====================================================================
+   ZEEDAT POS - MODERN CASHBOOK & REGISTER STYLES
+===================================================================== */
+.zk-cashbook-layout {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1120px) {
+  .zk-cashbook-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-cb-entry-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-cb-direction-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+
+.zk-cb-dir-btn {
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.zk-cb-dir-btn.active-in {
+  background: #ffffff;
+  color: #15803d;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.zk-cb-dir-btn.active-out {
+  background: #ffffff;
+  color: #dc2626;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.zk-cb-amount-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.zk-cb-chip {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+}
+
+.zk-cb-chip:hover {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+.zk-pay-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.zk-pay-pill {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zk-pay-pill small {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.zk-pay-pill strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* LKR Denomination Counter */
+.zk-denom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 560px) {
+  .zk-denom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-denom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 5px 10px;
+}
+
+.zk-denom-note {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 68px;
+}
+
+.zk-denom-input {
+  width: 64px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.zk-denom-sub {
+  flex: 1;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.zk-recon-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.zk-recon-box {
+  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.zk-recon-box small {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.zk-recon-box strong {
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+
 
 
 
