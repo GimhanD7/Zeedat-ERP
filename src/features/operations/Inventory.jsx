@@ -794,9 +794,16 @@ export function Inventory({ ctx }) {
                 allProducts={items}
                 shopName={ctx.settings?.shop_name || 'ZEEDAT POS'}
                 onClose={() => setLabelProduct(null)}
-                onUpdateBarcode={async (productId, newBarcode) => {
-                  await ctx.mutate('product.barcode', { id: productId, barcode: newBarcode });
-                  setLabelProduct(prev => (prev ? { ...prev, barcode: newBarcode } : null));
+                onUpdateBarcode={async (productId, newBarcode, autoGenerate = false) => {
+                  const res = await ctx.mutate('product.barcode', {
+                    id: productId,
+                    barcode: newBarcode,
+                    auto_generate: autoGenerate,
+                  });
+                  const finalCode = res.barcode ?? newBarcode;
+                  setLabelProduct(prev => (prev ? { ...prev, barcode: finalCode } : null));
+                  state.refresh();
+                  return finalCode;
                 }}
               />
             )}
@@ -807,13 +814,23 @@ export function Inventory({ ctx }) {
                 products={items}
                 shopName={ctx.settings?.shop_name || 'ZEEDAT POS'}
                 onClose={() => setBatchModal(false)}
-                onBulkGenerate={async productIds => {
-                  const res = await ctx.mutate('barcode.bulk', { product_ids: productIds });
-                  ctx.setNotice(`Generated barcodes for ${res.updated || 0} products`);
+                onBulkGenerate={async (productIds, force = false) => {
+                  const res = await ctx.mutate('barcode.bulk', {
+                    product_ids: productIds,
+                    force,
+                  });
+                  ctx.setNotice(`Generated & saved ${res.updated || 0} ZD barcodes`);
+                  state.refresh();
+                  return res;
                 }}
                 onUpdateSingleBarcode={async productId => {
-                  await ctx.mutate('product.barcode', { id: productId, auto_generate: true });
-                  ctx.setNotice('Barcode generated');
+                  const res = await ctx.mutate('product.barcode', {
+                    id: productId,
+                    auto_generate: true,
+                  });
+                  ctx.setNotice(`Saved barcode ${res.barcode}`);
+                  state.refresh();
+                  return res;
                 }}
               />
             )}

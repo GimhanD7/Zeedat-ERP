@@ -90,7 +90,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'barcode.bulk', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);

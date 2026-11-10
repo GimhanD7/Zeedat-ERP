@@ -43,18 +43,18 @@ export function BarcodeLabelModal({
 
   const generateBarcode = async () => {
     setGenerating(true);
+    setSaving(true);
     try {
-      // 12-digit EAN-style: 200 + 8 random digits + 1 check digit
-      const num = '200' + String(Math.floor(Math.random() * 90000000) + 10000000);
-      let check = 0;
-      for (let i = 0; i < 11; i++) {
-        check += parseInt(num[i], 10) * (i % 2 === 0 ? 1 : 3);
+      if (onUpdateBarcode) {
+        const savedCode = await onUpdateBarcode(product.id, '', true);
+        if (savedCode) {
+          setCustomBarcode(savedCode);
+          return;
+        }
       }
-      const checkDigit = (10 - (check % 10)) % 10;
-      const code = num + checkDigit;
+      const code = 'ZD' + String(product.id || Math.floor(Math.random() * 9000000) + 1000000).padStart(7, '0');
       setCustomBarcode(code);
       if (onUpdateBarcode) {
-        setSaving(true);
         await onUpdateBarcode(product.id, code);
       }
     } finally {
@@ -172,11 +172,11 @@ export function BarcodeLabelModal({
                   icon={generating ? RefreshCw : Sparkles}
                   variant="secondary"
                   size="small"
-                  title="Auto-generate a 12-digit barcode"
+                  title="Auto-generate & save a ZDXXXXXXX barcode"
                   onClick={generateBarcode}
                   disabled={generating || saving}
                 >
-                  Generate 12-digit
+                  {saving ? 'Saving…' : 'Generate ZD Barcode'}
                 </Button>
                 <Button
                   icon={Tag}

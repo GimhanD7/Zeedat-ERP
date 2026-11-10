@@ -23,19 +23,17 @@ class InventoryService {
         return $sku;
     }
 
-    public static function generateBarcode(array $excludeCodes = []): array {
+    public static function generateBarcode(array $excludeCodes = [], ?int $productId = null): array {
         $attempts = 0;
         do {
-            $num = '200' . str_pad((string) random_int(0, 99999999), 8, '0', STR_PAD_LEFT);
-            $check = 0;
-            for ($i = 0; $i < 11; $i++) {
-                $check += (int) $num[$i] * ($i % 2 === 0 ? 1 : 3);
+            if ($attempts === 0 && $productId !== null && $productId > 0 && $productId < 10000000) {
+                $code = 'ZD' . str_pad((string) $productId, 7, '0', STR_PAD_LEFT);
+            } else {
+                $code = 'ZD' . str_pad((string) random_int(1000000, 9999999), 7, '0', STR_PAD_LEFT);
             }
-            $checkDigit = (10 - ($check % 10)) % 10;
-            $code = $num . $checkDigit;
             $attempts++;
             if ($attempts > 1000) {
-                throw new ApiError('Failed to generate unique barcode. Please try again.');
+                throw new ApiError('Failed to generate unique ZD barcode. Please try again.');
             }
         } while (
             in_array($code, $excludeCodes, true) ||
@@ -47,21 +45,25 @@ class InventoryService {
 
     public static function bulkGenerateBarcodes(array $body = []): array {
         $ids = $body['product_ids'] ?? null;
+        $force = !empty($body['force']);
+        $condition = $force ? "1=1" : "(barcode IS NULL OR barcode='')";
+
         if (is_array($ids) && count($ids) > 0) {
             $inClause = implode(',', array_map('intval', $ids));
-            $products = BaseRepository::rows("SELECT id FROM products WHERE id IN ({$inClause}) AND (barcode IS NULL OR barcode='') AND category!='Services' ORDER BY id");
+            $products = BaseRepository::rows("SELECT id FROM products WHERE id IN ({$inClause}) AND {$condition} AND category!='Services' ORDER BY id");
         } else {
-            $products = BaseRepository::rows("SELECT id FROM products WHERE (barcode IS NULL OR barcode='') AND category!='Services' ORDER BY id");
+            $products = BaseRepository::rows("SELECT id FROM products WHERE {$condition} AND category!='Services' ORDER BY id");
         }
 
         $count = 0;
         $updated = [];
         $batchGenerated = [];
         foreach ($products as $p) {
-            $code = self::generateBarcode($batchGenerated)['barcode'];
+            $pid = (int) $p['id'];
+            $code = self::generateBarcode($batchGenerated, $pid)['barcode'];
             $batchGenerated[] = $code;
-            BaseRepository::run('UPDATE products SET barcode=? WHERE id=?', [$code, $p['id']]);
-            $updated[] = ['id' => (int) $p['id'], 'barcode' => $code];
+            BaseRepository::run('UPDATE products SET barcode=? WHERE id=?', [$code, $pid]);
+            $updated[] = ['id' => $pid, 'barcode' => $code];
             $count++;
         }
         return ['updated' => $count, 'products' => $updated];
@@ -180,7 +182,7 @@ class InventoryService {
 
         $barcode = Validator::str($body, 'barcode', 40, false);
         if ($barcode === '' && !empty($body['auto_generate'])) {
-            $barcode = self::generateBarcode()['barcode'];
+            $barcode = self::generateBarcode([], $id)['barcode'];
         }
 
         if ($barcode !== '') {
