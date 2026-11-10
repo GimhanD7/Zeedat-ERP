@@ -65,6 +65,9 @@ export function BatchBarcodeModal({
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
     return effectiveProducts.filter(p => {
+      const isInternalZd = String(p.effectiveBarcode || '').toUpperCase().startsWith('ZD');
+      if (filterMode === 'internal-zd' && !isInternalZd) return false;
+      if (filterMode === 'external' && (!p.effectiveBarcode || isInternalZd)) return false;
       if (filterMode === 'no-barcode' && p.effectiveBarcode) return false;
       if (filterMode === 'has-barcode' && !p.effectiveBarcode) return false;
       if (!q) return true;
@@ -127,6 +130,13 @@ export function BatchBarcodeModal({
 
   const selectMissingOnly = () => {
     const ids = effectiveProducts.filter(p => !p.effectiveBarcode).map(p => p.id);
+    setSelectedIds(new Set(ids));
+  };
+
+  const selectInternalZdOnly = () => {
+    const ids = effectiveProducts
+      .filter(p => String(p.effectiveBarcode || '').toUpperCase().startsWith('ZD'))
+      .map(p => p.id);
     setSelectedIds(new Set(ids));
   };
 
@@ -281,6 +291,10 @@ export function BatchBarcodeModal({
   };
 
   const missingTotalCount = effectiveProducts.filter(p => !p.effectiveBarcode).length;
+  const internalZdCount = effectiveProducts.filter(p =>
+    String(p.effectiveBarcode || '').toUpperCase().startsWith('ZD')
+  ).length;
+  const externalCount = effectiveProducts.length - missingTotalCount - internalZdCount;
   const missingBarcodeSelectedCount = effectiveProducts.filter(
     p => !p.effectiveBarcode && selectedIds.has(p.id)
   ).length;
@@ -294,7 +308,7 @@ export function BatchBarcodeModal({
   return (
     <Modal
       title="Batch ZD Barcode Generator & Label Printing"
-      description="Auto-generate & save ZDXXXXXXX barcodes, paginate items, and bulk-print selected labels."
+      description="Auto-generate & save ZDXXXXXXX internal barcodes, paginate items, and bulk-print selected labels."
       onClose={onClose}
       xl={true}
     >
@@ -316,11 +330,17 @@ export function BatchBarcodeModal({
               onChange={e => setFilterMode(e.target.value)}
             >
               <option value="all">All Physical Products ({effectiveProducts.length})</option>
+              <option value="internal-zd">
+                Internal Barcodes (ZD) Only ({internalZdCount})
+              </option>
+              <option value="external">
+                Manufacturer / Other Barcodes ({externalCount})
+              </option>
               <option value="no-barcode">
                 Missing Barcode Only ({missingTotalCount})
               </option>
               <option value="has-barcode">
-                With Barcode ({effectiveProducts.length - missingTotalCount})
+                All With Barcode ({effectiveProducts.length - missingTotalCount})
               </option>
             </select>
           </div>
@@ -358,6 +378,11 @@ export function BatchBarcodeModal({
               <Button size="small" variant="secondary" onClick={selectAllFiltered}>
                 Select All ({filteredProducts.length})
               </Button>
+              {internalZdCount > 0 && (
+                <Button size="small" variant="secondary" onClick={selectInternalZdOnly}>
+                  Select Internal ZD ({internalZdCount})
+                </Button>
+              )}
               {missingTotalCount > 0 && (
                 <Button size="small" variant="secondary" onClick={selectMissingOnly}>
                   Select Missing ({missingTotalCount})

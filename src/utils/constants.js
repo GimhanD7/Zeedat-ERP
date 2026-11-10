@@ -46,6 +46,7 @@ export const allBranchPages = [
   'dashboard',
   'repairs',
   'inventory',
+  'barcodes',
   'returns',
   'purchases',
   'transfers',

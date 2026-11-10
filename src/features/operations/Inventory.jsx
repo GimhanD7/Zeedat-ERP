@@ -282,6 +282,10 @@ export function Inventory({ ctx }) {
       {({ items, units }) => {
         const physicalItems = items.filter(p => p.category !== 'Services');
         const withBarcodeCount = physicalItems.filter(p => Boolean(p.barcode)).length;
+        const internalZdCount = physicalItems.filter(p =>
+          String(p.barcode || '').toUpperCase().startsWith('ZD')
+        ).length;
+        const externalBarcodeCount = withBarcodeCount - internalZdCount;
         const noBarcodeCount = physicalItems.length - withBarcodeCount;
 
         const low = items.filter(
@@ -302,9 +306,14 @@ export function Inventory({ ctx }) {
         const matching = items.filter(p => {
           const status = getProductBranchStatus(p, selectedBranch);
           const qty = getProductBranchStock(p, selectedBranch) ?? 0;
+          const isInternalZd = String(p.barcode || '').toUpperCase().startsWith('ZD');
           const matchesBarcode =
             !barcodeFilter ||
-            (barcodeFilter === 'with-barcode'
+            (barcodeFilter === 'internal-zd'
+              ? isInternalZd
+              : barcodeFilter === 'external'
+              ? Boolean(p.barcode) && !isInternalZd
+              : barcodeFilter === 'with-barcode'
               ? Boolean(p.barcode)
               : !p.barcode && p.category !== 'Services');
 
@@ -330,8 +339,8 @@ export function Inventory({ ctx }) {
               title="Products & Inventory"
               description="Manage your catalog, branch-wise stocks, barcodes, pricing and device units."
             >
-              <Button icon={Printer} onClick={() => setBatchModal(true)}>
-                Print labels
+              <Button icon={Barcode} onClick={() => ctx.navigate('barcodes')}>
+                Barcode
               </Button>
               <Button icon={ArrowUpDown} onClick={() => adjust(items)}>
                 Adjust stock
@@ -426,8 +435,10 @@ export function Inventory({ ctx }) {
                       value={barcodeFilter}
                       onChange={e => setBarcodeFilter(e.target.value)}
                       options={[
-                        ['with-barcode', 'With Barcode only'],
-                        ['no-barcode', 'No Barcode only (Barcode නැති භාණ්ඩ)'],
+                        ['internal-zd', `Internal Barcodes (ZD) (${internalZdCount})`],
+                        ['external', `Manufacturer / Other Barcodes (${externalBarcodeCount})`],
+                        ['with-barcode', `All With Barcode (${withBarcodeCount})`],
+                        ['no-barcode', `No Barcode Only (${noBarcodeCount})`],
                       ]}
                     />
 
@@ -505,17 +516,30 @@ export function Inventory({ ctx }) {
                             return <span className="subtext mono" title="Services do not have physical barcodes">—</span>;
                           }
                           if (r.barcode) {
+                            const isZd = String(r.barcode).toUpperCase().startsWith('ZD');
                             return (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                 <button
                                   type="button"
                                   className="barcode-pill mono"
-                                  title="Click to view & print barcode labels"
+                                  style={
+                                    isZd
+                                      ? {
+                                          background: '#f0fdfa',
+                                          color: '#0f766e',
+                                          borderColor: '#99f6e4',
+                                        }
+                                      : undefined
+                                  }
+                                  title={isZd ? 'Internal ZD Barcode · Click to view & print' : 'Click to view & print barcode labels'}
                                   onClick={() => setLabelProduct(r)}
                                 >
                                   <Barcode size={13} />
                                   <span>{r.barcode}</span>
                                 </button>
+                                {isZd && (
+                                  <Badge tone="mint">Internal</Badge>
+                                )}
                               </div>
                             );
                           }

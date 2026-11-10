@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   ArrowLeftRight,
   ArrowRight,
+  Barcode,
   Boxes,
   CircleHelp,
   ClipboardList,
@@ -27,7 +28,7 @@ import {
 import { WorkspaceLayout, Logo } from './components/layout';
 import { DashboardPage, ReportsPage } from './features/dashboard';
 import { BillingTerminal, SalesHistory } from './features/pos';
-import { Inventory, Repairs, Customers } from './features/operations';
+import { Inventory, BarcodesPage, Repairs, Customers } from './features/operations';
 import { CashRegister, Returns, Purchases, StockTransfers } from './features/finance';
 import { StaffPage, SettingsPage } from './features/admin';
 import { apiClient, requestKey } from './api/client';
@@ -48,6 +49,7 @@ const pages = [
   ['pos', 'POS / Sales', ShoppingCart, 'pos', BillingTerminal],
   ['repairs', 'Repairs', Wrench, 'repairs', Repairs],
   ['inventory', 'Inventory', Package, 'inventory', Inventory],
+  ['barcodes', 'Barcode', Barcode, 'inventory', BarcodesPage],
   ['drawer', 'Cashbook & Register', Wallet, 'drawer', CashRegister],
   ['returns', 'Returns', ArrowLeftRight, 'returns', Returns],
   ['purchases', 'Purchases', ClipboardList, 'purchases', Purchases],
