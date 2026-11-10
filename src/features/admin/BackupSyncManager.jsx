@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Cloud, 
-  CloudCheck, 
+  CheckCircle2, 
   CloudOff, 
   Database, 
   Download, 
@@ -55,6 +55,27 @@ export function BackupSyncManager({ ctx }) {
       setMessage({
         type: 'error',
         text: err.message || 'Backup failed. Please check local database.',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleTwoWaySync = async () => {
+    try {
+      setSyncing(true);
+      setMessage(null);
+      const pushRes = await ctx.commit('sync.push', {});
+      const pullRes = await ctx.commit('sync.pull', {});
+      setMessage({
+        type: 'success',
+        text: `Sync Complete! Uploaded ${pushRes.synced_sales ?? 0} sales. Downloaded ${pullRes.products_synced ?? 0} products.`,
+      });
+      await loadData();
+    } catch (err) {
+      setMessage({
+        type: 'error',
+        text: err.message || 'Cloud sync error. Please check server URL.',
       });
     } finally {
       setSyncing(false);
@@ -127,10 +148,18 @@ export function BackupSyncManager({ ctx }) {
             </Button>
             <Button 
               icon={RefreshCw} 
+              variant="outline"
+              onClick={handleTwoWaySync} 
+              disabled={syncing}
+            >
+              {syncing ? 'Syncing...' : 'Sync with Cloud'}
+            </Button>
+            <Button 
+              icon={Download} 
               onClick={handleManualBackup} 
               disabled={syncing}
             >
-              {syncing ? 'Backing Up...' : 'Backup & Sync Now'}
+              Backup SQL Now
             </Button>
           </div>
         }

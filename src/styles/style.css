@@ -838,3 +838,1638 @@
   opacity: 0.9;
 }
 
+/* =====================================================================
+   ZEEDAT POS - MODERN CHECKOUT & PAYMENT MODAL STYLES
+   Exact implementation matching media_1794220830241_9809dcdd.jpg
+===================================================================== */
+.zk-checkout-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: zkFadeIn 0.2s ease-out;
+}
+
+@keyframes zkFadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.zk-checkout-container {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.25), 0 0 1px rgba(0, 0, 0, 0.1);
+  width: min(1200px, 98vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.zk-checkout-header {
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.zk-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.zk-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #ccfbf1;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zk-header-text h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+}
+
+.zk-header-text p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.zk-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zk-pill-badge {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+}
+
+.zk-pill-badge strong {
+  color: #0f172a;
+}
+
+.zk-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-close-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.zk-checkout-body {
+  background: #f8fafc;
+  padding: 18px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.zk-checkout-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr 270px;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .zk-checkout-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .zk-summary-card {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .zk-checkout-grid {
+    grid-template-columns: 1fr;
+  }
+  .zk-summary-card {
+    grid-column: span 1;
+  }
+}
+
+/* Card Styling */
+.zk-bill-card,
+.zk-summary-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.zk-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-edit-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Items List */
+.zk-items-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.zk-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.zk-item-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.zk-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-item-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-item-sub {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.zk-stepper-btn {
+  border: none;
+  background: transparent;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+
+.zk-stepper-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.zk-stepper-qty {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.zk-item-price {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: right;
+  min-width: 75px;
+}
+
+/* Bill Totals */
+.zk-bill-totals {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.zk-total-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #475569;
+}
+
+.zk-total-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zk-total-line strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.zk-discount-amount {
+  color: #15803d !important;
+}
+
+.zk-total-payable-banner {
+  margin-top: 10px;
+  background: #f0fdf9;
+  border: 1.5px solid #ccfbf1;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zk-total-payable-banner .zk-banner-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-total-payable-banner .zk-banner-value {
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* Center Payment Column */
+.zk-payment-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.zk-payment-methods-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.zk-method-btn {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.zk-method-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.zk-method-btn.active {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+.zk-method-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0d9488;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+/* Active Tender Box */
+.zk-tender-box {
+  margin-top: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-tender-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.zk-tender-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-tender-payable {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.zk-tender-payable b {
+  font-weight: 800;
+}
+
+.zk-paid-amount-block {
+  margin-bottom: 12px;
+}
+
+.zk-paid-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.zk-paid-input-wrap {
+  display: flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 14px;
+  transition: border-color 0.15s ease;
+}
+
+.zk-paid-input-wrap:focus-within {
+  border-color: #0d9488;
+  background: #ffffff;
+}
+
+.zk-paid-prefix {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-right: 10px;
+}
+
+.zk-paid-input {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  width: 100%;
+  outline: none;
+}
+
+/* Presets */
+.zk-presets-row {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.zk-preset-pill {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-preset-pill:hover {
+  border-color: #0d9488;
+  background: #f0fdfa;
+}
+
+.zk-preset-pill.active {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+/* Two Results Cards */
+.zk-results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.zk-result-card {
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zk-result-card.balance {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.zk-result-card.change {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.zk-result-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.zk-result-card.change .zk-result-label {
+  color: #1e40af;
+}
+
+.zk-result-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-result-card.change .zk-result-val {
+  color: #1d4ed8;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* Split Notice Banner */
+.zk-split-notice {
+  background: #f0f9ff;
+  border: 1px solid #e0f2fe;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #0369a1;
+}
+
+.zk-split-notice a,
+.zk-split-notice button {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0284c7;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Summary Card Rows */
+.zk-summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zk-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+}
+
+.zk-summary-row span {
+  color: #64748b;
+}
+
+.zk-summary-row strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.zk-summary-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 4px 0;
+}
+
+.zk-change-highlight-row {
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zk-change-highlight-row span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.zk-change-highlight-row strong {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #1d4ed8;
+}
+
+/* Footer Action Bar */
+.zk-checkout-footer {
+  background: #ffffff;
+  border-top: 1px solid #f1f5f9;
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.zk-footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.zk-receipt-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+}
+
+.zk-receipt-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0d9488;
+  cursor: pointer;
+}
+
+.zk-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zk-btn-outline {
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.zk-btn-outline:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.zk-btn-credit {
+  border: 1.5px solid #bae6fd;
+  background: #f0f9ff;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0369a1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.zk-btn-credit:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+.zk-btn-complete {
+  border: none;
+  background: #0d9488;
+  border-radius: 8px;
+  padding: 9px 22px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.25);
+}
+
+.zk-btn-complete:hover:not(:disabled) {
+  background: #0f766e;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.35);
+}
+
+.zk-btn-complete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =====================================================================
+   ZEEDAT POS - MODERN REPAIR INTAKE & JOB WORKSPACE STYLES
+   Exact implementation matching media_1794220849005_e0fd74d7.jpg
+===================================================================== */
+.zk-repairs-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .zk-repairs-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-repair-form-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  padding: 24px;
+}
+
+.zk-repair-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 20px;
+}
+
+.zk-repair-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #ccfbf1;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zk-repair-card-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-section-box {
+  margin-bottom: 22px;
+}
+
+.zk-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.zk-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.zk-form-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.zk-form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .zk-form-row-3,
+  .zk-form-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zk-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.zk-field-label span.req {
+  color: #dc2626;
+  margin-left: 2px;
+}
+
+.zk-input-box {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.zk-input-box:focus-within {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.zk-input-box input,
+.zk-input-box select {
+  border: none;
+  background: transparent;
+  width: 100%;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #0f172a;
+  outline: none;
+}
+
+.zk-input-box select {
+  cursor: pointer;
+}
+
+.zk-textarea-box {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: all 0.15s ease;
+}
+
+.zk-textarea-box:focus-within {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.zk-textarea-box textarea {
+  border: none;
+  background: transparent;
+  width: 100%;
+  font-size: 13px;
+  font-family: inherit;
+  color: #0f172a;
+  outline: none;
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.45;
+}
+
+.zk-char-counter {
+  align-self: flex-end;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.zk-accessories-grid {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 14px;
+}
+
+.zk-acc-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+}
+
+.zk-acc-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0d9488;
+  cursor: pointer;
+}
+
+.zk-repair-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 24px;
+}
+
+.zk-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Right Customer Info & History Panel */
+.zk-customer-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.zk-cust-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  padding: 18px;
+}
+
+.zk-cust-profile-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.zk-cust-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #ccfbf1;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.zk-cust-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-cust-details h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-cust-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.zk-cust-contact-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zk-cust-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.zk-kpi-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.zk-kpi-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.zk-kpi-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 3px;
+}
+
+/* History Card */
+.zk-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.zk-history-item {
+  background: #ffffff;
+  border: 1.5px solid #f1f5f9;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-history-item:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.zk-history-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.zk-history-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-history-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.zk-history-job-no {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-history-model {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zk-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* =====================================================================
+   ZEEDAT POS - MODERN DASHBOARD STYLES
+   Exact implementation matching media_1794220860152_7dff9784.jpg
+===================================================================== */
+.zk-dashboard-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.zk-dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.zk-dash-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zk-dash-title h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.zk-date-dropdown {
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-date-dropdown:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+/* Top 4 KPI Cards Grid */
+.zk-kpi-4grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1080px) {
+  .zk-kpi-4grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .zk-kpi-4grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-kpi-icon-square {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zk-kpi-icon-square.green {
+  background: #e6fffa;
+  color: #059669;
+}
+
+.zk-kpi-icon-square.blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.zk-kpi-icon-square.orange {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.zk-kpi-icon-square.purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.zk-kpi-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-kpi-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.zk-kpi-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+}
+
+.zk-kpi-trend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #16a34a;
+  margin-top: 2px;
+}
+
+.zk-kpi-badge-peach {
+  display: inline-flex;
+  align-items: center;
+  background: #ffedd5;
+  color: #9a3412;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+/* Row 2: Analytics Grid */
+.zk-dash-row2 {
+  display: grid;
+  grid-template-columns: 1.3fr 1.1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 1180px) {
+  .zk-dash-row2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .zk-actions-card {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .zk-dash-row2 {
+    grid-template-columns: 1fr;
+  }
+  .zk-actions-card {
+    grid-column: span 1;
+  }
+}
+
+.zk-dash-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-dash-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.zk-dash-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Bar Chart Container */
+.zk-bar-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zk-barchart-inner {
+  display: flex;
+  align-items: flex-end;
+  height: 160px;
+  gap: 12px;
+  padding: 10px 0 6px;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+
+.zk-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  position: relative;
+}
+
+.zk-bar-fill {
+  width: 75%;
+  max-width: 38px;
+  background: linear-gradient(180deg, #14b8a6 0%, #2dd4bf 100%);
+  border-radius: 6px 6px 0 0;
+  transition: height 0.4s ease;
+  cursor: pointer;
+}
+
+.zk-bar-fill:hover {
+  background: linear-gradient(180deg, #0d9488 0%, #14b8a6 100%);
+}
+
+.zk-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+
+/* Donut Chart Layout */
+.zk-donut-layout {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.zk-donut-left {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  flex-shrink: 0;
+}
+
+.zk-donut-center-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.zk-donut-center-amt {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #0f172a;
+  max-width: 90px;
+  line-height: 1.2;
+}
+
+.zk-donut-legend {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.zk-legend-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+}
+
+.zk-legend-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+}
+
+.zk-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.zk-legend-val {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Quick Actions 2x2 Grid */
+.zk-quick-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.zk-action-tile {
+  border-radius: 10px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1.5px solid transparent;
+}
+
+.zk-action-tile.primary {
+  background: #0d9488;
+  color: #ffffff;
+}
+
+.zk-action-tile.primary:hover {
+  background: #0f766e;
+}
+
+.zk-action-tile.outline {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #1e293b;
+}
+
+.zk-action-tile.outline:hover {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0d9488;
+}
+
+/* Row 3: Bottom Operations Grid */
+.zk-dash-row3 {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 990px) {
+  .zk-dash-row3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-link-view-all {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0284c7;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.zk-link-view-all:hover {
+  text-decoration: underline;
+}
+
+/* Popular Products 4 Grid */
+.zk-popular-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .zk-popular-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.zk-popular-card {
+  background: #ffffff;
+  border: 1.5px solid #f1f5f9;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.zk-popular-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.zk-popular-img-box {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.zk-popular-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.zk-popular-price {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 3px 0 6px;
+}
+
+.zk-popular-stock {
+  font-size: 11px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #f0fdf4;
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+/* Recent Transactions Table */
+.zk-recent-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.zk-recent-table th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #64748b;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.zk-recent-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #f8fafc;
+  color: #0f172a;
+}
+
+.zk-feed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.zk-feed-badge.sale {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.zk-feed-badge.repair {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.zk-feed-badge.return {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+
+
+

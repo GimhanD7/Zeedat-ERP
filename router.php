@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 // Router for PHP's local development server. Serve only built assets and the API.
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-if ($path === '/api/index.php') {
+if ($path === '/api/index.php' || str_starts_with($path, '/api')) {
     require __DIR__ . '/api/index.php';
     return;
 }

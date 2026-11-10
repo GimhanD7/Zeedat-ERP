@@ -20,21 +20,50 @@ class RepairService {
             throw new ApiError('Technician not found.', 404);
         }
 
-        $device = Validator::str($body, 'device', 120);
+        $brand = trim((string)($body['brand'] ?? ''));
+        $model = trim((string)($body['model'] ?? ''));
+        $deviceInput = trim((string)($body['device'] ?? ''));
+        if (!$deviceInput) {
+            $deviceInput = $brand ? ($model ? "{$brand} {$model}" : $brand) : $model;
+        }
+        $device = Validator::str(['device' => $deviceInput], 'device', 120);
+
         $serial = Validator::str($body, 'serial', 60, false);
         $issue = Validator::str($body, 'issue', 1000);
         $notes = Validator::str($body, 'notes', 1000, false);
         $accessories = Validator::str($body, 'accessories', 200, false);
         $estimate = Validator::money($body, 'estimate');
         $dueDate = Validator::date($body, 'due_date');
+        $status = !empty($body['status']) ? (string) $body['status'] : 'Received';
+        if ($status === 'Pending Intake') $status = 'Received';
 
-        $id = BaseRepository::insert(
-            "INSERT INTO repairs(branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,'Received')",
-            [$branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate]
-        );
+        $advance = !empty($body['advance_payment']) ? (int) $body['advance_payment'] : 0;
+        if ($advance > 0) {
+            $advanceNote = "Advance Paid: " . number_format($advance / 100, 2) . " LKR";
+            $notes = $notes ? "{$notes} | {$advanceNote}" : $advanceNote;
+        }
 
-        return ['id' => $id, 'status' => 'Received', 'device' => $device];
+        if (\Zeedat\Config\Database::isSqlite()) {
+            $uuid = 'rep_' . bin2hex(random_bytes(10));
+            $id = BaseRepository::insert(
+                "INSERT INTO repairs(uuid, branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                [$uuid, $branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate, $status]
+            );
+        } else {
+            $id = BaseRepository::insert(
+                "INSERT INTO repairs(branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                [$branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate, $status]
+            );
+        }
+
+        return [
+            'id' => $id,
+            'job_number' => sprintf('RJ-%06d', $id),
+            'status' => $status,
+            'device' => $device,
+        ];
     }
 
     public static function updateStatus(array $user, int $branch, array $body): array {

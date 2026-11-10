@@ -77,6 +77,76 @@ class AdminController {
         return ['id' => $id, 'name' => $name, 'email' => $email, 'role' => $role];
     }
 
+    public static function deleteStaff(array $user, array $body): array {
+        $id = Validator::integer($body['id'] ?? null, 'Staff member');
+        $target = BaseRepository::one('SELECT * FROM users WHERE id=?', [$id]);
+        if (!$target) {
+            throw new ApiError('Staff account not found.', 404);
+        }
+        if ($target['role'] === 'owner') {
+            throw new ApiError('The Owner account cannot be deleted.', 403);
+        }
+        if ((int) $user['id'] === $id) {
+            throw new ApiError('You cannot delete your own active account.', 400);
+        }
+
+        // Check for historical financial / operational records
+        $salesCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE user_id=?', [$id]);
+        $drawersCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM drawers WHERE user_id=?', [$id]);
+        $repairsCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE technician_id=?', [$id]);
+
+        if ($salesCount > 0 || $drawersCount > 0 || $repairsCount > 0) {
+            // Soft delete/deactivate to prevent FK constraint errors and preserve audit history
+            BaseRepository::run('UPDATE users SET active=0 WHERE id=?', [$id]);
+            UserRepository::logAudit((int) $user['id'], null, 'staff.deactivate', ['id' => $id, 'name' => $target['name'], 'reason' => 'deleted_with_history']);
+            return [
+                'id' => $id,
+                'deleted' => false,
+                'deactivated' => true,
+                'message' => "Account deactivated. Past financial and repair history preserved.",
+            ];
+        }
+
+        // Hard delete if no transactions are linked
+        BaseRepository::run('DELETE FROM requests WHERE user_id=?', [$id]);
+        BaseRepository::run('DELETE FROM drafts WHERE user_id=?', [$id]);
+        BaseRepository::run('DELETE FROM audit_log WHERE user_id=?', [$id]);
+        BaseRepository::run('DELETE FROM users WHERE id=?', [$id]);
+
+        UserRepository::logAudit((int) $user['id'], null, 'staff.delete', ['id' => $id, 'name' => $target['name']]);
+
+        return [
+            'id' => $id,
+            'deleted' => true,
+            'message' => "Staff member '{$target['name']}' has been permanently removed.",
+        ];
+    }
+
+    public static function toggleStaffStatus(array $user, array $body): array {
+        $id = Validator::integer($body['id'] ?? null, 'Staff member');
+        $target = BaseRepository::one('SELECT * FROM users WHERE id=?', [$id]);
+        if (!$target) {
+            throw new ApiError('Staff account not found.', 404);
+        }
+        if ($target['role'] === 'owner') {
+            throw new ApiError('Owner account status cannot be changed.', 403);
+        }
+        if ((int) $user['id'] === $id) {
+            throw new ApiError('You cannot deactivate your own active session.', 400);
+        }
+
+        $newStatus = empty($target['active']) ? 1 : 0;
+        BaseRepository::run('UPDATE users SET active=? WHERE id=?', [$newStatus, $id]);
+
+        UserRepository::logAudit((int) $user['id'], null, 'staff.toggle', ['id' => $id, 'active' => $newStatus]);
+
+        return [
+            'id' => $id,
+            'active' => $newStatus,
+            'message' => $newStatus ? 'Account activated.' : 'Account deactivated.',
+        ];
+    }
+
     public static function saveSettings(array $body): array {
         $shopName = Validator::str($body, 'shop_name', 100);
         $taxBps = Validator::integer($body['tax_bps'] ?? 0, 'Tax rate', 0, 10000);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Zeedat\Repositories;
 
 use Zeedat\Config\Constants;
+use Zeedat\Config\Database;
 use Zeedat\Support\ApiError;
 
 class PermissionRepository extends BaseRepository {
@@ -136,7 +137,10 @@ class PermissionRepository extends BaseRepository {
 
     public static function seedDefaults(): void {
         self::run("DELETE FROM role_permissions");
-        $stmt = self::db()->prepare("INSERT IGNORE INTO role_permissions (role, permission) VALUES (?, ?)");
+        $insertSql = Database::isSqlite() 
+            ? "INSERT OR IGNORE INTO role_permissions (role, permission) VALUES (?, ?)"
+            : "INSERT IGNORE INTO role_permissions (role, permission) VALUES (?, ?)";
+        $stmt = self::db()->prepare($insertSql);
         foreach (self::DEFAULT_ROLE_PERMISSIONS as $role => $perms) {
             foreach ($perms as $perm) {
                 if (isset(self::ALL_PERMISSIONS[$perm])) {

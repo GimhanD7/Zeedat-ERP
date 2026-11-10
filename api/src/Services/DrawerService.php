@@ -24,7 +24,7 @@ class DrawerService {
         return $drawer;
     }
 
-    public static function getRegister(int $branch, array $user): array {
+    public static function getRegister(int $branch, array $user, array $params = []): array {
         $drawer = DrawerRepository::openDrawerForBranch($branch);
         $blocked = false;
         if ($drawer) {
@@ -40,13 +40,51 @@ class DrawerService {
         }
 
         $movements = $drawer ? DrawerRepository::movements((int) $drawer['id']) : [];
-        $history = DrawerRepository::history($branch, $user, 10);
+        $history = DrawerRepository::history($branch, $user, 20);
+
+        // Cashbook Ledger parameters
+        $filterBranch = isset($params['all_branches']) && $params['all_branches'] === '1' && in_array($user['role'], ['owner', 'manager'], true)
+            ? 0
+            : $branch;
+        $startDate = !empty($params['start_date']) ? (string) $params['start_date'] : '';
+        $endDate = !empty($params['end_date']) ? (string) $params['end_date'] : '';
+        $type = !empty($params['type']) ? (string) $params['type'] : 'all';
+
+        $ledger = DrawerRepository::cashbookLedger($filterBranch, $startDate, $endDate, $type, 500);
+
+        $totalIn = 0;
+        $totalOut = 0;
+        $categoryMap = [];
+
+        foreach ($ledger as $item) {
+            $amt = (int) $item['amount'];
+            if ($amt > 0) {
+                $totalIn += $amt;
+            } else {
+                $totalOut += abs($amt);
+            }
+
+            $cat = $item['kind'] ?: 'General';
+            if (!isset($categoryMap[$cat])) {
+                $categoryMap[$cat] = ['name' => $cat, 'total' => 0, 'count' => 0];
+            }
+            $categoryMap[$cat]['total'] += $amt;
+            $categoryMap[$cat]['count'] += 1;
+        }
 
         return [
             'drawer' => $drawer,
             'blocked' => $blocked,
             'movements' => $movements,
             'history' => $history,
+            'ledger' => $ledger,
+            'summary' => [
+                'total_in' => $totalIn,
+                'total_out' => $totalOut,
+                'net' => $totalIn - $totalOut,
+                'count' => count($ledger),
+            ],
+            'categories' => array_values($categoryMap),
         ];
     }
 
@@ -108,11 +146,13 @@ class DrawerService {
         }
 
         $reason = Validator::str($body, 'reason', 150, true);
+        $category = trim((string)($body['category'] ?? ''));
+        $kind = $category ? "{$direction}: {$category}" : "Cash {$direction}";
         $delta = $direction === 'In' ? $amount : -$amount;
 
-        DrawerRepository::addCashMovement($user['id'], $drawer, $delta, "Cash {$direction}", $reason);
+        DrawerRepository::addCashMovement($user['id'], $drawer, $delta, $kind, $reason);
 
-        return ['id' => $drawer['id'], 'amount' => $delta];
+        return ['id' => $drawer['id'], 'amount' => $delta, 'kind' => $kind];
     }
 
     public static function closeCycle(int $branch, array $body): array {

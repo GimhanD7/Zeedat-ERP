@@ -5,8 +5,11 @@
     "react-dom": "19.1.1"
   },
   "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "vite": "6.4.5"
   },
+  "main": "electron/main.cjs",
   "name": "zeedat-pos",
   "version": "0.1.0",
   "type": "module",
@@ -14,7 +17,36 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "desktop:build": "vite build",
+    "desktop:pack": "vite build && electron-builder --dir",
+    "desktop:dist": "vite build && electron-builder --win nsis",
+    "desktop:portable": "vite build && electron-builder --win portable",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
+  },
+  "build": {
+    "appId": "com.zeedat.pos",
+    "productName": "Zeedat POS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zeedat POS"
+    }
   }
 }

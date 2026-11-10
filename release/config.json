@@ -1,0 +1,6 @@
+{
+  "server_url": "http://127.0.0.1:8081",
+  "window_width": 1280,
+  "window_height": 800,
+  "kiosk_mode": false
+}

@@ -17,7 +17,33 @@ class UserRepository extends BaseRepository {
     }
 
     public static function allStaff(): array {
-        return self::rows('SELECT u.id, u.name, u.email, u.role, u.active, b.name branch FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id');
+        return self::rows("SELECT 
+            u.id, 
+            u.branch_id, 
+            u.name, 
+            u.email, 
+            u.role, 
+            u.active, 
+            b.name AS branch,
+            COALESCE(s.sales_count, 0) AS sales_count,
+            COALESCE(s.sales_total, 0) AS sales_total,
+            COALESCE(r.repairs_count, 0) AS repairs_count,
+            COALESCE(d.drawers_count, 0) AS drawers_count
+        FROM users u 
+        LEFT JOIN branches b ON b.id = u.branch_id
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) AS sales_count, SUM(total) AS sales_total 
+            FROM sales GROUP BY user_id
+        ) s ON s.user_id = u.id
+        LEFT JOIN (
+            SELECT technician_id, COUNT(*) AS repairs_count 
+            FROM repairs GROUP BY technician_id
+        ) r ON r.technician_id = u.id
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) AS drawers_count 
+            FROM drawers GROUP BY user_id
+        ) d ON d.user_id = u.id
+        ORDER BY u.id");
     }
 
     public static function technicians(int $branch): array {

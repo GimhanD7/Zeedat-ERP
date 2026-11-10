@@ -1,7 +1,9 @@
-import { Bell, Building2, ChevronDown, LogOut, Menu, Search } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Bell, Building2, ChevronDown, LogOut, Menu, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Select } from '../common/Select';
 import { initials, roles, managers } from '../../utils';
+import { syncManager } from '../../utils/syncManager';
 
 export function Header({
   user,
@@ -18,6 +20,11 @@ export function Header({
   allBranchPages,
   currentPage,
 }) {
+  const [syncInfo, setSyncInfo] = useState({ isSyncing: false, pendingCount: 0 });
+
+  useEffect(() => {
+    return syncManager.subscribe(setSyncInfo);
+  }, []);
   return (
     <header className="topbar">
       <div className="top-left">
@@ -43,11 +50,53 @@ export function Header({
         </div>
       </div>
 
-      <div className="top-right">
-        <span className={'connection ' + (!online ? 'offline' : '')}>
-          <span className="dot" />
-          {online ? 'Online' : 'Offline'}
-        </span>
+      <div className="top-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {/* Status Pill: Online */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: online ? '#059669' : '#dc2626',
+            color: '#ffffff',
+            borderRadius: '20px',
+            padding: '4px 12px',
+            fontSize: '12px',
+            fontWeight: 700,
+          }}
+        >
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ffffff' }} />
+          <span>{online ? 'Online' : 'Offline'}</span>
+        </div>
+
+        {/* Sync Pill: Synced */}
+        <button
+          onClick={() => online && syncManager.triggerSync()}
+          title="Click to trigger cloud synchronization"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: '#f0fdf4',
+            border: '1px solid #bbf7d0',
+            borderRadius: '20px',
+            padding: '4px 12px',
+            fontSize: '12px',
+            color: '#15803d',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <RefreshCw size={13} className={syncInfo.isSyncing ? 'spin' : ''} />
+          <span>
+            {syncInfo.isSyncing
+              ? `Syncing (${syncInfo.pendingCount})...`
+              : syncInfo.pendingCount > 0
+              ? `${syncInfo.pendingCount} Pending Sync`
+              : 'Synced Today'}
+          </span>
+        </button>
+
         <Button
           icon={Search}
           className="icon-only header-icon"

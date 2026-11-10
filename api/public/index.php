@@ -39,6 +39,12 @@ try {
         BackupController::receive();
     }
 
+    // Public / Remote sync endpoints (branch cashier PCs syncing to central cloud)
+    if ($action === 'sync.catalog' && $method === 'GET') {
+        $branchId = (int) ($_GET['branch'] ?? 1);
+        Response::json(\Zeedat\Services\CloudSyncService::handleServerCatalog($branchId));
+    }
+
     if ($method === 'POST') {
         $contentType = strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0]));
         if ($contentType !== 'application/json') {
@@ -49,6 +55,12 @@ try {
     $body = $method === 'POST' ? json_decode(file_get_contents('php://input'), true, 32, JSON_THROW_ON_ERROR) : [];
     if (!is_array($body)) {
         throw new ApiError('Expected a JSON object.', 400);
+    }
+
+    if ($action === 'sync.receive' && $method === 'POST') {
+        $headers = getallheaders() ?: [];
+        $res = \Zeedat\Services\CloudSyncService::handleSyncReceive($headers, $body);
+        Response::json($res, $res['code'] ?? 200);
     }
 
     // Public / Authentication endpoints
@@ -78,7 +90,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'settings.save', 'supplier.create', 'backup.create', 'backup.save_settings'], true);
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'settings.save', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -190,6 +202,14 @@ try {
                     RoleGuard::allowPermission($user, 'staff');
                     return AdminController::resetPermissions($user);
                 })(),
+                'staff.delete' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'staff');
+                    return AdminController::deleteStaff($user, $body);
+                })(),
+                'staff.toggle' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'staff');
+                    return AdminController::toggleStaffStatus($user, $body);
+                })(),
                 'settings.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'settings');
                     return AdminController::saveSettings($body);
@@ -201,6 +221,14 @@ try {
                 'backup.save_settings' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'settings');
                     return BackupController::saveSettings($user, $body);
+                })(),
+                'sync.push' => (function () use ($user) {
+                    RoleGuard::allowPermission($user, 'settings');
+                    return \Zeedat\Services\CloudSyncService::pushToCloud();
+                })(),
+                'sync.pull' => (function () use ($user) {
+                    RoleGuard::allowPermission($user, 'settings');
+                    return \Zeedat\Services\CloudSyncService::pullFromCloud();
                 })(),
                 default => throw new ApiError('Route not found.', 404),
             };
@@ -279,7 +307,12 @@ try {
         'drawer' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'drawer');
             if (!$branch) throw new ApiError('Select a branch.');
-            return DrawerController::getRegister($branch, $user);
+            return DrawerController::getRegister($branch, $user, $_GET);
+        })(),
+        'cashbook' => (function () use ($user, $branch) {
+            RoleGuard::allowPermission($user, 'drawer');
+            if (!$branch) throw new ApiError('Select a branch.');
+            return DrawerController::getRegister($branch, $user, $_GET);
         })(),
         'returns' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'returns');
@@ -324,6 +357,10 @@ try {
         'backup.history' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'settings');
             return BackupController::getHistory();
+        })(),
+        'sync.status' => (function () use ($user) {
+            RoleGuard::allowPermission($user, 'settings');
+            return \Zeedat\Services\CloudSyncService::getStatus();
         })(),
         default => throw new ApiError('Route not found.', 404),
     };

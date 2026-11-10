@@ -1,16 +1,15 @@
-import { ChevronRight, Smartphone } from 'lucide-react';
+import { ChevronRight, RefreshCw, Smartphone } from 'lucide-react';
+import { syncManager } from '../../utils/syncManager';
 
 export function Logo() {
   return (
     <div className="brand">
-      <span className="brand-mark">
-        <Smartphone size={25} strokeWidth={2.4} />
+      <span className="brand-mark" style={{ background: '#0d9488', color: '#ffffff' }}>
+        <Smartphone size={24} strokeWidth={2.4} />
       </span>
       <span>
-        <strong>
-          ZEEDAT <em>POS</em>
-        </strong>
-        <small>RETAIL & REPAIR</small>
+        <strong>ZEEDAT POS</strong>
+        <small style={{ color: '#0d9488', fontWeight: 600 }}>Mobile Shop & Repair</small>
       </span>
     </div>
   );
@@ -47,6 +46,33 @@ export function Sidebar({ menu, setMenu, pages, currentPage, onNavigate, online 
             ))}
           </nav>
         </div>
+
+        <div style={{ padding: '10px 14px 4px' }}>
+          <button
+            type="button"
+            onClick={() => syncManager.triggerSync()}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '9px 12px',
+              borderRadius: '8px',
+              border: '1.5px solid #0d9488',
+              background: '#f0fdfa',
+              color: '#0f766e',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <RefreshCw size={15} />
+            <span>Sync Now</span>
+          </button>
+        </div>
+
         <div className="side-footer">
           <div className="side-footer-icon">
             <Smartphone size={20} />

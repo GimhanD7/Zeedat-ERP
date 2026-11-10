@@ -6,8 +6,8 @@ namespace Zeedat\Controllers;
 use Zeedat\Services\DrawerService;
 
 class DrawerController {
-    public static function getRegister(int $branch, array $user): array {
-        return DrawerService::getRegister($branch, $user);
+    public static function getRegister(int $branch, array $user, array $params = []): array {
+        return DrawerService::getRegister($branch, $user, $params);
     }
 
     public static function open(array $user, int $branch, array $body): array {

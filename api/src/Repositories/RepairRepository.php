@@ -16,7 +16,7 @@ class RepairRepository extends BaseRepository {
             $params[] = $user['id'];
         }
         $where = $clauses ? 'WHERE ' . implode(' AND ', $clauses) : '';
-        return self::rows("SELECT r.*, c.name customer, u.name technician FROM repairs r
+        return self::rows("SELECT r.*, c.name customer, c.phone customer_phone, c.email customer_email, u.name technician FROM repairs r
             JOIN customers c ON c.id=r.customer_id LEFT JOIN users u ON u.id=r.technician_id {$where} ORDER BY r.id DESC", $params);
     }
 }

@@ -31,6 +31,8 @@ import { Inventory, Repairs, Customers } from './features/operations';
 import { CashRegister, Returns, Purchases, StockTransfers } from './features/finance';
 import { StaffPage, SettingsPage } from './features/admin';
 import { apiClient, requestKey } from './api/client';
+import { offlineStore } from './utils/offlineStore';
+import { syncManager } from './utils/syncManager';
 import {
   allBranchPages,
   firstPage,
@@ -46,7 +48,7 @@ const pages = [
   ['pos', 'POS / Sales', ShoppingCart, 'pos', BillingTerminal],
   ['repairs', 'Repairs', Wrench, 'repairs', Repairs],
   ['inventory', 'Inventory', Package, 'inventory', Inventory],
-  ['drawer', 'Cash Register', Wallet, 'drawer', CashRegister],
+  ['drawer', 'Cashbook & Register', Wallet, 'drawer', CashRegister],
   ['returns', 'Returns', ArrowLeftRight, 'returns', Returns],
   ['purchases', 'Purchases', ClipboardList, 'purchases', Purchases],
   ['transfers', 'Stock Transfers', Boxes, 'transfers', StockTransfers],
@@ -248,9 +250,25 @@ function Workspace({ session, onLogout }) {
   const get = useCallback(
     async (route, query = {}) => {
       try {
-        return await apiClient(route, { query: { branch: activeBranch, ...query } });
+        const res = await apiClient(route, { query: { branch: activeBranch, ...query } });
+        if (route === 'products' && Array.isArray(res)) {
+          offlineStore.cacheProducts(res);
+        } else if (route === 'customers' && Array.isArray(res)) {
+          offlineStore.cacheCustomers(res);
+        }
+        return res;
       } catch (e) {
         if (e.status === 401) onLogout();
+
+        if (route === 'products') {
+          const cached = await offlineStore.getProducts();
+          if (cached && cached.length > 0) return cached;
+        }
+        if (route === 'customers') {
+          const cached = await offlineStore.getCustomers();
+          if (cached && cached.length > 0) return cached;
+        }
+
         throw e;
       }
     },
@@ -270,6 +288,45 @@ function Workspace({ session, onLogout }) {
       setNotice('Changes saved');
       return result;
     } catch (e) {
+      if (route === 'sale.checkout' && (!navigator.onLine || !e.status || e.status >= 500)) {
+        mutationKeys.delete(signature);
+        const cachedProducts = await offlineStore.getProducts();
+        const currentBranch = branches.find(b => b.id === activeBranch);
+        const branchName = currentBranch ? currentBranch.name : 'Shop';
+        const offlineId = 'OFF-' + Date.now();
+        const offlineInvoice = {
+          id: offlineId,
+          reference: 'OFF-' + String(Date.now()).slice(-4),
+          created_at: new Date().toISOString(),
+          items: (values.items || []).map((it, idx) => {
+            const prod = cachedProducts.find(p => p.id === it.product_id) || {};
+            return {
+              id: idx + 1,
+              product_id: it.product_id,
+              name: prod.name || 'Product',
+              price: prod.price || 0,
+              qty: it.qty,
+              total: (prod.price || 0) * it.qty,
+            };
+          }),
+          subtotal: values.expected_total,
+          discount: 0,
+          tax: 0,
+          total: values.expected_total,
+          payments: values.payments || [],
+          change: 0,
+          customer_id: values.customer_id,
+          branch_name: branchName,
+          cashier: user.name,
+          is_offline: true,
+        };
+
+        await offlineStore.savePendingSale(data, offlineInvoice);
+        await syncManager.updateCount();
+        setNotice('Offline sale saved on device. Receipt ready.');
+        return offlineInvoice;
+      }
+
       if (e.status && e.status < 500) mutationKeys.delete(signature);
       if (e.status === 401) onLogout();
       throw e;

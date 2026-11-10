@@ -37,9 +37,9 @@ class Validator {
         if (
             !is_string($value) ||
             (($value !== '' || $required) &&
-                (strlen($value) < 12 || strlen($value) > 72 || str_contains($value, "\0")))
+                (strlen($value) < 6 || strlen($value) > 72 || str_contains($value, "\0")))
         ) {
-            throw new ApiError('Use a password between 12 and 72 bytes.');
+            throw new ApiError('Use a password between 6 and 72 characters.');
         }
         return $value;
     }

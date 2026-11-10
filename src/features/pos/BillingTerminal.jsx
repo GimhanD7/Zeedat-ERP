@@ -511,6 +511,7 @@ function BillingView({ ctx, data }) {
             setReceipt(invoice);
             ctx.setNotice('Sale posted');
           }}
+          onUpdateQty={increment}
           {...{
             lines,
             subtotal,

@@ -12,7 +12,69 @@ class DrawerRepository extends BaseRepository {
     }
 
     public static function movements(int $drawerId): array {
-        return self::rows('SELECT * FROM cash_movements WHERE drawer_id=? ORDER BY id DESC', [$drawerId]);
+        return self::rows(
+            'SELECT cm.*, u.name operator_name 
+             FROM cash_movements cm 
+             LEFT JOIN users u ON u.id=cm.user_id 
+             WHERE cm.drawer_id=? 
+             ORDER BY cm.id DESC', 
+            [$drawerId]
+        );
+    }
+
+    public static function cashbookLedger(int $branch = 0, string $startDate = '', string $endDate = '', string $type = 'all', int $limit = 300): array {
+        $where = ['1=1'];
+        $params = [];
+
+        if ($branch > 0) {
+            $where[] = 'd.branch_id = ?';
+            $params[] = $branch;
+        }
+
+        if ($startDate !== '') {
+            $where[] = 'DATE(cm.created_at) >= ?';
+            $params[] = $startDate;
+        }
+
+        if ($endDate !== '') {
+            $where[] = 'DATE(cm.created_at) <= ?';
+            $params[] = $endDate;
+        }
+
+        if ($type === 'in') {
+            $where[] = 'cm.amount > 0';
+        } elseif ($type === 'out') {
+            $where[] = 'cm.amount < 0';
+        } elseif ($type === 'sale') {
+            $where[] = "(cm.kind LIKE '%Sale%' OR cm.reference LIKE '%INV-%')";
+        } elseif ($type === 'expense') {
+            $where[] = "(cm.amount < 0 AND cm.kind NOT LIKE '%Return%')";
+        }
+
+        $whereClause = implode(' AND ', $where);
+
+        $sql = "SELECT 
+                    cm.id,
+                    cm.drawer_id,
+                    cm.user_id,
+                    cm.amount,
+                    cm.kind,
+                    cm.reference,
+                    cm.created_at,
+                    u.name AS operator_name,
+                    b.name AS branch_name,
+                    d.branch_id,
+                    c.business_date
+                FROM cash_movements cm
+                JOIN drawers d ON d.id = cm.drawer_id
+                LEFT JOIN cycles c ON c.id = d.cycle_id
+                LEFT JOIN users u ON u.id = cm.user_id
+                LEFT JOIN branches b ON b.id = d.branch_id
+                WHERE {$whereClause}
+                ORDER BY cm.id DESC
+                LIMIT {$limit}";
+
+        return self::rows($sql, $params);
     }
 
     public static function history(int $branch, array $user, int $limit = 20): array {
@@ -28,9 +90,17 @@ class DrawerRepository extends BaseRepository {
     }
 
     public static function addCashMovement(int $userId, array $drawer, int $amount, string $kind, string $reference): void {
-        self::run(
-            'INSERT INTO cash_movements(drawer_id, user_id, amount, kind, reference) VALUES (?,?,?,?,?)',
-            [$drawer['id'], $userId, $amount, $kind, $reference]
-        );
+        if (\Zeedat\Config\Database::isSqlite()) {
+            $uuid = 'cmov_' . bin2hex(random_bytes(10));
+            self::run(
+                'INSERT INTO cash_movements(uuid, drawer_id, user_id, amount, kind, reference) VALUES (?,?,?,?,?,?)',
+                [$uuid, $drawer['id'], $userId, $amount, $kind, $reference]
+            );
+        } else {
+            self::run(
+                'INSERT INTO cash_movements(drawer_id, user_id, amount, kind, reference) VALUES (?,?,?,?,?)',
+                [$drawer['id'], $userId, $amount, $kind, $reference]
+            );
+        }
     }
 }
