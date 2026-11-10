@@ -263,4 +263,40 @@ class AdminController {
 
         return ['message' => 'Your password has been updated successfully.'];
     }
+
+    public static function saveDeletePin(array $user, array $body): array {
+        $newPin = trim((string) ($body['new_pin'] ?? ''));
+        if (!preg_match('/^\d{4,8}$/', $newPin)) {
+            throw new ApiError('Security PIN must be 4 to 8 digits (numbers only).');
+        }
+
+        $existingHash = trim((string) (BaseRepository::scalar('SELECT delete_pin_hash FROM settings WHERE id=1') ?? ''));
+        if ($existingHash !== '') {
+            if (!empty($body['use_account_password'])) {
+                $pwd = (string) ($body['current_password'] ?? '');
+                $uRow = BaseRepository::one('SELECT password_hash FROM users WHERE id=?', [$user['id']]);
+                if ($pwd === '' || !$uRow || !password_verify($pwd, $uRow['password_hash'])) {
+                    throw new ApiError('Account password is incorrect.', 403);
+                }
+            } else {
+                $currentPin = trim((string) ($body['current_pin'] ?? ''));
+                if ($currentPin === '' || !password_verify($currentPin, $existingHash)) {
+                    throw new ApiError('Current Security PIN is incorrect.', 403);
+                }
+            }
+        }
+
+        BaseRepository::run(
+            'UPDATE settings SET delete_pin_hash=? WHERE id=1',
+            [password_hash($newPin, PASSWORD_DEFAULT)]
+        );
+        UserRepository::logAudit((int) $user['id'], null, 'settings.delete_pin', ['status' => $existingHash !== '' ? 'changed' : 'created']);
+
+        return [
+            'delete_pin_configured' => true,
+            'message' => $existingHash !== ''
+                ? 'Inventory delete PIN changed successfully.'
+                : 'Inventory delete PIN configured successfully.',
+        ];
+    }
 }

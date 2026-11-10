@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export function useData(ctx, specs) {
   const get = ctx?.get;
   const revision = ctx?.revision;
   const encoded = JSON.stringify(specs);
+  const [localRev, setLocalRev] = useState(0);
   const [state, setState] = useState({ data: null, error: '', pending: true });
+
+  const refresh = useCallback(() => {
+    setLocalRev(v => v + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -32,7 +37,7 @@ export function useData(ctx, specs) {
     return () => {
       active = false;
     };
-  }, [get, revision, encoded]);
+  }, [get, revision, localRev, encoded]);
 
-  return state;
+  return { ...state, refresh };
 }

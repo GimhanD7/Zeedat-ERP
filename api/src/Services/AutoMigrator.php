@@ -245,6 +245,15 @@ class AutoMigrator
                 if (!in_array('label_show_digits', $colNames, true)) {
                     $db->exec("ALTER TABLE settings ADD COLUMN label_show_digits INTEGER NOT NULL DEFAULT 1");
                 }
+                if (!in_array('delete_pin_hash', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN delete_pin_hash TEXT NOT NULL DEFAULT ''");
+                }
+
+                $prodCols = $db->query("PRAGMA table_info(products)")->fetchAll();
+                $prodColNames = array_column($prodCols, 'name');
+                if (!in_array('active', $prodColNames, true)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+                }
 
                 $branchCols = $db->query("PRAGMA table_info(branches)")->fetchAll();
                 $branchColNames = array_column($branchCols, 'name');
@@ -286,6 +295,14 @@ class AutoMigrator
                     $db->exec("ALTER TABLE settings ADD COLUMN label_across INT NOT NULL DEFAULT 2");
                     $db->exec("ALTER TABLE settings ADD COLUMN label_roll_mm INT NOT NULL DEFAULT 106");
                     $db->exec("ALTER TABLE settings ADD COLUMN label_show_digits TINYINT(1) NOT NULL DEFAULT 1");
+                }
+                $pinCols = $db->query("SHOW COLUMNS FROM settings LIKE 'delete_pin_hash'")->fetchAll();
+                if (empty($pinCols)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN delete_pin_hash VARCHAR(255) NOT NULL DEFAULT ''");
+                }
+                $prodCols = $db->query("SHOW COLUMNS FROM products LIKE 'active'")->fetchAll();
+                if (empty($prodCols)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1");
                 }
             }
         } catch (Throwable) {

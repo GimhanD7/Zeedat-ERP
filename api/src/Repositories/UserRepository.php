@@ -68,6 +68,8 @@ class UserRepository extends BaseRepository {
 
     public static function getSettings(): array {
         $row = self::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $row['delete_pin_configured'] = trim((string) ($row['delete_pin_hash'] ?? '')) !== '';
+        unset($row['delete_pin_hash']);
         $row['db_driver'] = \Zeedat\Config\Database::getDriver();
         return $row;
     }

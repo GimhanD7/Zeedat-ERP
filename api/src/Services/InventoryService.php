@@ -5,6 +5,7 @@ namespace Zeedat\Services;
 
 use Zeedat\Repositories\BaseRepository;
 use Zeedat\Repositories\ProductRepository;
+use Zeedat\Repositories\UserRepository;
 use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
 
@@ -45,8 +46,8 @@ class InventoryService {
 
     public static function bulkGenerateBarcodes(array $body = []): array {
         $ids = $body['product_ids'] ?? null;
-        // Strictly assign internal ZD barcodes ONLY to items without a manufacturer/existing barcode
-        $condition = "(barcode IS NULL OR barcode='')";
+        // Strictly assign internal ZD barcodes ONLY to active items without a manufacturer/existing barcode
+        $condition = "(barcode IS NULL OR barcode='') AND COALESCE(active, 1)=1";
 
         if (is_array($ids) && count($ids) > 0) {
             $inClause = implode(',', array_map('intval', $ids));
@@ -200,25 +201,128 @@ class InventoryService {
         return ['id' => $id, 'barcode' => $barcode];
     }
 
-    public static function adjustStock(array $user, int $branch, array $body): array {
-        $product = Validator::integer($body['product_id'] ?? null, 'Product');
+    private static function applyStockAdjustmentEntry(
+        int $branch,
+        array $entry,
+        string $reason,
+        string $reference,
+        int $userId,
+        string $defaultMode = 'in'
+    ): array {
+        $product = Validator::integer($entry['product_id'] ?? null, 'Product');
         $p = ProductRepository::findById($product);
         if (!$p || $p['serialized'] || $p['category'] === 'Services') {
-            throw new ApiError('Product cannot have stock adjusted directly.');
+            throw new ApiError('Product cannot have stock adjusted directly: ' . ($p['name'] ?? "#{$product}"));
         }
 
-        $qty = Validator::integer($body['qty'] ?? null, 'Quantity', 1, 10000);
-        $direction = $body['direction'] ?? '';
-        if (!in_array($direction, ['In', 'Out'], true)) {
-            throw new ApiError('Invalid direction.');
+        $mode = strtolower(trim((string) ($entry['mode'] ?? '')));
+        if ($mode === '' && isset($entry['direction'])) {
+            $dir = (string) $entry['direction'];
+            if (!in_array($dir, ['In', 'Out'], true)) {
+                throw new ApiError('Invalid adjustment direction.');
+            }
+            $mode = strtolower($dir);
+        } elseif ($mode === '') {
+            $mode = $defaultMode;
+        }
+        if (!in_array($mode, ['in', 'out', 'set'], true)) {
+            throw new ApiError('Invalid stock adjustment mode.');
         }
 
-        $delta = $direction === 'In' ? $qty : -$qty;
+        $currentQty = (int) (BaseRepository::scalar(
+            'SELECT qty FROM stock WHERE branch_id=? AND product_id=?',
+            [$branch, $product]
+        ) ?? 0);
+
+        if ($mode === 'set') {
+            $rawTarget = $entry['target_qty'] ?? ($entry['qty'] ?? null);
+            $targetQty = Validator::integer($rawTarget, 'Target stock count', 0, 100000);
+            $delta = $targetQty - $currentQty;
+        } else {
+            $qty = Validator::integer($entry['qty'] ?? null, 'Quantity', 1, 10000);
+            $delta = $mode === 'in' ? $qty : -$qty;
+        }
+
+        if ($delta !== 0) {
+            $kind = $mode === 'set' ? 'Stocktake: ' . $reason : $reason;
+            ProductRepository::adjustStock($branch, $product, $delta, substr($kind, 0, 150), $reference, $userId);
+        }
+
+        return [
+            'product_id' => $product,
+            'old_qty' => $currentQty,
+            'delta' => $delta,
+            'new_qty' => $currentQty + $delta,
+        ];
+    }
+
+    public static function adjustStock(array $user, int $branch, array $body): array {
+        if ($branch <= 0) {
+            throw new ApiError('Select a specific branch to adjust stock.');
+        }
+
         $reason = Validator::str($body, 'reason', 150);
+        $reference = trim(substr((string) ($body['reference'] ?? ''), 0, 100));
+        if ($reference === '') {
+            $reference = 'ADJ-' . date('ymdHis');
+        }
 
-        ProductRepository::adjustStock($branch, $product, $delta, $reason, '', (int) $user['id']);
+        return BaseRepository::transaction(function () use ($user, $branch, $body, $reason, $reference) {
+            $applied = self::applyStockAdjustmentEntry($branch, $body, $reason, $reference, (int) $user['id'], '');
+            return $applied + [
+                'reason' => $reason,
+                'reference' => $reference,
+            ];
+        });
+    }
 
-        return ['product_id' => $product, 'delta' => $delta, 'reason' => $reason];
+    public static function bulkAdjustStock(array $user, int $branch, array $body): array {
+        if ($branch <= 0) {
+            throw new ApiError('Select a specific branch to adjust stock.');
+        }
+
+        $items = $body['items'] ?? [];
+        if (!is_array($items) || empty($items)) {
+            throw new ApiError('Add at least one item to adjust.');
+        }
+        if (count($items) > 250) {
+            throw new ApiError('Maximum 250 items can be adjusted in a single batch.');
+        }
+
+        $defaultReason = Validator::str($body, 'reason', 150);
+        $reference = trim(substr((string) ($body['reference'] ?? ''), 0, 100));
+        if ($reference === '') {
+            $reference = 'ADJ-' . date('ymdHis');
+        }
+
+        return BaseRepository::transaction(function () use ($user, $branch, $items, $defaultReason, $reference) {
+            $results = [];
+            $skipped = 0;
+
+            foreach ($items as $entry) {
+                if (!is_array($entry)) continue;
+                $itemReason = trim(substr((string) ($entry['reason'] ?? ''), 0, 150));
+                $reason = $itemReason !== '' ? $itemReason : $defaultReason;
+                $applied = self::applyStockAdjustmentEntry($branch, $entry, $reason, $reference, (int) $user['id'], 'set');
+                if ($applied['delta'] === 0) {
+                    $skipped++;
+                    continue;
+                }
+                $results[] = $applied;
+            }
+
+            return [
+                'adjusted' => count($results),
+                'skipped' => $skipped,
+                'reference' => $reference,
+                'results' => $results,
+            ];
+        });
+    }
+
+    public static function getStockMovements(int $branch, array $query = []): array {
+        $limit = (int) ($query['limit'] ?? 200);
+        return ProductRepository::stockMovements($branch, $limit);
     }
 
     public static function receiveUnit(array $user, int $branch, array $body): array {
@@ -398,5 +502,67 @@ class InventoryService {
             'label_roll_mm' => $rollW,
             'label_show_digits' => $showDigits,
         ];
+    }
+
+    public static function deleteProduct(array $user, array $body): array {
+        $id = Validator::integer($body['id'] ?? ($body['product_id'] ?? null), 'Product');
+        $pin = trim((string) ($body['pin'] ?? ''));
+
+        $pinHash = trim((string) (BaseRepository::scalar('SELECT delete_pin_hash FROM settings WHERE id=1') ?? ''));
+        if ($pinHash === '') {
+            throw new ApiError('Inventory Delete PIN is not set yet. Configure a PIN in Settings first.', 400);
+        }
+        if ($pin === '' || !password_verify($pin, $pinHash)) {
+            throw new ApiError('Incorrect Security PIN.', 403);
+        }
+
+        $product = ProductRepository::findById($id);
+        if (!$product || (isset($product['active']) && (int) $product['active'] === 0)) {
+            throw new ApiError('Product not found.', 404);
+        }
+
+        $saleCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sale_items WHERE product_id=?', [$id]);
+        $purchaseCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM purchases WHERE product_id=?', [$id]);
+        $transferCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM transfers WHERE product_id=?', [$id]);
+        $exchangeCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM exchanges WHERE product_id=?', [$id]);
+        $unitCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM units WHERE product_id=?', [$id]);
+
+        $hasHistory = ($saleCount + $purchaseCount + $transferCount + $exchangeCount + $unitCount) > 0;
+
+        return BaseRepository::transaction(function () use ($id, $product, $hasHistory, $user) {
+            BaseRepository::run('DELETE FROM stock WHERE product_id=?', [$id]);
+
+            if ($hasHistory) {
+                BaseRepository::run('UPDATE products SET active=0, barcode=NULL WHERE id=?', [$id]);
+                UserRepository::logAudit((int) $user['id'], null, 'product.archive', [
+                    'id' => $id,
+                    'sku' => $product['sku'],
+                    'name' => $product['name'],
+                ]);
+                return [
+                    'id' => $id,
+                    'deleted' => true,
+                    'archived' => true,
+                    'message' => "Item '{$product['name']}' deleted from inventory (sales/purchase records preserved).",
+                ];
+            }
+
+            BaseRepository::run('DELETE FROM stock_movements WHERE product_id=?', [$id]);
+            BaseRepository::run('DELETE FROM barcode_print_logs WHERE product_id=?', [$id]);
+            BaseRepository::run('DELETE FROM products WHERE id=?', [$id]);
+
+            UserRepository::logAudit((int) $user['id'], null, 'product.delete', [
+                'id' => $id,
+                'sku' => $product['sku'],
+                'name' => $product['name'],
+            ]);
+
+            return [
+                'id' => $id,
+                'deleted' => true,
+                'archived' => false,
+                'message' => "Item '{$product['name']}' permanently deleted.",
+            ];
+        });
     }
 }

@@ -12,7 +12,7 @@ class ProductRepository extends BaseRepository {
         $costField = $includeCost ? ', p.cost' : '';
 
         $products = self::rows("SELECT p.id, p.sku, p.barcode, p.name, p.brand, p.category, p.price, p.reorder_level, p.serialized
-            {$costField}, CAST(COALESCE(s.qty, 0) AS UNSIGNED) qty FROM products p LEFT JOIN ({$qty}) s ON p.id=s.product_id ORDER BY p.id", $params);
+            {$costField}, CAST(COALESCE(s.qty, 0) AS UNSIGNED) qty FROM products p LEFT JOIN ({$qty}) s ON p.id=s.product_id WHERE COALESCE(p.active, 1)=1 ORDER BY p.id", $params);
 
         $branchStocks = self::rows(
             'SELECT s.product_id, s.branch_id, b.name as branch_name, s.qty
@@ -67,5 +67,26 @@ class ProductRepository extends BaseRepository {
         if ((int) self::scalar('SELECT qty FROM stock WHERE branch_id=? AND product_id=?', [$branch, $productId]) < 0) {
             throw new \Zeedat\Support\ApiError('Stock cannot drop below zero.');
         }
+    }
+
+    public static function stockMovements(int $branch, int $limit = 200): array {
+        $where = $branch > 0 ? 'WHERE m.branch_id=?' : '';
+        $params = $branch > 0 ? [$branch] : [];
+        $safeLimit = max(1, min(500, $limit));
+
+        return self::rows(
+            "SELECT m.id, m.branch_id, b.name AS branch_name, m.product_id,
+                    p.name AS product_name, p.sku, COALESCE(p.barcode, '') AS barcode,
+                    COALESCE(u.name, 'System') AS user_name,
+                    m.qty, m.kind, m.reference, m.created_at
+             FROM stock_movements m
+             JOIN products p ON p.id=m.product_id
+             JOIN branches b ON b.id=m.branch_id
+             LEFT JOIN users u ON u.id=m.user_id
+             {$where}
+             ORDER BY m.id DESC
+             LIMIT {$safeLimit}",
+            $params
+        );
     }
 }

@@ -90,7 +90,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -146,6 +146,10 @@ try {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::updateBarcode($user, $body);
                 })(),
+                'product.delete' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    return InventoryController::deleteProduct($user, $body);
+                })(),
                 'barcode.bulk' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::bulkGenerateBarcodes($body);
@@ -162,6 +166,10 @@ try {
                 'stock.adjust' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::adjustStock($user, $branch, $body);
+                })(),
+                'stock.bulk_adjust' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    return InventoryController::bulkAdjustStock($user, $branch, $body);
                 })(),
                 'unit.receive' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
@@ -226,6 +234,10 @@ try {
                 'settings.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'settings');
                     return AdminController::saveSettings($body);
+                })(),
+                'settings.pin.save' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'settings');
+                    return AdminController::saveDeletePin($user, $body);
                 })(),
                 'branch.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'settings');
@@ -292,6 +304,10 @@ try {
         'units' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'inventory');
             return InventoryController::getUnits($branch);
+        })(),
+        'stock.movements' => (function () use ($user, $branch) {
+            RoleGuard::allowPermission($user, 'inventory');
+            return InventoryController::getStockMovements($branch, $_GET);
         })(),
         'customers' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'customers');

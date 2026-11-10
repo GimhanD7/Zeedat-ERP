@@ -37,6 +37,14 @@ class InventoryController {
         return InventoryService::adjustStock($user, $branch, $body);
     }
 
+    public static function bulkAdjustStock(array $user, int $branch, array $body): array {
+        return InventoryService::bulkAdjustStock($user, $branch, $body);
+    }
+
+    public static function getStockMovements(int $branch, array $query = []): array {
+        return InventoryService::getStockMovements($branch, $query);
+    }
+
     public static function receiveUnit(array $user, int $branch, array $body): array {
         return InventoryService::receiveUnit($user, $branch, $body);
     }
@@ -63,5 +71,9 @@ class InventoryController {
 
     public static function saveLabelSetup(array $body): array {
         return InventoryService::saveLabelSetup($body);
+    }
+
+    public static function deleteProduct(array $user, array $body): array {
+        return InventoryService::deleteProduct($user, $body);
     }
 }

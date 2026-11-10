@@ -46,11 +46,11 @@ class DashboardController {
         );
 
         $stockValue = (int) BaseRepository::scalar(
-            "SELECT COALESCE(SUM(s.qty * p.cost), 0) FROM stock s JOIN products p ON p.id=s.product_id WHERE 1=1" . ($branch ? " AND s.branch_id=?" : ""),
+            "SELECT COALESCE(SUM(s.qty * p.cost), 0) FROM stock s JOIN products p ON p.id=s.product_id WHERE COALESCE(p.active, 1)=1" . ($branch ? " AND s.branch_id=?" : ""),
             $params
         );
         if ($stockValue === 0) {
-            $stockValue = (int) BaseRepository::scalar("SELECT COALESCE(SUM(cost * 15), 0) FROM products") ?: 1246030000;
+            $stockValue = (int) BaseRepository::scalar("SELECT COALESCE(SUM(cost * 15), 0) FROM products WHERE COALESCE(active, 1)=1") ?: 1246030000;
         }
 
         // Popular Products
@@ -58,6 +58,7 @@ class DashboardController {
             "SELECT p.id, p.name, p.price, p.category, COALESCE(s.qty, 12) in_stock
              FROM products p
              LEFT JOIN stock s ON s.product_id=p.id " . ($branch ? "AND s.branch_id={$branch}" : "") . "
+             WHERE COALESCE(p.active, 1)=1
              ORDER BY p.id ASC LIMIT 4"
         );
 

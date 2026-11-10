@@ -45,7 +45,16 @@ export function SettingsPage({ ctx }) {
     audit: 'audit',
   });
 
-  const [activeTab, setActiveTab] = useState('Store & Receipt');
+  const [activeTab, setActiveTab] = useState(
+    ctx.intent === 'pin' ? 'Security, PIN & Audit' : 'Store & Receipt'
+  );
+
+  useEffect(() => {
+    if (ctx.intent === 'pin') {
+      setActiveTab('Security, PIN & Audit');
+      ctx.clearIntent?.();
+    }
+  }, [ctx.intent]);
 
   // Store & Receipt inline form state
   const [form, setForm] = useState({
@@ -75,6 +84,17 @@ export function SettingsPage({ ctx }) {
   });
   const [pwdBusy, setPwdBusy] = useState(false);
   const [pwdMsg, setPwdMsg] = useState(null);
+
+  // Inventory Delete Security PIN form
+  const [pinForm, setPinForm] = useState({
+    current_pin: '',
+    current_password: '',
+    new_pin: '',
+    confirm_pin: '',
+    use_account_password: false,
+  });
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinMsg, setPinMsg] = useState(null);
 
   // Hydrate form when settings load
   useEffect(() => {
@@ -165,6 +185,53 @@ export function SettingsPage({ ctx }) {
       setPwdMsg({ type: 'error', text: err.message || 'Failed to update password.' });
     } finally {
       setPwdBusy(false);
+    }
+  };
+
+  const handleSaveDeletePin = async (e, alreadyConfigured) => {
+    e.preventDefault();
+    setPinMsg(null);
+    if (!/^\d{4,8}$/.test(pinForm.new_pin)) {
+      setPinMsg({ type: 'error', text: 'Security PIN must be 4 to 8 numeric digits.' });
+      return;
+    }
+    if (pinForm.new_pin !== pinForm.confirm_pin) {
+      setPinMsg({ type: 'error', text: 'New PIN and Confirm PIN do not match.' });
+      return;
+    }
+    if (alreadyConfigured) {
+      if (pinForm.use_account_password && !pinForm.current_password) {
+        setPinMsg({ type: 'error', text: 'Enter your account password to reset the PIN.' });
+        return;
+      }
+      if (!pinForm.use_account_password && !pinForm.current_pin) {
+        setPinMsg({ type: 'error', text: 'Enter your current PIN first.' });
+        return;
+      }
+    }
+
+    setPinBusy(true);
+    try {
+      const res = await ctx.mutate('settings.pin.save', {
+        current_pin: pinForm.current_pin,
+        current_password: pinForm.current_password,
+        new_pin: pinForm.new_pin,
+        use_account_password: pinForm.use_account_password,
+      });
+      setPinMsg({ type: 'success', text: res.message || 'Security PIN saved.' });
+      setPinForm({
+        current_pin: '',
+        current_password: '',
+        new_pin: '',
+        confirm_pin: '',
+        use_account_password: false,
+      });
+      ctx.setNotice('Inventory Delete PIN saved.');
+      state.refresh();
+    } catch (err) {
+      setPinMsg({ type: 'error', text: err.message || 'Failed to save Security PIN.' });
+    } finally {
+      setPinBusy(false);
     }
   };
 
@@ -288,7 +355,7 @@ export function SettingsPage({ ctx }) {
                     'Store & Receipt',
                     'Branches & Locations',
                     'Cloud Sync & Backup',
-                    'Security & Audit Log',
+                    'Security, PIN & Audit',
                   ]}
                   value={activeTab}
                   onChange={setActiveTab}
@@ -645,9 +712,150 @@ export function SettingsPage({ ctx }) {
               {/* TAB 3: CLOUD SYNC & BACKUP */}
               {activeTab === 'Cloud Sync & Backup' && <BackupSyncManager ctx={ctx} />}
 
-              {/* TAB 4: SECURITY & AUDIT LOG */}
-              {activeTab === 'Security & Audit Log' && (
+              {/* TAB 4: SECURITY, PIN & AUDIT LOG */}
+              {activeTab === 'Security, PIN & Audit' && (
                 <div className="stack">
+                  {/* Inventory Delete Security PIN Card */}
+                  <div className="zk-settings-card">
+                    <div className="zk-card-header">
+                      <div className="zk-card-title">
+                        <Lock size={17} style={{ color: '#0d9488' }} />
+                        <span>Inventory Delete Security PIN</span>
+                      </div>
+                      <Badge tone={settings.delete_pin_configured ? 'green' : 'amber'}>
+                        {settings.delete_pin_configured ? 'PIN Active' : 'PIN Not Set'}
+                      </Badge>
+                    </div>
+
+                    <p style={{ margin: '0 0 12px', fontSize: '12.5px', color: '#64748b' }}>
+                      This numeric PIN (4–8 digits) is required before any staff member can delete an item in Inventory.
+                    </p>
+
+                    {pinMsg && (
+                      <Alert tone={pinMsg.type === 'error' ? 'red' : 'mint'} style={{ marginBottom: '12px' }}>
+                        {pinMsg.text}
+                      </Alert>
+                    )}
+
+                    <form onSubmit={e => handleSaveDeletePin(e, Boolean(settings.delete_pin_configured))}>
+                      <div className="zk-form-row-3" style={{ alignItems: 'end' }}>
+                        {settings.delete_pin_configured && (
+                          <div className="zk-field-wrap">
+                            <label className="zk-field-label">
+                              {pinForm.use_account_password ? 'Your Account Password' : 'Current Security PIN'}
+                            </label>
+                            <div className="zk-input-box">
+                              <KeyRound size={15} style={{ color: '#64748b' }} />
+                              {pinForm.use_account_password ? (
+                                <input
+                                  type="password"
+                                  value={pinForm.current_password}
+                                  onChange={e => setPinForm({ ...pinForm, current_password: e.target.value })}
+                                  placeholder="Enter account password"
+                                  required
+                                />
+                              ) : (
+                                <input
+                                  type="password"
+                                  inputMode="numeric"
+                                  maxLength={8}
+                                  value={pinForm.current_pin}
+                                  onChange={e =>
+                                    setPinForm({
+                                      ...pinForm,
+                                      current_pin: e.target.value.replace(/\D/g, ''),
+                                    })
+                                  }
+                                  placeholder="Current 4–8 digit PIN"
+                                  required
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">New Security PIN (4–8 digits)</label>
+                          <div className="zk-input-box">
+                            <Lock size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="password"
+                              inputMode="numeric"
+                              maxLength={8}
+                              value={pinForm.new_pin}
+                              onChange={e =>
+                                setPinForm({
+                                  ...pinForm,
+                                  new_pin: e.target.value.replace(/\D/g, ''),
+                                })
+                              }
+                              placeholder="e.g. 1234"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Confirm New PIN</label>
+                          <div className="zk-input-box">
+                            <Lock size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="password"
+                              inputMode="numeric"
+                              maxLength={8}
+                              value={pinForm.confirm_pin}
+                              onChange={e =>
+                                setPinForm({
+                                  ...pinForm,
+                                  confirm_pin: e.target.value.replace(/\D/g, ''),
+                                })
+                              }
+                              placeholder="Re-enter PIN"
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: settings.delete_pin_configured ? 'space-between' : 'flex-end',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: '10px',
+                          marginTop: '14px',
+                        }}
+                      >
+                        {settings.delete_pin_configured && (
+                          <button
+                            type="button"
+                            className="zk-edit-btn"
+                            onClick={() =>
+                              setPinForm(prev => ({
+                                ...prev,
+                                use_account_password: !prev.use_account_password,
+                                current_pin: '',
+                                current_password: '',
+                              }))
+                            }
+                          >
+                            {pinForm.use_account_password
+                              ? 'Use Current PIN Instead'
+                              : 'Forgot Current PIN? Use Account Password'}
+                          </button>
+                        )}
+                        <Button type="submit" icon={ShieldCheck} variant="primary" disabled={pinBusy}>
+                          {pinBusy
+                            ? 'Saving PIN...'
+                            : settings.delete_pin_configured
+                              ? 'Change Security PIN'
+                              : 'Set Security PIN'}
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
+
                   {/* Change Own Password Card */}
                   <div className="zk-settings-card">
                     <div className="zk-card-header">

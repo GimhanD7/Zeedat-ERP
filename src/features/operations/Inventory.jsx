@@ -7,13 +7,16 @@ import {
   Box,
   Building2,
   DollarSign,
+  History,
   Layers3,
+  Lock,
   Package,
   Pencil,
   Plus,
   Printer,
   Smartphone,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
@@ -21,6 +24,7 @@ import {
   Button,
   FilterTabs,
   Heading,
+  Modal,
   Panel,
   ProductArt,
   SearchBox,
@@ -31,6 +35,7 @@ import {
 import { DataView } from '../../components/feedback';
 import { BarcodeLabelModal } from './BarcodeLabelModal';
 import { BatchBarcodeModal } from './BatchBarcodeModal';
+import { StockAdjustModal } from './StockAdjustModal';
 import {
   categories,
   cents,
@@ -57,11 +62,14 @@ export function Inventory({ ctx }) {
   const [brand, setBrand] = useState('');
   const [filter, setFilter] = useState(ctx.intent === 'low' ? 'Reorder alerts' : '');
   const [barcodeFilter, setBarcodeFilter] = useState(''); // '', 'with-barcode', 'no-barcode'
-  const [tab, setTab] = useState('Products'); // Products, Branch Stocks, Device Units
+  const [tab, setTab] = useState('Products'); // Products, Branch Stocks, Device Units, Stock History
   const [selectedBranch, setSelectedBranch] = useState(ctx.branch || 0); // 0 = All Branches
   const [unitBranch, setUnitBranch] = useState(actionBranch(ctx));
+  const [movementTypeFilter, setMovementTypeFilter] = useState('all'); // 'all' | 'in' | 'out' | 'adj'
   const [labelProduct, setLabelProduct] = useState(null);
   const [batchModal, setBatchModal] = useState(false);
+  const [adjustModal, setAdjustModal] = useState(null); // null | { product, branch }
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
   // Sync with global branch changes if active
@@ -74,6 +82,7 @@ export function Inventory({ ctx }) {
   const state = useData(ctx, {
     items: ['products', { branch: selectedBranch }],
     units: ['units', { branch: unitBranch }],
+    movements: ['stock.movements', { branch: selectedBranch }],
   });
 
   useEffect(() => {
@@ -204,26 +213,10 @@ export function Inventory({ ctx }) {
     }
   };
 
-  const adjust = (items, preselectedProduct = null, preselectedBranch = null) =>
-    ctx.setDialog({
-      title: 'Stock adjustment',
-      route: 'stock.adjust',
-      values: {
-        branch: preselectedBranch || (selectedBranch || actionBranch(ctx)),
-        product_id: preselectedProduct ? String(preselectedProduct.id) : undefined,
-        direction: 'In',
-      },
-      fields: [
-        branchField(ctx),
-        {
-          name: 'product_id',
-          label: 'Product',
-          choices: options(items.filter(p => !p.serialized && p.category !== 'Services')),
-        },
-        { name: 'direction', label: 'Direction', choices: ['In', 'Out'] },
-        { name: 'qty', label: 'Quantity', type: 'number', min: 1 },
-        { name: 'reason', label: 'Reason', full: true },
-      ],
+  const adjust = (_items, preselectedProduct = null, preselectedBranch = null) =>
+    setAdjustModal({
+      product: preselectedProduct,
+      branch: preselectedBranch || (selectedBranch || actionBranch(ctx)),
     });
 
   const transfer = (product, fromBranch = null) =>
@@ -279,7 +272,7 @@ export function Inventory({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ items, units }) => {
+      {({ items, units, movements = [] }) => {
         const physicalItems = items.filter(p => p.category !== 'Services');
         const withBarcodeCount = physicalItems.filter(p => Boolean(p.barcode)).length;
         const internalZdCount = physicalItems.filter(p =>
@@ -397,12 +390,22 @@ export function Inventory({ ctx }) {
                   ? 'Product Catalog'
                   : tab === 'Branch Stocks'
                     ? 'Branch-wise Stocks Matrix'
-                    : 'Serialized Devices'
+                    : tab === 'Device Units'
+                      ? 'Serialized Devices'
+                      : 'Stock Adjustment & Movement History'
               }
-              icon={tab === 'Products' ? Package : tab === 'Branch Stocks' ? Building2 : Smartphone}
+              icon={
+                tab === 'Products'
+                  ? Package
+                  : tab === 'Branch Stocks'
+                    ? Building2
+                    : tab === 'Device Units'
+                      ? Smartphone
+                      : History
+              }
               action={
                 <FilterTabs
-                  choices={['Products', 'Branch Stocks', 'Device Units']}
+                  choices={['Products', 'Branch Stocks', 'Device Units', 'Stock History']}
                   value={tab}
                   onChange={v => {
                     setTab(v);
@@ -622,6 +625,16 @@ export function Inventory({ ctx }) {
                         'Actions',
                         r => (
                           <div style={{ display: 'flex', gap: 4 }}>
+                            {!r.serialized && r.category !== 'Services' && (
+                              <Button
+                                icon={ArrowUpDown}
+                                className="icon-only"
+                                title={'Adjust stock for ' + r.name}
+                                onClick={() =>
+                                  adjust(items, r, selectedBranch || actionBranch(ctx))
+                                }
+                              />
+                            )}
                             {r.category !== 'Services' && (
                               <Button
                                 icon={Printer}
@@ -635,6 +648,14 @@ export function Inventory({ ctx }) {
                               className="icon-only"
                               aria-label={'Edit ' + r.name}
                               onClick={() => form(r)}
+                            />
+                            <Button
+                              icon={Trash2}
+                              className="icon-only"
+                              style={{ color: '#dc2626', borderColor: '#fecaca' }}
+                              aria-label={'Delete ' + r.name}
+                              title={'Delete ' + r.name + ' (Requires PIN)'}
+                              onClick={() => setDeleteTarget(r)}
                             />
                           </div>
                         ),
@@ -750,7 +771,7 @@ export function Inventory({ ctx }) {
                     Tracking stock across {ctx.branches.length} branches
                   </div>
                 </>
-              ) : (
+              ) : tab === 'Device Units' ? (
                 <>
                   <div className="panel-tools toolbar">
                     <SearchBox
@@ -810,8 +831,124 @@ export function Inventory({ ctx }) {
                     ]}
                   />
                 </>
+              ) : (
+                <>
+                  <div className="panel-tools toolbar">
+                    <SearchBox
+                      value={query}
+                      onChange={setQuery}
+                      placeholder="Search product, SKU, reason, or reference…"
+                    />
+                    <Select
+                      aria-label="Branch"
+                      value={selectedBranch}
+                      onChange={e => setSelectedBranch(Number(e.target.value))}
+                      options={branchChoices.map(b => ({ value: b.id, label: b.name }))}
+                    />
+                    <Select
+                      aria-label="Movement type"
+                      value={movementTypeFilter}
+                      onChange={e => setMovementTypeFilter(e.target.value)}
+                      options={[
+                        { value: 'all', label: 'All Movements' },
+                        { value: 'adj', label: 'Manual Adjustments (ADJ-)' },
+                        { value: 'in', label: 'Stock In (+)' },
+                        { value: 'out', label: 'Stock Out (-)' },
+                      ]}
+                    />
+                    <Button icon={ArrowUpDown} variant="primary" onClick={() => adjust(items)}>
+                      New Adjustment
+                    </Button>
+                  </div>
+                  {(() => {
+                    const filteredMovements = movements.filter(m => {
+                      const q = query.trim().toLowerCase();
+                      if (movementTypeFilter === 'in' && Number(m.qty) <= 0) return false;
+                      if (movementTypeFilter === 'out' && Number(m.qty) >= 0) return false;
+                      if (
+                        movementTypeFilter === 'adj' &&
+                        !String(m.reference || '').toUpperCase().startsWith('ADJ') &&
+                        !String(m.kind || '').toLowerCase().includes('stocktake')
+                      ) {
+                        return false;
+                      }
+                      if (q) {
+                        const hay = `${m.product_name} ${m.sku} ${m.barcode || ''} ${m.kind} ${m.reference} ${m.user_name} ${m.branch_name}`.toLowerCase();
+                        if (!hay.includes(q)) return false;
+                      }
+                      return true;
+                    });
+
+                    return (
+                      <>
+                        <Table
+                          rows={filteredMovements}
+                          columns={[
+                            [
+                              'Date & Time',
+                              r =>
+                                r.created_at
+                                  ? new Date(String(r.created_at).replace(' ', 'T')).toLocaleString('en-GB', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : '—',
+                            ],
+                            ['Branch', 'branch_name'],
+                            [
+                              'Product',
+                              r => (
+                                <div>
+                                  <strong>{r.product_name}</strong>
+                                  <div>
+                                    <small className="subtext mono">{r.sku}</small>
+                                  </div>
+                                </div>
+                              ),
+                            ],
+                            [
+                              'Change',
+                              r => {
+                                const q = Number(r.qty);
+                                return (
+                                  <Badge tone={q > 0 ? 'mint' : q < 0 ? 'red' : 'blue'}>
+                                    {q > 0 ? `+${q}` : q}
+                                  </Badge>
+                                );
+                              },
+                            ],
+                            ['Reason / Type', 'kind'],
+                            ['Reference', r => <span className="mono">{r.reference || '—'}</span>],
+                            ['Staff', 'user_name'],
+                          ]}
+                        />
+                        <div className="panel-foot">
+                          Showing {filteredMovements.length} of {movements.length} recent stock movements
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
               )}
             </Panel>
+
+            {/* Stock Adjustment & Bulk Stocktake Modal */}
+            {adjustModal && (
+              <StockAdjustModal
+                ctx={ctx}
+                items={items}
+                preselectedProduct={adjustModal.product}
+                preselectedBranch={adjustModal.branch}
+                onClose={() => setAdjustModal(null)}
+                onSuccess={() => {
+                  setAdjustModal(null);
+                  state.refresh();
+                }}
+              />
+            )}
 
             {/* Barcode & Label Print Modal */}
             {labelProduct && (
@@ -860,9 +997,150 @@ export function Inventory({ ctx }) {
                 }}
               />
             )}
+            {/* Delete Item with PIN Confirmation Modal */}
+            {deleteTarget && (
+              <DeleteProductPinModal
+                ctx={ctx}
+                product={deleteTarget}
+                onClose={() => setDeleteTarget(null)}
+                onDeleted={msg => {
+                  setDeleteTarget(null);
+                  ctx.setNotice?.(msg || 'Product deleted.');
+                  state.refresh();
+                }}
+              />
+            )}
           </>
         );
       }}
     </DataView>
+  );
+}
+
+function DeleteProductPinModal({ ctx, product, onClose, onDeleted }) {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleConfirmDelete = async e => {
+    e?.preventDefault();
+    setErrorMsg('');
+    if (!/^\d{4,8}$/.test(pin.trim())) {
+      setErrorMsg('Enter the 4–8 digit Inventory Delete Security PIN.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await ctx.mutate('product.delete', {
+        id: product.id,
+        pin: pin.trim(),
+      });
+      onDeleted?.(res?.message);
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to delete item.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pinNotConfigured = errorMsg.toLowerCase().includes('not set');
+
+  return (
+    <Modal title="Delete Inventory Item" onClose={onClose}>
+      <form onSubmit={handleConfirmDelete}>
+        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div
+            style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '13px',
+              color: '#991b1b',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+              Confirm removing "{product.name}"
+            </div>
+            <div style={{ fontSize: '12px' }}>
+              SKU: <span className="mono">{product.sku}</span>
+              {product.barcode ? (
+                <>
+                  {' · '}Barcode: <span className="mono">{product.barcode}</span>
+                </>
+              ) : null}
+              {' · '}Stock: <strong>{product.total_qty ?? product.qty ?? 0}</strong>
+            </div>
+          </div>
+
+          {errorMsg && (
+            <div
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '8px',
+                padding: '9px 12px',
+                fontSize: '12.5px',
+                color: '#92400e',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>{errorMsg}</span>
+              {pinNotConfigured && ctx.hasPermission?.('settings') && (
+                <Button
+                  type="button"
+                  size="small"
+                  variant="outline"
+                  onClick={() => {
+                    onClose?.();
+                    ctx.navigate('settings', 'pin');
+                  }}
+                >
+                  Open Settings to Set PIN
+                </Button>
+              )}
+            </div>
+          )}
+
+          <div className="zk-pb-filter-item">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Lock size={14} style={{ color: '#0d9488' }} />
+              <span>Security PIN (4–8 digits)</span>
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={8}
+              autoFocus
+              value={pin}
+              onChange={e => {
+                setPin(e.target.value.replace(/\D/g, ''));
+                if (errorMsg) setErrorMsg('');
+              }}
+              placeholder="Enter Security PIN set in Settings..."
+              style={{ fontSize: '16px', letterSpacing: '3px', fontWeight: 700 }}
+            />
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <Button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            icon={Trash2}
+            style={{ background: '#dc2626', color: '#ffffff', borderColor: '#dc2626' }}
+            disabled={busy || pin.length < 4}
+          >
+            {busy ? 'Verifying & Deleting…' : 'Verify PIN & Delete'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
