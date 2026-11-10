@@ -275,18 +275,29 @@ function PrintBarcodesWorkspace({
 
       {/* Selected Labels Queue Box (Top Card from Image 2) */}
       <div className="zk-pb-queue-card">
-        <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>
-            Selected labels ({pickedProducts.length})
+            Selected labels ({pickedProducts.length} items · {totalPickedLabels} stickers)
           </strong>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
             <Button size="small" variant="outline" onClick={addCurrentPageToQueue}>
               + Add Current Page ({pagedProducts.length})
             </Button>
             {pickedProducts.length > 0 && (
-              <Button size="small" variant="outline" onClick={clearQueue}>
-                Clear
-              </Button>
+              <>
+                <Button size="small" variant="outline" onClick={matchStockQueueQty}>
+                  Match Stock
+                </Button>
+                <Button size="small" variant="outline" onClick={() => setAllQueueQty(1)}>
+                  All 1
+                </Button>
+                <Button size="small" variant="outline" onClick={() => setAllQueueQty(2)}>
+                  All 2
+                </Button>
+                <Button size="small" variant="outline" onClick={clearQueue}>
+                  Clear
+                </Button>
+              </>
             )}
             <Button
               size="small"
@@ -307,7 +318,7 @@ function PrintBarcodesWorkspace({
         <div className="zk-pb-queue-header">
           <span>Item</span>
           <span>Price</span>
-          <span>Quantity</span>
+          <span>Print Quantity</span>
           <span style={{ textAlign: 'right' }}>Action</span>
         </div>
 
@@ -316,7 +327,7 @@ function PrintBarcodesWorkspace({
             No items picked yet. Click <strong>+ Add</strong> on any item below or click <strong>Print Barcode Labels</strong>.
           </div>
         ) : (
-          <div style={{ maxHeight: '165px', overflowY: 'auto' }}>
+          <div style={{ maxHeight: '190px', overflowY: 'auto' }}>
             {pickedProducts.map(p => (
               <div className="zk-pb-queue-row" key={p.id}>
                 <div>
@@ -324,7 +335,40 @@ function PrintBarcodesWorkspace({
                   <small className="mono" style={{ color: '#64748b' }}>({p.sku})</small>
                 </div>
                 <strong>{money(p.price)}</strong>
-                <span style={{ color: '#64748b', fontSize: '12px' }}>Set in print window</span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    type="button"
+                    className="zk-stepper-btn"
+                    style={{ border: '1px solid #cbd5e1', borderRadius: '4px', width: '24px', height: '24px' }}
+                    onClick={() => setQueueQty(p.id, (quantitiesById[p.id] ?? 2) - 1)}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={quantitiesById[p.id] ?? 2}
+                    onChange={e => setQueueQty(p.id, e.target.value)}
+                    style={{
+                      width: '54px',
+                      textAlign: 'center',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '5px',
+                      padding: '2px 4px',
+                      fontSize: '12.5px',
+                      fontWeight: 700,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="zk-stepper-btn"
+                    style={{ border: '1px solid #cbd5e1', borderRadius: '4px', width: '24px', height: '24px' }}
+                    onClick={() => setQueueQty(p.id, (quantitiesById[p.id] ?? 2) + 1)}
+                  >
+                    +
+                  </button>
+                </div>
                 <div style={{ textAlign: 'right' }}>
                   <button
                     type="button"
@@ -599,6 +643,8 @@ function PrintBarcodesWorkspace({
           ctx={ctx}
           branchId={branchId}
           items={pickedProducts.length ? pickedProducts : pagedProducts.slice(0, 1)}
+          initialCopiesById={quantitiesById}
+          onCopiesChange={setQuantitiesById}
           onClose={() => setPrintWindowOpen(false)}
           onBarcodesGenerated={generated => {
             setLocalBarcodes(prev => ({ ...prev, ...generated }));
@@ -619,6 +665,8 @@ function PrintLabelsWindowModal({
   ctx,
   branchId,
   items = [],
+  initialCopiesById = {},
+  onCopiesChange,
   onClose,
   onBarcodesGenerated,
   onPrinted,
@@ -632,12 +680,13 @@ function PrintLabelsWindowModal({
   const [across, setAcross] = useState(2);
   const [rollW, setRollW] = useState(106);
   const [zoom, setZoom] = useState(2); // 1, 1.5, 2, 3
+  const [showDigits, setShowDigits] = useState(true);
 
   // Single print selection
   const [activeId, setActiveId] = useState(() => items[0]?.id || 0);
   const [copiesById, setCopiesById] = useState(() => {
     const m = {};
-    for (const p of items) m[p.id] = 2;
+    for (const p of items) m[p.id] = initialCopiesById[p.id] ?? 2;
     return m;
   });
   const [priceById, setPriceById] = useState(() => {
@@ -655,7 +704,11 @@ function PrintLabelsWindowModal({
 
   const setCopies = (id, count) => {
     const val = Math.max(1, Math.min(500, parseInt(count, 10) || 1));
-    setCopiesById(prev => ({ ...prev, [id]: val }));
+    setCopiesById(prev => {
+      const next = { ...prev, [id]: val };
+      onCopiesChange?.(prevQueue => ({ ...prevQueue, [id]: val }));
+      return next;
+    });
   };
 
   const setAllCopies = count => {
@@ -663,6 +716,7 @@ function PrintLabelsWindowModal({
     setCopiesById(prev => {
       const next = { ...prev };
       for (const p of items) next[p.id] = val;
+      onCopiesChange?.(prevQueue => ({ ...prevQueue, ...next }));
       return next;
     });
   };
@@ -943,17 +997,29 @@ function PrintLabelsWindowModal({
               </span>
             </span>
 
-            <div className="zk-zoom-group">
-              {[1, 1.5, 2, 3].map(z => (
-                <button
-                  key={z}
-                  type="button"
-                  className={`zk-zoom-btn ${zoom === z ? 'active' : ''}`}
-                  onClick={() => setZoom(z)}
-                >
-                  {z}×
-                </button>
-              ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={showDigits}
+                  onChange={e => setShowDigits(e.target.checked)}
+                  style={{ accentColor: '#0d9488' }}
+                />
+                <span>Show numbers below barcode</span>
+              </label>
+
+              <div className="zk-zoom-group">
+                {[1, 1.5, 2, 3].map(z => (
+                  <button
+                    key={z}
+                    type="button"
+                    className={`zk-zoom-btn ${zoom === z ? 'active' : ''}`}
+                    onClick={() => setZoom(z)}
+                  >
+                    {z}×
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -964,51 +1030,74 @@ function PrintLabelsWindowModal({
                   const wPx = mmToPx(labelW);
                   const hPx = mmToPx(labelH);
                   const spacedCode = String(st.code).split('').join(' ');
+                  const barHeightPx = Math.max(28, Math.round(hPx * (showDigits ? 0.44 : 0.52)));
 
                   return (
                     <div
                       key={cIdx}
                       className="zk-exact-sticker"
-                      style={{ width: `${wPx}px`, height: `${hPx}px` }}
+                      style={{
+                        width: `${wPx}px`,
+                        height: `${hPx}px`,
+                        padding: `${Math.max(4, Math.round(hPx * 0.035))}px ${Math.max(6, Math.round(wPx * 0.03))}px`,
+                        justifyContent: 'center',
+                        gap: `${Math.max(1, Math.round(hPx * 0.012))}px`,
+                      }}
                     >
                       <div
                         className="zk-sticker-title"
-                        style={{ fontSize: `${Math.max(9, Math.round(6.5 * zoom))}px` }}
+                        style={{
+                          fontSize: `${Math.max(8, Math.round(hPx * 0.088))}px`,
+                          marginBottom: `${Math.max(2, Math.round(hPx * 0.03))}px`,
+                        }}
                       >
                         {st.product.name}
                       </div>
 
                       <div
                         className="zk-sticker-price"
-                        style={{ fontSize: `${Math.max(11, Math.round(9 * zoom))}px` }}
+                        style={{
+                          fontSize: `${Math.max(10, Math.round(hPx * 0.112))}px`,
+                          lineHeight: 1.05,
+                        }}
                       >
                         {st.priceFormatted}
                       </div>
 
                       <div
                         className="zk-sticker-sku"
-                        style={{ fontSize: `${Math.max(8, Math.round(5.5 * zoom))}px` }}
+                        style={{
+                          fontSize: `${Math.max(7, Math.round(hPx * 0.07))}px`,
+                          fontWeight: 500,
+                          marginBottom: `${Math.max(1, Math.round(hPx * 0.015))}px`,
+                        }}
                       >
                         Item: {st.product.sku}
                       </div>
 
-                      <div style={{ width: '92%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <BarcodeSvg
-                          value={st.code}
-                          height={Math.max(22, Math.round(14 * zoom))}
-                          showText={false}
-                        />
-                        <span
-                          className="mono"
-                          style={{
-                            fontSize: `${Math.max(8, Math.round(5.5 * zoom))}px`,
-                            fontWeight: 700,
-                            letterSpacing: '0.5px',
-                            marginTop: '1px',
-                          }}
-                        >
-                          {spacedCode}
-                        </span>
+                      <div style={{ width: '74%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '100%' }}>
+                          <BarcodeSvg
+                            value={st.code}
+                            height={barHeightPx}
+                            showText={false}
+                            barColor="#000000"
+                          />
+                        </div>
+                        {showDigits && (
+                          <span
+                            className="mono"
+                            style={{
+                              fontSize: `${Math.max(7, Math.round(hPx * 0.074))}px`,
+                              fontWeight: 700,
+                              letterSpacing: `${Math.max(1, Math.round(zoom * 0.8))}px`,
+                              marginTop: `${Math.max(2, Math.round(hPx * 0.015))}px`,
+                              color: '#000000',
+                            }}
+                          >
+                            {spacedCode}
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -1033,27 +1122,42 @@ function PrintLabelsWindowModal({
             }}
             aria-hidden="true"
           >
-            {stickers.map((st, idx) => (
-              <div
-                key={idx}
-                className="zk-exact-print-cell"
-                style={{ width: `${labelW}mm`, height: `${labelH}mm` }}
-              >
-                <div style={{ fontWeight: 700, fontSize: '8.5pt', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
-                  {st.product.name}
+            {stickers.map((st, idx) => {
+              const printBarPx = Math.max(28, Math.round(labelH * 3.78 * (showDigits ? 0.44 : 0.52)));
+              return (
+                <div
+                  key={idx}
+                  className="zk-exact-print-cell"
+                  style={{
+                    width: `${labelW}mm`,
+                    height: `${labelH}mm`,
+                    padding: '1mm 1.5mm',
+                    justifyContent: 'center',
+                    gap: '0.4mm',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: '8.5pt', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%', marginBottom: '0.8mm' }}>
+                    {st.product.name}
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '10.5pt', lineHeight: 1.05 }}>
+                    {st.priceFormatted}
+                  </div>
+                  <div style={{ fontSize: '7pt', fontWeight: 500, marginBottom: '0.4mm' }}>
+                    Item: {st.product.sku}
+                  </div>
+                  <div style={{ width: '74%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ width: '100%' }}>
+                      <BarcodeSvg value={st.code} height={printBarPx} showText={false} barColor="#000000" />
+                    </div>
+                    {showDigits && (
+                      <span style={{ fontFamily: 'monospace', fontSize: '7.2pt', fontWeight: 700, letterSpacing: '1px', marginTop: '0.5mm' }}>
+                        {String(st.code).split('').join(' ')}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div style={{ fontWeight: 800, fontSize: '11pt' }}>
-                  {st.priceFormatted}
-                </div>
-                <div style={{ fontSize: '7.5pt' }}>Item: {st.product.sku}</div>
-                <div style={{ width: '92%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <BarcodeSvg value={st.code} height={28} showText={false} />
-                  <span style={{ fontFamily: 'monospace', fontSize: '7.5pt', fontWeight: 700, letterSpacing: '1px' }}>
-                    {String(st.code).split('').join(' ')}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
