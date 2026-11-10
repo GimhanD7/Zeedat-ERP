@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Barcode,
   Check,
@@ -16,6 +16,17 @@ import { Badge, BarcodeSvg, Button, Modal } from '../../components/common';
 import { DataView } from '../../components/feedback';
 import { categories as productCategories, money, rupees } from '../../utils';
 
+const LABEL_SETUP_STORAGE_KEY = 'zeedat_label_printer_setup';
+
+function readStoredLabelSetup() {
+  try {
+    const raw = localStorage.getItem(LABEL_SETUP_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 const LABEL_PRESETS = [
   { id: '50x30_2', name: '50 × 30 mm · 2 across (roll 106 mm)', w: 50, h: 30, across: 2, roll: 106 },
   { id: '50x25_2', name: '50 × 25 mm · 2 across (roll 106 mm)', w: 50, h: 25, across: 2, roll: 106 },
@@ -29,6 +40,7 @@ export function BarcodesPage({ ctx }) {
   const state = useData(ctx, {
     items: ['products', { branch: branchId }],
     printStats: ['barcode.stats', { branch: branchId }],
+    savedSettings: 'settings',
   });
 
   useEffect(() => {
@@ -39,13 +51,14 @@ export function BarcodesPage({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ items = [], printStats = {} }) => (
+      {({ items = [], printStats = {}, savedSettings = {} }) => (
         <PrintBarcodesWorkspace
           ctx={ctx}
           branchId={branchId}
           setBranchId={setBranchId}
           items={items}
           printStats={printStats}
+          savedSettings={savedSettings}
           onRefresh={state.refresh}
         />
       )}
@@ -59,6 +72,7 @@ function PrintBarcodesWorkspace({
   setBranchId,
   items,
   printStats,
+  savedSettings,
   onRefresh,
 }) {
   const physicalProducts = useMemo(
@@ -92,6 +106,37 @@ function PrintBarcodesWorkspace({
 
   const [savingId, setSavingId] = useState(null);
   const [printWindowOpen, setPrintWindowOpen] = useState(false);
+  const [generateModalOpen, setGenerateModalOpen] = useState(false);
+  const missingBarcodeCount = useMemo(
+    () => effectiveProducts.filter(p => !p.effectiveBarcode).length,
+    [effectiveProducts]
+  );
+  const [printerInfo, setPrinterInfo] = useState({
+    saved_printer: '',
+    default_printer: '',
+    printers: [],
+    loading: false,
+  });
+
+  const loadPrinters = useCallback(async () => {
+    if (!ctx?.get) return;
+    setPrinterInfo(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await ctx.get('printers');
+      setPrinterInfo({
+        saved_printer: res?.saved_printer || '',
+        default_printer: res?.default_printer || '',
+        printers: Array.isArray(res?.printers) ? res.printers : [],
+        loading: false,
+      });
+    } catch {
+      setPrinterInfo(prev => ({ ...prev, loading: false }));
+    }
+  }, [ctx]);
+
+  useEffect(() => {
+    loadPrinters();
+  }, [loadPrinters]);
 
   const distinctBrands = useMemo(
     () => [...new Set(effectiveProducts.map(p => p.brand).filter(Boolean))].sort(),
@@ -263,10 +308,18 @@ function PrintBarcodesWorkspace({
             Shelf labels for branch stock. Internal <code>ZDXXXXXXX</code> barcodes are assigned only to items without a manufacturer barcode.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '12px', color: '#64748b' }}>
             Updated {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
+          <Button
+            icon={Sparkles}
+            variant="secondary"
+            onClick={() => setGenerateModalOpen(true)}
+            title="Open popup to generate internal ZD barcodes for items without barcodes (single or bulk)"
+          >
+            Generate Barcodes ({missingBarcodeCount})
+          </Button>
           <Button icon={RefreshCw} variant="outline" onClick={onRefresh}>
             Refresh
           </Button>
@@ -637,6 +690,32 @@ function PrintBarcodesWorkspace({
         </div>
       </div>
 
+      {/* GENERATE BARCODES POPUP MODAL (Single or Bulk for items missing barcodes) */}
+      {generateModalOpen && (
+        <GenerateMissingBarcodesModal
+          ctx={ctx}
+          products={effectiveProducts}
+          distinctBrands={distinctBrands}
+          onClose={didGenerate => {
+            setGenerateModalOpen(false);
+            if (didGenerate) onRefresh?.();
+          }}
+          onBarcodesGenerated={generatedMap => {
+            setLocalBarcodes(prev => ({ ...prev, ...generatedMap }));
+          }}
+          onAddToPrintQueue={ids => {
+            setPickedIds(prev => Array.from(new Set([...prev, ...ids])));
+            setQuantitiesById(prev => {
+              const next = { ...prev };
+              for (const id of ids) {
+                if (!next[id]) next[id] = 2;
+              }
+              return next;
+            });
+          }}
+        />
+      )}
+
       {/* PRINT BARCODE LABELS MODAL (Matching Image 1) */}
       {printWindowOpen && (
         <PrintLabelsWindowModal
@@ -644,6 +723,9 @@ function PrintBarcodesWorkspace({
           branchId={branchId}
           items={pickedProducts.length ? pickedProducts : pagedProducts.slice(0, 1)}
           initialCopiesById={quantitiesById}
+          savedSettings={savedSettings}
+          printerInfo={printerInfo}
+          onRefreshPrinters={loadPrinters}
           onCopiesChange={setQuantitiesById}
           onClose={() => setPrintWindowOpen(false)}
           onBarcodesGenerated={generated => {
@@ -666,6 +748,9 @@ function PrintLabelsWindowModal({
   branchId,
   items = [],
   initialCopiesById = {},
+  savedSettings = {},
+  printerInfo = { saved_printer: '', default_printer: '', printers: [], loading: false },
+  onRefreshPrinters,
   onCopiesChange,
   onClose,
   onBarcodesGenerated,
@@ -674,13 +759,90 @@ function PrintLabelsWindowModal({
   const [mode, setMode] = useState(items.length > 1 ? 'bulk' : 'single'); // 'single' | 'bulk'
   const [setupOpen, setSetupOpen] = useState(false);
 
-  // Label & Printer physical setup
-  const [labelW, setLabelW] = useState(50);
-  const [labelH, setLabelH] = useState(30);
-  const [across, setAcross] = useState(2);
-  const [rollW, setRollW] = useState(106);
+  const initialSetup = useMemo(() => {
+    const stored = readStoredLabelSetup() || {};
+    const dbPrinter = savedSettings?.label_printer_name || printerInfo?.saved_printer || '';
+    const resolvedPrinter =
+      dbPrinter ||
+      stored.label_printer_name ||
+      printerInfo?.default_printer ||
+      printerInfo?.printers?.[0] ||
+      '';
+    const rawDigits =
+      savedSettings?.label_show_digits !== undefined && savedSettings?.label_show_digits !== null
+        ? Number(savedSettings.label_show_digits) !== 0
+        : stored.label_show_digits ?? true;
+    return {
+      printer: resolvedPrinter,
+      w: Number(savedSettings?.label_width_mm || stored.label_width_mm || 50),
+      h: Number(savedSettings?.label_height_mm || stored.label_height_mm || 30),
+      across: Number(savedSettings?.label_across || stored.label_across || 2),
+      roll: Number(savedSettings?.label_roll_mm || stored.label_roll_mm || 106),
+      showDigits: Boolean(rawDigits),
+    };
+  }, [savedSettings, printerInfo?.saved_printer, printerInfo?.default_printer, printerInfo?.printers]);
+
+  // Label & Printer physical setup (auto-loaded & auto-saved on first print)
+  const [printerName, setPrinterName] = useState(initialSetup.printer);
+  const [labelW, setLabelW] = useState(initialSetup.w);
+  const [labelH, setLabelH] = useState(initialSetup.h);
+  const [across, setAcross] = useState(initialSetup.across);
+  const [rollW, setRollW] = useState(initialSetup.roll);
   const [zoom, setZoom] = useState(2); // 1, 1.5, 2, 3
-  const [showDigits, setShowDigits] = useState(true);
+  const [showDigits, setShowDigits] = useState(initialSetup.showDigits);
+  const [savingSetup, setSavingSetup] = useState(false);
+  const [setupStatus, setSetupStatus] = useState('');
+
+  // Auto-select default printer once Windows printer discovery finishes if none selected yet
+  useEffect(() => {
+    if (printerName) return;
+    const autoDefault =
+      savedSettings?.label_printer_name ||
+      printerInfo?.saved_printer ||
+      printerInfo?.default_printer ||
+      printerInfo?.printers?.[0] ||
+      '';
+    if (autoDefault) {
+      setPrinterName(autoDefault);
+    }
+  }, [printerName, savedSettings?.label_printer_name, printerInfo]);
+
+  const printerChoices = useMemo(() => {
+    const list = Array.isArray(printerInfo?.printers) ? [...printerInfo.printers] : [];
+    if (printerName && !list.includes(printerName)) {
+      list.unshift(printerName);
+    }
+    return list;
+  }, [printerInfo?.printers, printerName]);
+
+  const persistSetup = useCallback(
+    async (overrides = {}) => {
+      const payload = {
+        label_printer_name: overrides.printerName ?? printerName ?? '',
+        label_width_mm: Number(overrides.labelW ?? labelW) || 50,
+        label_height_mm: Number(overrides.labelH ?? labelH) || 30,
+        label_across: Number(overrides.across ?? across) || 2,
+        label_roll_mm: Number(overrides.rollW ?? rollW) || 106,
+        label_show_digits: overrides.showDigits ?? showDigits ? 1 : 0,
+      };
+      try {
+        localStorage.setItem(LABEL_SETUP_STORAGE_KEY, JSON.stringify(payload));
+      } catch {
+        // Ignore quota / privacy mode storage errors
+      }
+      setSavingSetup(true);
+      try {
+        await ctx.mutate('barcode.save_setup', payload);
+        setSetupStatus('Default saved');
+        setTimeout(() => setSetupStatus(''), 2500);
+      } catch {
+        // LocalStorage already holds the setup even if offline
+      } finally {
+        setSavingSetup(false);
+      }
+    },
+    [ctx, printerName, labelW, labelH, across, rollW, showDigits]
+  );
 
   // Single print selection
   const [activeId, setActiveId] = useState(() => items[0]?.id || 0);
@@ -779,7 +941,10 @@ function PrintLabelsWindowModal({
         }
       }
 
-      // 2. Log print event into barcode_print_logs
+      // 2. Auto-save selected printer & label setup as permanent default on print
+      await persistSetup();
+
+      // 3. Log print event into barcode_print_logs
       const logPayload = targetItems.map(p => ({
         product_id: p.id,
         copies: copiesById[p.id] ?? 2,
@@ -791,7 +956,7 @@ function PrintLabelsWindowModal({
       });
       onPrinted?.();
 
-      // 3. Mount print sheet & invoke browser print
+      // 4. Mount print sheet & invoke browser print
       setIsPrintSheetMounted(true);
       setTimeout(() => {
         window.print();
@@ -824,13 +989,18 @@ function PrintLabelsWindowModal({
             </Button>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '12.5px', color: '#475569' }}>
-              Labels <strong>{labelW} × {labelH} mm</strong> · <strong>{across} across</strong> · roll {rollW.toFixed(1)} mm
+              Printer: <strong>{printerName || 'System Default'}</strong> · Labels <strong>{labelW} × {labelH} mm</strong> · <strong>{across} across</strong> · roll {rollW.toFixed(1)} mm
             </span>
+            {setupStatus && (
+              <span style={{ fontSize: '12px', color: '#0d9488', fontWeight: 600 }}>
+                ✓ {setupStatus}
+              </span>
+            )}
             <Button
               icon={Settings2}
-              variant="outline"
+              variant={setupOpen ? 'primary' : 'outline'}
               onClick={() => setSetupOpen(v => !v)}
             >
               Printer &amp; label setup
@@ -840,8 +1010,52 @@ function PrintLabelsWindowModal({
 
         {/* Collapsible Printer & Label Setup Drawer */}
         {setupOpen && (
-          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px 14px' }}>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Printer Auto-Default Selector Row */}
+            <div style={{ display: 'flex', alignItems: 'end', gap: '10px', flexWrap: 'wrap' }}>
+              <div className="zk-pb-filter-item" style={{ flex: '1 1 280px' }}>
+                <label>
+                  Label Printer{' '}
+                  <span style={{ fontWeight: 400, color: '#64748b' }}>
+                    (Auto-selected default · auto-saves when you print)
+                  </span>
+                </label>
+                <select
+                  value={printerName}
+                  onChange={e => setPrinterName(e.target.value)}
+                >
+                  <option value="">
+                    {printerInfo?.default_printer
+                      ? `System Default (${printerInfo.default_printer})`
+                      : 'System Default Printer'}
+                  </option>
+                  {printerChoices.map(name => (
+                    <option key={name} value={name}>
+                      {name}
+                      {name === printerInfo?.default_printer ? ' (Windows Default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                icon={RefreshCw}
+                variant="outline"
+                onClick={() => onRefreshPrinters?.()}
+                disabled={Boolean(printerInfo?.loading)}
+              >
+                {printerInfo?.loading ? 'Scanning…' : 'Refresh printers'}
+              </Button>
+              <Button
+                icon={Check}
+                variant="outline"
+                onClick={() => persistSetup()}
+                disabled={savingSetup}
+              >
+                {savingSetup ? 'Saving…' : 'Save as default'}
+              </Button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {LABEL_PRESETS.map(pr => (
                 <button
                   key={pr.id}
@@ -1122,6 +1336,7 @@ function PrintLabelsWindowModal({
             }}
             aria-hidden="true"
           >
+            <style media="print">{`@page { size: ${rollW}mm ${labelH}mm; margin: 0; }`}</style>
             {stickers.map((st, idx) => {
               const printBarPx = Math.max(28, Math.round(labelH * 3.78 * (showDigits ? 0.44 : 0.52)));
               return (
@@ -1166,6 +1381,388 @@ function PrintLabelsWindowModal({
         <Button onClick={onClose}>Close</Button>
         <Button variant="primary" icon={Printer} onClick={handlePrint} disabled={printing || !stickers.length}>
           {printing ? 'Printing…' : `Print ${stickers.length} Label(s)`}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* =====================================================================
+   GENERATE BARCODES POPUP MODAL
+   Lists only items missing a barcode (never overwrites manufacturer barcodes).
+   Supports single-item 1-click generation OR bulk checkbox selection + generate.
+===================================================================== */
+function GenerateMissingBarcodesModal({
+  ctx,
+  products = [],
+  distinctBrands = [],
+  onClose,
+  onBarcodesGenerated,
+  onAddToPrintQueue,
+}) {
+  const [query, setQuery] = useState('');
+  const [department, setDepartment] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [generatedMap, setGeneratedMap] = useState({});
+  const [busyIds, setBusyIds] = useState({});
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const modalPageSize = 25;
+
+  // Keep items missing a barcode PLUS items generated during this popup session so user sees the saved ZD code
+  const eligibleProducts = useMemo(
+    () => products.filter(p => !p.effectiveBarcode || Boolean(generatedMap[p.id])),
+    [products, generatedMap]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return eligibleProducts.filter(p => {
+      if (department && p.category !== department) return false;
+      if (brandFilter && (p.brand || '') !== brandFilter) return false;
+      if (q) {
+        const hay = `${p.name} ${p.sku} ${p.brand || ''} ${p.category || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [eligibleProducts, department, brandFilter, query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, department, brandFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / modalPageSize));
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * modalPageSize, page * modalPageSize),
+    [filtered, page]
+  );
+
+  const ungeneratedFiltered = useMemo(
+    () => filtered.filter(p => !p.effectiveBarcode && !generatedMap[p.id]),
+    [filtered, generatedMap]
+  );
+  const ungeneratedOnPage = useMemo(
+    () => paged.filter(p => !p.effectiveBarcode && !generatedMap[p.id]),
+    [paged, generatedMap]
+  );
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const generatedIds = useMemo(
+    () => Object.keys(generatedMap).map(Number),
+    [generatedMap]
+  );
+
+  const toggleOne = id => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllOnPage = () => {
+    const pageIds = ungeneratedOnPage.map(p => p.id);
+    if (!pageIds.length) return;
+    const allSelected = pageIds.every(id => selectedSet.has(id));
+    setSelectedIds(prev => {
+      if (allSelected) {
+        return prev.filter(id => !pageIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...pageIds]));
+    });
+  };
+
+  const selectAllFilteredMissing = () => {
+    const ids = ungeneratedFiltered.map(p => p.id);
+    setSelectedIds(prev => Array.from(new Set([...prev, ...ids])));
+  };
+
+  const handleGenerateIds = async idsToGenerate => {
+    const cleanIds = idsToGenerate.filter(id => !generatedMap[id]);
+    if (!cleanIds.length) return;
+
+    const isBulk = cleanIds.length > 1;
+    if (isBulk) {
+      setBulkBusy(true);
+    } else {
+      setBusyIds(prev => ({ ...prev, [cleanIds[0]]: true }));
+    }
+
+    try {
+      const res = await ctx.mutate('barcode.bulk', { product_ids: cleanIds });
+      const returned = res?.products || [];
+      if (returned.length > 0) {
+        const nextMap = {};
+        for (const item of returned) {
+          nextMap[item.id] = item.barcode;
+        }
+        setGeneratedMap(prev => ({ ...prev, ...nextMap }));
+        onBarcodesGenerated?.(nextMap);
+        setSelectedIds(prev => prev.filter(id => !nextMap[id]));
+        ctx.setNotice?.(`Generated & saved ${returned.length} internal ZD barcode(s).`);
+      } else {
+        ctx.setNotice?.('No missing-barcode items updated.');
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to generate barcodes.');
+    } finally {
+      if (isBulk) {
+        setBulkBusy(false);
+      } else {
+        setBusyIds(prev => {
+          const copy = { ...prev };
+          delete copy[cleanIds[0]];
+          return copy;
+        });
+      }
+    }
+  };
+
+  const allPageSelected =
+    ungeneratedOnPage.length > 0 && ungeneratedOnPage.every(p => selectedSet.has(p.id));
+
+  return (
+    <Modal
+      title="Generate Internal Barcodes (ZDXXXXXXX)"
+      onClose={() => onClose(generatedIds.length > 0)}
+      xl={true}
+    >
+      <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div
+          style={{
+            background: '#f0fdfa',
+            border: '1px solid #99f6e4',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            fontSize: '12.5px',
+            color: '#115e59',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          <span>
+            Only physical items <strong>without an existing barcode</strong> are listed here. Manufacturer barcodes are never overwritten.
+          </span>
+          <strong>
+            {ungeneratedFiltered.length} missing · {selectedIds.length} selected
+            {generatedIds.length > 0 ? ` · ${generatedIds.length} generated & saved` : ''}
+          </strong>
+        </div>
+
+        {/* Filters */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px' }}>
+          <div className="zk-pb-filter-item">
+            <label>Search missing items</label>
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Item name, item code (SKU), or brand..."
+            />
+          </div>
+          <div className="zk-pb-filter-item">
+            <label>Department</label>
+            <select value={department} onChange={e => setDepartment(e.target.value)}>
+              <option value="">All departments</option>
+              {productCategories
+                .filter(c => c !== 'Services')
+                .map(c => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="zk-pb-filter-item">
+            <label>Brand / Supplier</label>
+            <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}>
+              <option value="">All brands</option>
+              {distinctBrands.map(b => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Quick Single/Bulk Selection Actions */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <Button
+              size="small"
+              variant="outline"
+              onClick={toggleAllOnPage}
+              disabled={!ungeneratedOnPage.length || bulkBusy}
+            >
+              {allPageSelected ? `Unselect Page (${ungeneratedOnPage.length})` : `Select Page (${ungeneratedOnPage.length})`}
+            </Button>
+            <Button
+              size="small"
+              variant="outline"
+              onClick={selectAllFilteredMissing}
+              disabled={!ungeneratedFiltered.length || bulkBusy}
+            >
+              Select All Missing ({ungeneratedFiltered.length})
+            </Button>
+            {selectedIds.length > 0 && (
+              <Button
+                size="small"
+                variant="outline"
+                onClick={() => setSelectedIds([])}
+                disabled={bulkBusy}
+              >
+                Clear ({selectedIds.length})
+              </Button>
+            )}
+          </div>
+
+          {generatedIds.length > 0 && (
+            <Button
+              size="small"
+              variant="secondary"
+              icon={Printer}
+              onClick={() => {
+                onAddToPrintQueue?.(generatedIds);
+                onClose(true);
+              }}
+            >
+              Add {generatedIds.length} Generated to Print Queue
+            </Button>
+          )}
+        </div>
+
+        {/* Items Table */}
+        <div style={{ border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden', maxHeight: '380px', overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+              <tr style={{ background: '#0f766e', color: '#ffffff', textAlign: 'left' }}>
+                <th style={{ padding: '9px 10px', width: '36px', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    disabled={!ungeneratedOnPage.length || bulkBusy}
+                    onChange={toggleAllOnPage}
+                    title="Select or unselect all on this page"
+                  />
+                </th>
+                <th style={{ padding: '9px 10px' }}>Item</th>
+                <th style={{ padding: '9px 10px' }}>Item Code</th>
+                <th style={{ padding: '9px 10px' }}>Department</th>
+                <th style={{ padding: '9px 10px' }}>Price</th>
+                <th style={{ padding: '9px 10px' }}>Barcode Status</th>
+                <th style={{ padding: '9px 10px', textAlign: 'right' }}>Single Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: '28px 14px', textAlign: 'center', color: '#64748b' }}>
+                    {products.filter(p => !p.effectiveBarcode).length === 0 && generatedIds.length === 0
+                      ? 'All physical items already have a barcode!'
+                      : 'No items match the current search/filter.'}
+                  </td>
+                </tr>
+              ) : (
+                paged.map(p => {
+                  const newCode = generatedMap[p.id] || p.effectiveBarcode;
+                  const isGenerated = Boolean(newCode);
+                  const isChecked = !isGenerated && selectedSet.has(p.id);
+                  const isRowBusy = bulkBusy || Boolean(busyIds[p.id]);
+
+                  return (
+                    <tr
+                      key={p.id}
+                      style={{
+                        borderBottom: '1px solid #f1f5f9',
+                        background: isGenerated ? '#f0fdf4' : isChecked ? '#f0fdfa' : '#ffffff',
+                      }}
+                    >
+                      <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={isGenerated || isRowBusy}
+                          onChange={() => toggleOne(p.id)}
+                        />
+                      </td>
+                      <td
+                        style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a', cursor: isGenerated ? 'default' : 'pointer' }}
+                        onClick={() => !isGenerated && !isRowBusy && toggleOne(p.id)}
+                      >
+                        {p.name}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: '#475569' }}>
+                        {p.sku}
+                      </td>
+                      <td style={{ padding: '8px 10px', color: '#475569' }}>
+                        {p.category || '—'}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontWeight: 700 }}>
+                        {money(p.price)}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        {isGenerated ? (
+                          <Badge tone="mint">{newCode} · Saved</Badge>
+                        ) : (
+                          <Badge tone="amber">No Barcode</Badge>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                        {isGenerated ? (
+                          <span style={{ color: '#0d9488', fontWeight: 700, fontSize: '12px' }}>✓ Done</span>
+                        ) : (
+                          <Button
+                            size="small"
+                            variant="outline"
+                            icon={Sparkles}
+                            disabled={isRowBusy}
+                            onClick={() => handleGenerateIds([p.id])}
+                          >
+                            {busyIds[p.id] ? 'Saving…' : 'Generate'}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Modal Pagination */}
+        {filtered.length > modalPageSize && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#475569' }}>
+            <span>
+              Page <strong>{page}</strong> of <strong>{totalPages}</strong> ({filtered.length} items)
+            </span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <Button size="small" variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                Previous
+              </Button>
+              <Button size="small" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="modal-footer">
+        <Button onClick={() => onClose(generatedIds.length > 0)}>Close</Button>
+        <Button
+          variant="primary"
+          icon={Sparkles}
+          disabled={selectedIds.length === 0 || bulkBusy}
+          onClick={() => handleGenerateIds(selectedIds)}
+        >
+          {bulkBusy
+            ? 'Generating & Saving…'
+            : `Generate Selected (${selectedIds.length})`}
         </Button>
       </div>
     </Modal>

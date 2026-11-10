@@ -56,4 +56,12 @@ class InventoryController {
     public static function getBarcodePrintStats(int $branch): array {
         return InventoryService::getBarcodePrintStats($branch);
     }
+
+    public static function getInstalledPrinters(): array {
+        return InventoryService::getInstalledPrinters();
+    }
+
+    public static function saveLabelSetup(array $body): array {
+        return InventoryService::saveLabelSetup($body);
+    }
 }

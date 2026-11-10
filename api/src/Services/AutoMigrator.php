@@ -227,6 +227,24 @@ class AutoMigrator
                 if (!in_array('show_tax_on_receipt', $colNames, true)) {
                     $db->exec("ALTER TABLE settings ADD COLUMN show_tax_on_receipt INTEGER NOT NULL DEFAULT 1");
                 }
+                if (!in_array('label_printer_name', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_printer_name TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('label_width_mm', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_width_mm INTEGER NOT NULL DEFAULT 50");
+                }
+                if (!in_array('label_height_mm', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_height_mm INTEGER NOT NULL DEFAULT 30");
+                }
+                if (!in_array('label_across', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_across INTEGER NOT NULL DEFAULT 2");
+                }
+                if (!in_array('label_roll_mm', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_roll_mm INTEGER NOT NULL DEFAULT 106");
+                }
+                if (!in_array('label_show_digits', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_show_digits INTEGER NOT NULL DEFAULT 1");
+                }
 
                 $branchCols = $db->query("PRAGMA table_info(branches)")->fetchAll();
                 $branchColNames = array_column($branchCols, 'name');
@@ -259,6 +277,15 @@ class AutoMigrator
                 if (empty($bCols)) {
                     $db->exec("ALTER TABLE branches ADD COLUMN phone VARCHAR(50) NOT NULL DEFAULT ''");
                     $db->exec("ALTER TABLE branches ADD COLUMN address VARCHAR(255) NOT NULL DEFAULT ''");
+                }
+                $lpCols = $db->query("SHOW COLUMNS FROM settings LIKE 'label_printer_name'")->fetchAll();
+                if (empty($lpCols)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_printer_name VARCHAR(150) NOT NULL DEFAULT ''");
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_width_mm INT NOT NULL DEFAULT 50");
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_height_mm INT NOT NULL DEFAULT 30");
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_across INT NOT NULL DEFAULT 2");
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_roll_mm INT NOT NULL DEFAULT 106");
+                    $db->exec("ALTER TABLE settings ADD COLUMN label_show_digits TINYINT(1) NOT NULL DEFAULT 1");
                 }
             }
         } catch (Throwable) {

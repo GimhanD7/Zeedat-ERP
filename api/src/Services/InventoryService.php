@@ -331,4 +331,72 @@ class InventoryService {
         }
         return $map;
     }
+
+    public static function getInstalledPrinters(): array {
+        $savedPrinter = trim((string) (BaseRepository::scalar('SELECT label_printer_name FROM settings WHERE id=1') ?? ''));
+        $defaultPrinter = '';
+        $printers = [];
+
+        if (PHP_OS_FAMILY === 'Windows' && function_exists('exec')) {
+            $ps = 'Add-Type -AssemblyName System.Drawing; '
+                . '$def = (New-Object System.Drawing.Printing.PrinterSettings).PrinterName; '
+                . '$list = @([System.Drawing.Printing.PrinterSettings]::InstalledPrinters); '
+                . '@{ default_printer = $def; printers = $list } | ConvertTo-Json -Compress';
+            $out = [];
+            $code = 0;
+            @exec('powershell -NoProfile -ExecutionPolicy Bypass -Command "' . $ps . '" 2>nul', $out, $code);
+            $raw = trim(implode("\n", $out));
+            if ($code === 0 && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $defaultPrinter = trim((string) ($decoded['default_printer'] ?? ''));
+                    $rawList = $decoded['printers'] ?? [];
+                    if (is_string($rawList)) {
+                        $rawList = [$rawList];
+                    }
+                    if (is_array($rawList)) {
+                        foreach ($rawList as $name) {
+                            $n = trim((string) $name);
+                            if ($n !== '' && !in_array($n, $printers, true)) {
+                                $printers[] = $n;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($defaultPrinter !== '' && !in_array($defaultPrinter, $printers, true)) {
+            array_unshift($printers, $defaultPrinter);
+        }
+
+        return [
+            'saved_printer' => $savedPrinter,
+            'default_printer' => $defaultPrinter,
+            'printers' => $printers,
+        ];
+    }
+
+    public static function saveLabelSetup(array $body): array {
+        $printerName = trim(substr((string) ($body['label_printer_name'] ?? ''), 0, 255));
+        $labelW = max(20, min(120, (int) ($body['label_width_mm'] ?? 50)));
+        $labelH = max(15, min(100, (int) ($body['label_height_mm'] ?? 30)));
+        $across = max(1, min(4, (int) ($body['label_across'] ?? 2)));
+        $rollW = max(30, min(220, (int) ($body['label_roll_mm'] ?? 106)));
+        $showDigits = !empty($body['label_show_digits']) ? 1 : 0;
+
+        BaseRepository::run(
+            'UPDATE settings SET label_printer_name=?, label_width_mm=?, label_height_mm=?, label_across=?, label_roll_mm=?, label_show_digits=? WHERE id=1',
+            [$printerName, $labelW, $labelH, $across, $rollW, $showDigits]
+        );
+
+        return [
+            'label_printer_name' => $printerName,
+            'label_width_mm' => $labelW,
+            'label_height_mm' => $labelH,
+            'label_across' => $across,
+            'label_roll_mm' => $rollW,
+            'label_show_digits' => $showDigits,
+        ];
+    }
 }
