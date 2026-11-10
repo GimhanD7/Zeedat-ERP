@@ -28,8 +28,11 @@ class Idempotency {
 
         return BaseRepository::transaction(function () use ($user, $key, $fingerprint, $handler) {
             $result = $handler();
+            $sql = \Zeedat\Config\Database::isSqlite()
+                ? 'INSERT INTO requests(user_id, request_id, fingerprint, response) VALUES (?,?,?,?) ON CONFLICT(user_id, request_id) DO UPDATE SET response=excluded.response'
+                : 'INSERT INTO requests(user_id, request_id, fingerprint, response) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE response=VALUES(response)';
             BaseRepository::run(
-                'INSERT INTO requests(user_id, request_id, fingerprint, response) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE response=VALUES(response)',
+                $sql,
                 [$user['id'], $key, $fingerprint, json_encode($result, JSON_THROW_ON_ERROR)]
             );
             return $result;

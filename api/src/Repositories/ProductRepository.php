@@ -56,7 +56,10 @@ class ProductRepository extends BaseRepository {
     }
 
     public static function adjustStock(int $branch, int $productId, int $delta, string $kind, ?string $reference = null, int $userId = 1): void {
-        self::run('INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)', [$branch, $productId, $delta]);
+        $stockSql = \Zeedat\Config\Database::isSqlite()
+            ? 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON CONFLICT(branch_id, product_id) DO UPDATE SET qty=stock.qty+excluded.qty'
+            : 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)';
+        self::run($stockSql, [$branch, $productId, $delta]);
         self::run(
             'INSERT INTO stock_movements(branch_id, product_id, user_id, qty, kind, reference) VALUES (?,?,?,?,?,?)',
             [$branch, $productId, $userId, $delta, $kind, $reference ?? '']

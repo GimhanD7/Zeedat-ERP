@@ -155,8 +155,103 @@ class AdminController {
             throw new ApiError('Paper width must be 58 or 80 mm.');
         }
 
-        UserRepository::updateSettings($shopName, $taxBps, $paperWidth);
+        $shopPhone = Validator::str($body, 'shop_phone', 50, false) ?: '';
+        $shopAddress = Validator::str($body, 'shop_address', 250, false) ?: '';
+        $shopEmail = Validator::str($body, 'shop_email', 120, false) ?: '';
+        $receiptFooter = Validator::str($body, 'receipt_footer', 250, false) ?: '';
+        $invoicePrefix = Validator::str($body, 'invoice_prefix', 20, false) ?: 'INV-';
+        $autoPrint = !empty($body['auto_print']) ? 1 : 0;
+        $showTax = !empty($body['show_tax_on_receipt']) ? 1 : 0;
 
-        return ['shop_name' => $shopName, 'tax_bps' => $taxBps, 'paper_width' => $paperWidth];
+        UserRepository::updateSettings(
+            $shopName,
+            $taxBps,
+            $paperWidth,
+            $shopPhone,
+            $shopAddress,
+            $shopEmail,
+            $receiptFooter,
+            $invoicePrefix,
+            $autoPrint,
+            $showTax
+        );
+
+        return [
+            'shop_name' => $shopName,
+            'tax_bps' => $taxBps,
+            'paper_width' => $paperWidth,
+            'shop_phone' => $shopPhone,
+            'shop_address' => $shopAddress,
+            'shop_email' => $shopEmail,
+            'receipt_footer' => $receiptFooter,
+            'invoice_prefix' => $invoicePrefix,
+            'auto_print' => $autoPrint,
+            'show_tax_on_receipt' => $showTax,
+        ];
+    }
+
+    public static function getBranchesSummary(): array {
+        return BaseRepository::rows("SELECT 
+            b.id,
+            b.name,
+            COALESCE(b.phone, '') AS phone,
+            COALESCE(b.address, '') AS address,
+            (SELECT COUNT(*) FROM users u WHERE u.branch_id = b.id AND u.active = 1) AS staff_count,
+            (SELECT COALESCE(SUM(s.qty), 0) FROM stock s WHERE s.branch_id = b.id) AS stock_units,
+            (SELECT COUNT(*) FROM sales sl WHERE sl.branch_id = b.id) AS sales_count
+            FROM branches b
+            ORDER BY b.id");
+    }
+
+    public static function saveBranch(array $user, array $body): array {
+        if ($user['role'] !== 'owner') {
+            throw new ApiError('Only the Owner can create or modify store branches.', 403);
+        }
+
+        $id = empty($body['id']) ? null : Validator::integer($body['id'], 'Branch');
+        $name = Validator::str($body, 'name', 100);
+        $phone = Validator::str($body, 'phone', 50, false) ?: '';
+        $address = Validator::str($body, 'address', 250, false) ?: '';
+
+        if ($id) {
+            BaseRepository::run(
+                'UPDATE branches SET name=?, phone=?, address=? WHERE id=?',
+                [$name, $phone, $address, $id]
+            );
+            UserRepository::logAudit((int) $user['id'], $id, 'branch.update', ['id' => $id, 'name' => $name]);
+        } else {
+            $id = BaseRepository::insert(
+                'INSERT INTO branches(name, phone, address) VALUES (?,?,?)',
+                [$name, $phone, $address]
+            );
+            UserRepository::logAudit((int) $user['id'], $id, 'branch.create', ['id' => $id, 'name' => $name]);
+        }
+
+        return ['id' => $id, 'name' => $name, 'phone' => $phone, 'address' => $address];
+    }
+
+    public static function changePassword(array $user, array $body): array {
+        $current = (string) ($body['current_password'] ?? '');
+        $next = (string) ($body['new_password'] ?? '');
+
+        if ($current === '') {
+            throw new ApiError('Current password is required.');
+        }
+        if (strlen($next) < 6) {
+            throw new ApiError('New password must be at least 6 characters.');
+        }
+
+        $row = BaseRepository::one('SELECT password_hash FROM users WHERE id=?', [$user['id']]);
+        if (!$row || !password_verify($current, $row['password_hash'])) {
+            throw new ApiError('Current password is incorrect.', 403);
+        }
+
+        BaseRepository::run(
+            'UPDATE users SET password_hash=? WHERE id=?',
+            [password_hash($next, PASSWORD_DEFAULT), $user['id']]
+        );
+        UserRepository::logAudit((int) $user['id'], null, 'profile.password', ['status' => 'changed']);
+
+        return ['message' => 'Your password has been updated successfully.'];
     }
 }

@@ -67,14 +67,37 @@ class UserRepository extends BaseRepository {
     }
 
     public static function getSettings(): array {
-        return self::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $row = self::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $row['db_driver'] = \Zeedat\Config\Database::getDriver();
+        return $row;
     }
 
-    public static function updateSettings(string $shopName, int $taxBps, int $paperWidth): void {
-        self::run('UPDATE settings SET shop_name=?, tax_bps=?, paper_width=? WHERE id=1', [
-            $shopName,
-            $taxBps,
-            $paperWidth,
-        ]);
+    public static function updateSettings(
+        string $shopName,
+        int $taxBps,
+        int $paperWidth,
+        string $shopPhone = '',
+        string $shopAddress = '',
+        string $shopEmail = '',
+        string $receiptFooter = '',
+        string $invoicePrefix = 'INV-',
+        int $autoPrint = 1,
+        int $showTaxOnReceipt = 1
+    ): void {
+        self::run(
+            'UPDATE settings SET shop_name=?, tax_bps=?, paper_width=?, shop_phone=?, shop_address=?, shop_email=?, receipt_footer=?, invoice_prefix=?, auto_print=?, show_tax_on_receipt=? WHERE id=1',
+            [
+                $shopName,
+                $taxBps,
+                $paperWidth,
+                $shopPhone,
+                $shopAddress,
+                $shopEmail,
+                $receiptFooter,
+                $invoicePrefix,
+                $autoPrint,
+                $showTaxOnReceipt,
+            ]
+        );
     }
 }

@@ -31,6 +31,10 @@ A branch-scoped retail and repair application with a React frontend, a PHP JSON 
 
    With XAMPP Apache and `mod_rewrite` enabled, the built app is also available under [http://localhost/Zeedat-ERP/](http://localhost/Zeedat-ERP/). Apache must allow the included `.htaccess` rules. For a deployment, serve the compiled frontend and `api/index.php` over HTTPS and keep the schema, local data and toccccccccccccccccccccccccccccccccccccccccccccccccccoling private.
 
+## Deploy to Namecheap
+
+See [Namecheap deployment setup](deploy/README.md) to connect GitHub Actions to a dedicated cPanel document root.
+
 ## Workflows
 
 - Owner and branch dashboards with sales, payment, credit, stock and repair metrics.

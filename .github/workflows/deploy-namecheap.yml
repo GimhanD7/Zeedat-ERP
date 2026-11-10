@@ -1,0 +1,76 @@
+name: Build and deploy to Namecheap
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zeedat-namecheap-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npm run build
+      - name: Check PHP and publish script
+        run: |
+          find api deploy -name '*.php' -type f -print0 | xargs -0 -n 1 php -l
+          php -l database/setup.php
+          bash -n deploy/publish.sh
+      - name: Deploy over SSH
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.NAMECHEAP_DEPLOY_ENABLED == 'true'
+        env:
+          HOST: ${{ vars.NAMECHEAP_HOST }}
+          PORT: ${{ vars.NAMECHEAP_PORT || '21098' }}
+          SSH_USER: ${{ vars.NAMECHEAP_USER }}
+          WEB_ROOT: ${{ vars.NAMECHEAP_WEB_ROOT }}
+          SITE_URL: ${{ vars.NAMECHEAP_SITE_URL }}
+          SSH_KEY: ${{ secrets.NAMECHEAP_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.NAMECHEAP_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ $HOST =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]]
+          [[ $PORT =~ ^[0-9]{1,5}$ ]]
+          [[ $SSH_USER =~ ^[a-zA-Z0-9_]+$ ]]
+          [[ $WEB_ROOT =~ ^/[a-zA-Z0-9_./-]+$ ]]
+          [[ $SITE_URL =~ ^https://[a-zA-Z0-9.-]+/?$ ]]
+          : "${SSH_KEY:?Set the NAMECHEAP_SSH_KEY secret}"
+          : "${KNOWN_HOSTS:?Set the NAMECHEAP_KNOWN_HOSTS secret}"
+
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
+          release_id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          archive="$ssh_dir/release.tar.gz"
+          tar -czf "$archive" dist api/src api/public/index.php database/setup.php deploy/hosted-api.php deploy/hosted-config.php
+
+          ssh -p "$PORT" -i "$ssh_dir/key" \
+            -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
+            "$SSH_USER@$HOST" "bash -c $(printf '%q' "$(cat deploy/publish.sh)") publish '$WEB_ROOT' '$release_id'" < "$archive"
+
+          url="${SITE_URL%/}"
+          curl --fail --silent --show-error --max-time 20 "$url/" --output /dev/null
+          curl --fail --silent --show-error --max-time 20 "$url/api/index.php?route=session" |
+            jq -e 'has("user") and has("csrf")' > /dev/null

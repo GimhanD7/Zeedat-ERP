@@ -24,6 +24,8 @@ abstract class BaseRepository {
             $sql = preg_replace('/\s+SEPARATOR\s+/i', ', ', $sql);
             // Remove MySQL table options like ENGINE=InnoDB
             $sql = preg_replace('/\s+ENGINE\s*=\s*\w+/i', '', $sql);
+            // Replace MySQL CAST(... AS UNSIGNED) with SQLite CAST(... AS INTEGER)
+            $sql = preg_replace('/\bAS\s+UNSIGNED\b/i', 'AS INTEGER', $sql);
         }
 
         $stmt = self::db()->prepare($sql);

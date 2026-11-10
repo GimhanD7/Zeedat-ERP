@@ -206,6 +206,36 @@ class AutoMigrator
                 if (!in_array('last_synced_at', $colNames, true)) {
                     $db->exec("ALTER TABLE settings ADD COLUMN last_synced_at TEXT NULL");
                 }
+                if (!in_array('shop_phone', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_phone TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('shop_address', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_address TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('shop_email', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_email TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('receipt_footer', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN receipt_footer TEXT NOT NULL DEFAULT 'Thank you for your business! Please retain this receipt for warranty.'");
+                }
+                if (!in_array('invoice_prefix', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN invoice_prefix TEXT NOT NULL DEFAULT 'INV-'");
+                }
+                if (!in_array('auto_print', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN auto_print INTEGER NOT NULL DEFAULT 1");
+                }
+                if (!in_array('show_tax_on_receipt', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN show_tax_on_receipt INTEGER NOT NULL DEFAULT 1");
+                }
+
+                $branchCols = $db->query("PRAGMA table_info(branches)")->fetchAll();
+                $branchColNames = array_column($branchCols, 'name');
+                if (!in_array('phone', $branchColNames, true)) {
+                    $db->exec("ALTER TABLE branches ADD COLUMN phone TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('address', $branchColNames, true)) {
+                    $db->exec("ALTER TABLE branches ADD COLUMN address TEXT NOT NULL DEFAULT ''");
+                }
             } else {
                 $cols = $db->query("SHOW COLUMNS FROM settings LIKE 'cloud_backup_url'")->fetchAll();
                 if (empty($cols)) {
@@ -214,6 +244,21 @@ class AutoMigrator
                     $db->exec("ALTER TABLE settings ADD COLUMN auto_sync_enabled TINYINT(1) NOT NULL DEFAULT 1");
                     $db->exec("ALTER TABLE settings ADD COLUMN sync_interval_minutes INT NOT NULL DEFAULT 15");
                     $db->exec("ALTER TABLE settings ADD COLUMN last_synced_at TIMESTAMP NULL");
+                }
+                $extCols = $db->query("SHOW COLUMNS FROM settings LIKE 'shop_phone'")->fetchAll();
+                if (empty($extCols)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_phone VARCHAR(50) NOT NULL DEFAULT ''");
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_address VARCHAR(255) NOT NULL DEFAULT ''");
+                    $db->exec("ALTER TABLE settings ADD COLUMN shop_email VARCHAR(120) NOT NULL DEFAULT ''");
+                    $db->exec("ALTER TABLE settings ADD COLUMN receipt_footer VARCHAR(255) NOT NULL DEFAULT 'Thank you for your business! Please retain this receipt for warranty.'");
+                    $db->exec("ALTER TABLE settings ADD COLUMN invoice_prefix VARCHAR(20) NOT NULL DEFAULT 'INV-'");
+                    $db->exec("ALTER TABLE settings ADD COLUMN auto_print TINYINT(1) NOT NULL DEFAULT 1");
+                    $db->exec("ALTER TABLE settings ADD COLUMN show_tax_on_receipt TINYINT(1) NOT NULL DEFAULT 1");
+                }
+                $bCols = $db->query("SHOW COLUMNS FROM branches LIKE 'phone'")->fetchAll();
+                if (empty($bCols)) {
+                    $db->exec("ALTER TABLE branches ADD COLUMN phone VARCHAR(50) NOT NULL DEFAULT ''");
+                    $db->exec("ALTER TABLE branches ADD COLUMN address VARCHAR(255) NOT NULL DEFAULT ''");
                 }
             }
         } catch (Throwable) {

@@ -2664,6 +2664,114 @@
   font-weight: 800;
 }
 
+/* =====================================================================
+   ZEEDAT POS - MODERN SETTINGS & PREFERENCES STYLES
+===================================================================== */
+.zk-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .zk-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-settings-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.zk-paper-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.zk-paper-option {
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.zk-paper-option.active {
+  border-color: #0d9488;
+  background: #f0fdfa;
+}
+
+.zk-receipt-preview-box {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.zk-thermal-paper {
+  background: #ffffff;
+  color: #0f172a;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 16px 14px;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  border-top: 4px dashed #cbd5e1;
+  border-bottom: 4px dashed #cbd5e1;
+  font-size: 11.5px;
+  line-height: 1.4;
+  transition: width 0.2s ease;
+}
+
+.zk-thermal-paper.w58 {
+  width: 225px;
+}
+
+.zk-thermal-paper.w80 {
+  width: 295px;
+}
+
+.zk-branches-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.zk-branch-tile {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zk-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+
 
 
 

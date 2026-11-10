@@ -117,8 +117,9 @@ class Database {
             self::$connection->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
 
             // Automatically check and run migrations if tables are missing
-            \Zeedat\Services\AutoMigrator::run(self::$connection, 'mysql');
-        } catch (Throwable $e) {
+            if (self::env('DB_AUTO_MIGRATE', '1') !== '0') {
+                \Zeedat\Services\AutoMigrator::run(self::$connection, 'mysql');
+            }
         } catch (Throwable $e) {
             // If MySQL fails and local SQLite exists, fallback to SQLite
             if (file_exists(self::getSqlitePath())) {
