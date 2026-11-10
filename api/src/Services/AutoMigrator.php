@@ -311,5 +311,32 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure barcode_print_logs table exists
+        try {
+            if ($driver === 'sqlite') {
+                $db->exec("CREATE TABLE IF NOT EXISTS barcode_print_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    branch_id INTEGER NOT NULL DEFAULT 0,
+                    product_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    copies INTEGER NOT NULL DEFAULT 1,
+                    price INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )");
+            } else {
+                $db->exec("CREATE TABLE IF NOT EXISTS barcode_print_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    branch_id INT NOT NULL DEFAULT 0,
+                    product_id INT NOT NULL,
+                    user_id INT NOT NULL DEFAULT 1,
+                    copies INT NOT NULL DEFAULT 1,
+                    price BIGINT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX(product_id, branch_id)
+                ) ENGINE=InnoDB");
+            }
+        } catch (Throwable) {
+        }
     }
 }

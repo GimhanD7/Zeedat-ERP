@@ -537,8 +537,10 @@ export function Inventory({ ctx }) {
                                   <Barcode size={13} />
                                   <span>{r.barcode}</span>
                                 </button>
-                                {isZd && (
+                                {isZd ? (
                                   <Badge tone="mint">Internal</Badge>
+                                ) : (
+                                  <Badge tone="blue">Manufacturer</Badge>
                                 )}
                               </div>
                             );

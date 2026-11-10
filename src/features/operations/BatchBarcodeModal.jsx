@@ -213,16 +213,6 @@ export function BatchBarcodeModal({
     await runBulkGenerate(missingSelected, false);
   };
 
-  const handleAssignZdAllSelected = async () => {
-    const targetIds = effectiveProducts
-      .filter(p => selectedIds.has(p.id) && !String(p.effectiveBarcode).startsWith('ZD'))
-      .map(p => p.id);
-
-    const idsToRun = targetIds.length > 0 ? targetIds : Array.from(selectedIds);
-    if (!idsToRun.length) return;
-    await runBulkGenerate(idsToRun, true);
-  };
-
   const handleGenerateSingle = async productId => {
     if (!onUpdateSingleBarcode) return;
     setSavingId(productId);
@@ -356,18 +346,6 @@ export function BatchBarcodeModal({
                 {generating
                   ? 'Saving ZD Barcodes…'
                   : `Generate & Auto-Save ZD (${missingBarcodeSelectedCount})`}
-              </Button>
-            )}
-
-            {selectedIds.size > 0 && nonZdSelectedCount > 0 && (
-              <Button
-                icon={Sparkles}
-                variant="secondary"
-                disabled={generating}
-                onClick={handleAssignZdAllSelected}
-                title="Convert selected items to ZDXXXXXXX barcodes and auto-save"
-              >
-                Assign ZD to Selected ({nonZdSelectedCount})
               </Button>
             )}
 
@@ -541,17 +519,21 @@ export function BatchBarcodeModal({
                           />
                         </td>
                         <td>
-                          {!isZd && (
+                          {!p.effectiveBarcode ? (
                             <Button
                               size="small"
                               variant="secondary"
                               icon={isRowBusy ? RefreshCw : Sparkles}
                               disabled={isRowBusy || generating}
-                              title="Generate & auto-save ZDXXXXXXX barcode"
+                              title="Generate & auto-save ZDXXXXXXX internal barcode"
                               onClick={() => handleGenerateSingle(p.id)}
                             >
                               {isRowBusy ? '…' : 'Gen ZD'}
                             </Button>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                              {isZd ? 'Internal' : 'Manufacturer'}
+                            </span>
                           )}
                         </td>
                       </tr>

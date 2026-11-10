@@ -16,7 +16,7 @@ const CODE128_PATTERNS = [
 
 export function encodeCode128B(text) {
   if (!text) return null;
-  const clean = String(text).trim();
+  const clean = String(text).replace(/[^\x20-\x7E]/g, '').trim();
   if (!clean) return null;
 
   const codes = [104]; // Start B
@@ -59,7 +59,7 @@ export function BarcodeSvg({
   height = 42,
   showText = true,
   className = '',
-  barColor = '#111827',
+  barColor = '#000000',
 }) {
   const result = useMemo(() => encodeCode128B(value), [value]);
 
@@ -74,11 +74,14 @@ export function BarcodeSvg({
   const svgHeight = showText ? height + 16 : height;
 
   return (
-    <div className={`barcode-container ${className}`}>
+    <div className={`barcode-container ${className}`} style={{ width: '100%' }}>
       <svg
+        width={result.totalWidth}
+        height={svgHeight}
         viewBox={`0 0 ${result.totalWidth} ${svgHeight}`}
         className="barcode-svg"
-        preserveAspectRatio="xMidYMid meet"
+        style={{ width: '100%', height: `${svgHeight}px`, display: 'block' }}
+        preserveAspectRatio={showText ? 'xMidYMid meet' : 'none'}
         role="img"
         aria-label={`Barcode: ${result.text}`}
       >
@@ -87,7 +90,7 @@ export function BarcodeSvg({
           <rect
             key={i}
             x={bar.x}
-            y={2}
+            y={showText ? 2 : 0}
             width={bar.width}
             height={height}
             fill={barColor}

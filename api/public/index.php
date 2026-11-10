@@ -90,7 +90,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'barcode.bulk', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'barcode.bulk', 'barcode.log_print', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -149,6 +149,11 @@ try {
                 'barcode.bulk' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::bulkGenerateBarcodes($body);
+                })(),
+                'barcode.log_print' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    $b = (int) ($body['branch'] ?? 0);
+                    return InventoryController::logBarcodePrint($user, $b, $body);
                 })(),
                 'stock.adjust' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
@@ -364,6 +369,10 @@ try {
         'barcode.generate' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'inventory');
             return InventoryController::generateBarcode();
+        })(),
+        'barcode.stats' => (function () use ($user, $branch) {
+            RoleGuard::allowPermission($user, 'inventory');
+            return InventoryController::getBarcodePrintStats($branch);
         })(),
         'backup.summary' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'settings');

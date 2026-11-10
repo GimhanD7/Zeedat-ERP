@@ -168,26 +168,30 @@ export function BarcodeLabelModal({
 
               {/* Quick Actions for Items Without Barcode */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                <Button
-                  icon={generating ? RefreshCw : Sparkles}
-                  variant="secondary"
-                  size="small"
-                  title="Auto-generate & save a ZDXXXXXXX barcode"
-                  onClick={generateBarcode}
-                  disabled={generating || saving}
-                >
-                  {saving ? 'Saving…' : 'Generate ZD Barcode'}
-                </Button>
-                <Button
-                  icon={Tag}
-                  variant="secondary"
-                  size="small"
-                  title="Use SKU as the barcode"
-                  onClick={useSkuAsBarcode}
-                  disabled={saving}
-                >
-                  Use SKU ({product.sku})
-                </Button>
+                {!product.barcode && (
+                  <>
+                    <Button
+                      icon={generating ? RefreshCw : Sparkles}
+                      variant="secondary"
+                      size="small"
+                      title="Auto-generate & save a ZDXXXXXXX internal barcode"
+                      onClick={generateBarcode}
+                      disabled={generating || saving}
+                    >
+                      {saving ? 'Saving…' : 'Generate ZD Barcode'}
+                    </Button>
+                    <Button
+                      icon={Tag}
+                      variant="secondary"
+                      size="small"
+                      title="Use SKU as the barcode"
+                      onClick={useSkuAsBarcode}
+                      disabled={saving}
+                    >
+                      Use SKU ({product.sku})
+                    </Button>
+                  </>
+                )}
                 {product.barcode && (
                   <Button
                     icon={Trash2}
@@ -208,12 +212,14 @@ export function BarcodeLabelModal({
                     <strong>No Barcode Assigned:</strong> This item doesn't have a manufacturer barcode.
                   </p>
                   <p className="subtext">
-                    You can either leave it without a barcode (sell using name/SKU search at POS), or click <em>Generate 12-digit</em> / <em>Use SKU</em> to print sticker labels.
+                    Click <em>Generate ZD Barcode</em> to auto-assign and save an internal <code>ZDXXXXXXX</code> barcode for printing stickers.
                   </p>
                 </div>
               ) : (
                 <small className="help-text text-green" style={{ display: 'block', marginTop: 6 }}>
-                  Barcode is active and scannable at POS.
+                  {String(currentBarcode).toUpperCase().startsWith('ZD')
+                    ? 'Internal ZD Barcode is active and scannable at POS.'
+                    : 'Manufacturer Barcode is protected and active (internal ZD barcode is not assigned).'}
                 </small>
               )}
             </div>

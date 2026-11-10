@@ -45,8 +45,8 @@ class InventoryService {
 
     public static function bulkGenerateBarcodes(array $body = []): array {
         $ids = $body['product_ids'] ?? null;
-        $force = !empty($body['force']);
-        $condition = $force ? "1=1" : "(barcode IS NULL OR barcode='')";
+        // Strictly assign internal ZD barcodes ONLY to items without a manufacturer/existing barcode
+        $condition = "(barcode IS NULL OR barcode='')";
 
         if (is_array($ids) && count($ids) > 0) {
             $inClause = implode(',', array_map('intval', $ids));
@@ -182,6 +182,9 @@ class InventoryService {
 
         $barcode = Validator::str($body, 'barcode', 40, false);
         if ($barcode === '' && !empty($body['auto_generate'])) {
+            if (!empty($product['barcode'])) {
+                throw new ApiError("'{$product['name']}' already has a barcode ({$product['barcode']}). Internal ZD barcodes are only assigned to items without a manufacturer barcode.");
+            }
             $barcode = self::generateBarcode([], $id)['barcode'];
         }
 
@@ -273,5 +276,59 @@ class InventoryService {
         }
 
         return ['id' => $id, 'name' => $name];
+    }
+
+    public static function logBarcodePrint(array $user, int $branch, array $body): array {
+        $items = $body['items'] ?? [];
+        if (!is_array($items) || empty($items)) {
+            return ['logged' => 0];
+        }
+
+        $logged = 0;
+        foreach ($items as $item) {
+            $pid = (int) ($item['product_id'] ?? 0);
+            $copies = max(1, (int) ($item['copies'] ?? 1));
+            $price = max(0, (int) ($item['price'] ?? 0));
+            if ($pid <= 0) continue;
+
+            BaseRepository::run(
+                'INSERT INTO barcode_print_logs(branch_id, product_id, user_id, copies, price) VALUES (?,?,?,?,?)',
+                [$branch, $pid, (int) ($user['id'] ?? 1), $copies, $price]
+            );
+            $logged++;
+        }
+
+        return ['logged' => $logged];
+    }
+
+    public static function getBarcodePrintStats(int $branch): array {
+        $where = $branch > 0 ? 'WHERE branch_id = ?' : '';
+        $params = $branch > 0 ? [$branch] : [];
+
+        $rows = BaseRepository::rows(
+            "SELECT 
+                product_id,
+                SUM(copies) AS total_labels,
+                COUNT(*) AS times_printed,
+                MAX(created_at) AS last_printed_at,
+                (SELECT price FROM barcode_print_logs b2 
+                 WHERE b2.product_id = barcode_print_logs.product_id " . ($branch > 0 ? 'AND b2.branch_id = barcode_print_logs.branch_id' : '') . " 
+                 ORDER BY b2.id DESC LIMIT 1) AS last_price
+            FROM barcode_print_logs
+            {$where}
+            GROUP BY product_id",
+            $params
+        );
+
+        $map = [];
+        foreach ($rows as $r) {
+            $map[(string) $r['product_id']] = [
+                'total_labels' => (int) $r['total_labels'],
+                'times_printed' => (int) $r['times_printed'],
+                'last_printed_at' => $r['last_printed_at'],
+                'last_price' => (int) ($r['last_price'] ?? 0),
+            ];
+        }
+        return $map;
     }
 }

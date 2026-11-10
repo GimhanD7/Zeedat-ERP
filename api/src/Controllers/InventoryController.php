@@ -48,4 +48,12 @@ class InventoryController {
     public static function saveCustomer(int $branch, array $body): array {
         return InventoryService::saveCustomer($branch, $body);
     }
+
+    public static function logBarcodePrint(array $user, int $branch, array $body): array {
+        return InventoryService::logBarcodePrint($user, $branch, $body);
+    }
+
+    public static function getBarcodePrintStats(int $branch): array {
+        return InventoryService::getBarcodePrintStats($branch);
+    }
 }
