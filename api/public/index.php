@@ -90,7 +90,7 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'settings.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -201,6 +201,10 @@ try {
                 'permissions.reset' => (function () use ($user) {
                     RoleGuard::allowPermission($user, 'staff');
                     return AdminController::resetPermissions($user);
+                })(),
+                'user.permissions.save' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'staff');
+                    return AdminController::saveUserPermissions($user, $body);
                 })(),
                 'staff.delete' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'staff');

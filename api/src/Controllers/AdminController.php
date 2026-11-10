@@ -30,6 +30,15 @@ class AdminController {
         return PermissionRepository::resetToDefaults((int) $user['id']);
     }
 
+    public static function saveUserPermissions(array $user, array $body): array {
+        $targetUserId = Validator::integer($body['user_id'] ?? null, 'Staff member');
+        $overrides = $body['overrides'] ?? [];
+        if (!is_array($overrides)) {
+            throw new ApiError('Invalid user overrides payload.');
+        }
+        return PermissionRepository::saveUserPermissions($targetUserId, $overrides, (int) $user['id']);
+    }
+
     public static function getAudit(): array {
         return UserRepository::getAuditLogs(100);
     }

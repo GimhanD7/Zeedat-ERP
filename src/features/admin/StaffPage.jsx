@@ -44,6 +44,12 @@ export function StaffPage({ ctx }) {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [profileModalMember, setProfileModalMember] = useState(null);
+  const [permStaffId, setPermStaffId] = useState(null);
+
+  const openStaffPermissions = member => {
+    setPermStaffId(member.id);
+    setTab('Role permissions');
+  };
 
   const openStaffForm = member => {
     const defaultBranchId =
@@ -211,7 +217,10 @@ export function StaffPage({ ctx }) {
                 <FilterTabs
                   choices={['Staff accounts', 'Role permissions']}
                   value={tab}
-                  onChange={setTab}
+                  onChange={nextTab => {
+                    if (nextTab === 'Staff accounts') setPermStaffId(null);
+                    setTab(nextTab);
+                  }}
                 />
               }
             >
@@ -285,7 +294,22 @@ export function StaffPage({ ctx }) {
                           </div>
                         ),
                       ],
-                      ['Role', s => <Badge>{roles[s.role] || s.role}</Badge>],
+                      [
+                        'Role & Access',
+                        s => {
+                          const ovCount = Object.keys(
+                            permissionsData?.user_overrides?.[String(s.id)] || {}
+                          ).length;
+                          return (
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <Badge>{roles[s.role] || s.role}</Badge>
+                              {ovCount > 0 && (
+                                <Badge tone="violet">{ovCount} Custom</Badge>
+                              )}
+                            </div>
+                          );
+                        },
+                      ],
                       ['Assigned Branch', s => s.branch || 'All Branches'],
                       [
                         'Activity Track',
@@ -337,6 +361,15 @@ export function StaffPage({ ctx }) {
                             {s.role !== 'owner' && (
                               <>
                                 <Button
+                                  icon={ShieldCheck}
+                                  aria-label={`Manage permissions for ${s.name}`}
+                                  variant="outline"
+                                  onClick={() => openStaffPermissions(s)}
+                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', color: '#0d9488' }}
+                                >
+                                  Permissions
+                                </Button>
+                                <Button
                                   icon={Pencil}
                                   aria-label={`Edit ${s.name}`}
                                   variant="outline"
@@ -384,6 +417,8 @@ export function StaffPage({ ctx }) {
                   permissionsData={permissionsData}
                   staff={staff}
                   ctx={ctx}
+                  onRefresh={state.refresh}
+                  initialStaffId={permStaffId}
                 />
               )}
             </Panel>

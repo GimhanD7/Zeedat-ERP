@@ -2771,6 +2771,105 @@
   cursor: pointer;
 }
 
+/* =====================================================================
+   ZEEDAT POS - INDIVIDUAL STAFF PERMISSION OVERRIDES
+===================================================================== */
+.zk-perm-mode-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.zk-staff-perm-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .zk-staff-perm-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-staff-picker-list {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.zk-staff-picker-item {
+  border: 1.5px solid transparent;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 0.15s ease;
+}
+
+.zk-staff-picker-item:hover {
+  background: #f1f5f9;
+}
+
+.zk-staff-picker-item.active {
+  background: #f0fdfa;
+  border-color: #0d9488;
+}
+
+.zk-3way-group {
+  display: inline-flex;
+  background: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 3px;
+}
+
+.zk-3way-btn {
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-3way-btn.active-inherit {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.zk-3way-btn.active-allow {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.zk-3way-btn.active-deny {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+
 
 
 

@@ -19,10 +19,10 @@ class RoleGuard {
         if ($user['role'] === 'owner') {
             return;
         }
-        if (!PermissionRepository::hasPermission($user['role'], $permission)) {
+        if (!PermissionRepository::userHasPermission((int) $user['id'], $user['role'], $permission)) {
             $permInfo = PermissionRepository::ALL_PERMISSIONS[$permission] ?? null;
             $name = $permInfo['name'] ?? $permission;
-            throw new ApiError("Access denied: Your role does not have permission for {$name}.", 403);
+            throw new ApiError("Access denied: Your account does not have permission for {$name}.", 403);
         }
     }
 

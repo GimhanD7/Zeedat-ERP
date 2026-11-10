@@ -7,7 +7,7 @@ class UserRepository extends BaseRepository {
     public static function findActiveById(int $id): ?array {
         $user = self::one('SELECT id, branch_id, name, email, role FROM users WHERE id=? AND active=1', [$id]);
         if ($user) {
-            $user['permissions'] = PermissionRepository::getPermissionsForRole($user['role']);
+            $user['permissions'] = PermissionRepository::getEffectivePermissionsForUser((int) $user['id'], $user['role']);
         }
         return $user;
     }

@@ -127,6 +127,13 @@ class PermissionRepository extends BaseRepository {
             PRIMARY KEY(role, permission)
         ) ENGINE=InnoDB");
 
+        self::run("CREATE TABLE IF NOT EXISTS user_permissions (
+            user_id INT NOT NULL,
+            permission VARCHAR(60) NOT NULL,
+            allowed TINYINT(1) NOT NULL DEFAULT 1,
+            PRIMARY KEY(user_id, permission)
+        ) ENGINE=InnoDB");
+
         $count = (int) self::scalar("SELECT COUNT(*) FROM role_permissions");
         if ($count === 0) {
             self::seedDefaults();
@@ -253,11 +260,116 @@ class PermissionRepository extends BaseRepository {
         return self::getPermissionsData();
     }
 
+    public static function getUserOverrides(int $userId): array {
+        self::ensureTable();
+        $rows = self::rows("SELECT permission, allowed FROM user_permissions WHERE user_id = ?", [$userId]);
+        $map = [];
+        foreach ($rows as $r) {
+            $perm = $r['permission'];
+            if (isset(self::ALL_PERMISSIONS[$perm])) {
+                $map[$perm] = !empty($r['allowed']) ? 'allow' : 'deny';
+            }
+        }
+        return $map;
+    }
+
+    public static function getAllUserOverrides(): array {
+        self::ensureTable();
+        $rows = self::rows("SELECT user_id, permission, allowed FROM user_permissions");
+        $grouped = [];
+        foreach ($rows as $r) {
+            $uid = (string) $r['user_id'];
+            $perm = $r['permission'];
+            if (isset(self::ALL_PERMISSIONS[$perm])) {
+                $grouped[$uid][$perm] = !empty($r['allowed']) ? 'allow' : 'deny';
+            }
+        }
+        return $grouped;
+    }
+
+    public static function getEffectivePermissionsForUser(int $userId, string $role): array {
+        if ($role === 'owner') {
+            return array_keys(self::ALL_PERMISSIONS);
+        }
+
+        $rolePerms = self::getPermissionsForRole($role);
+        $overrides = self::getUserOverrides($userId);
+
+        $set = array_flip($rolePerms);
+        foreach ($overrides as $perm => $mode) {
+            if ($mode === 'allow') {
+                $set[$perm] = true;
+            } elseif ($mode === 'deny') {
+                unset($set[$perm]);
+            }
+        }
+
+        return array_keys($set);
+    }
+
+    public static function userHasPermission(int $userId, string $role, string $permission): bool {
+        if (!isset(self::ALL_PERMISSIONS[$permission])) {
+            return false;
+        }
+        if ($role === 'owner') {
+            return true;
+        }
+
+        self::ensureTable();
+        $override = self::one(
+            "SELECT allowed FROM user_permissions WHERE user_id = ? AND permission = ? LIMIT 1",
+            [$userId, $permission]
+        );
+        if ($override !== null) {
+            return !empty($override['allowed']);
+        }
+
+        return self::hasPermission($role, $permission);
+    }
+
+    public static function saveUserPermissions(int $targetUserId, array $overrides, int $adminUserId): array {
+        self::ensureTable();
+        $target = self::one("SELECT id, name, role FROM users WHERE id = ?", [$targetUserId]);
+        if (!$target) {
+            throw new ApiError('Staff account not found.', 404);
+        }
+        if ($target['role'] === 'owner') {
+            throw new ApiError('Owner permissions cannot be restricted.', 403);
+        }
+
+        $validPerms = array_keys(self::ALL_PERMISSIONS);
+
+        self::transaction(function () use ($targetUserId, $target, $overrides, $validPerms, $adminUserId) {
+            self::run("DELETE FROM user_permissions WHERE user_id = ?", [$targetUserId]);
+            $stmt = self::db()->prepare("INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?, ?, ?)");
+
+            $saved = [];
+            foreach ($overrides as $perm => $mode) {
+                if (!in_array($perm, $validPerms, true)) continue;
+                if ($mode === 'allow' || $mode === 'deny') {
+                    $allowed = $mode === 'allow' ? 1 : 0;
+                    $stmt->execute([$targetUserId, $perm, $allowed]);
+                    $saved[$perm] = $mode;
+                }
+            }
+
+            UserRepository::logAudit(
+                $adminUserId,
+                null,
+                'user_permissions.update',
+                ['target_user_id' => $targetUserId, 'name' => $target['name'], 'overrides' => $saved]
+            );
+        });
+
+        return self::getPermissionsData();
+    }
+
     public static function getPermissionsData(): array {
         return [
             'roles' => Constants::ROLES,
             'permissions' => array_values(self::ALL_PERMISSIONS),
             'matrix' => self::getPermissionsByRole(),
+            'user_overrides' => self::getAllUserOverrides(),
         ];
     }
 }
