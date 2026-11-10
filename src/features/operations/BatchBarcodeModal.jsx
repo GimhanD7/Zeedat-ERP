@@ -3,7 +3,8 @@ import {
   Barcode,
   Check,
   CheckSquare,
-  Layers,
+  ChevronLeft,
+  ChevronRight,
   MinusSquare,
   Printer,
   RefreshCw,
@@ -39,45 +40,27 @@ export function BatchBarcodeModal({
     [physicalProducts, localBarcodes]
   );
 
-  // Auto-generate & save ZD barcodes for missing items on first click / manual trigger
   const [query, setQuery] = useState('');
   const [labelFormat, setLabelFormat] = useState('sticker58'); // sticker58, tag80, a4grid, compact
   const [previewMode, setPreviewMode] = useState('single'); // 'single' | 'grid'
   const [bulkCopiesInput, setBulkCopiesInput] = useState('1');
   const [filterMode, setFilterMode] = useState('all'); // 'all', 'no-barcode', 'has-barcode'
 
+  // Pagination inside modal for instant rendering & zero lag
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // Lazy selection & copies map (default 1 copy per item to keep mount instantaneous)
   const [selectedIds, setSelectedIds] = useState(() => {
     const unbarcoded = physicalProducts.filter(p => !p.barcode).map(p => p.id);
     return new Set(unbarcoded.length ? unbarcoded : physicalProducts.map(p => p.id));
   });
-
-  // Track copies per product
-  const [copiesMap, setCopiesMap] = useState(() => {
-    const map = {};
-    for (const p of physicalProducts) {
-      map[p.id] = Math.max(1, p.qty || 1);
-    }
-    return map;
-  });
-
-  // Ensure copiesMap covers newly loaded products
-  useEffect(() => {
-    setCopiesMap(prev => {
-      const next = { ...prev };
-      let changed = false;
-      for (const p of physicalProducts) {
-        if (next[p.id] === undefined) {
-          next[p.id] = Math.max(1, p.qty || 1);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [physicalProducts]);
+  const [copiesMap, setCopiesMap] = useState({});
 
   const [generating, setGenerating] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState('');
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -91,10 +74,27 @@ export function BatchBarcodeModal({
     });
   }, [effectiveProducts, query, filterMode]);
 
-  const allFilteredSelected =
-    filteredProducts.length > 0 && filteredProducts.every(p => selectedIds.has(p.id));
-  const someFilteredSelected =
-    filteredProducts.some(p => selectedIds.has(p.id)) && !allFilteredSelected;
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, filterMode, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pagedProducts = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredProducts.slice(start, start + pageSize);
+  }, [filteredProducts, page, pageSize]);
+
+  const allPageSelected =
+    pagedProducts.length > 0 && pagedProducts.every(p => selectedIds.has(p.id));
+  const somePageSelected =
+    pagedProducts.some(p => selectedIds.has(p.id)) && !allPageSelected;
+
+  const getCopies = p => copiesMap[p.id] ?? 1;
 
   const toggleSelect = id => {
     setSelectedIds(prev => {
@@ -105,19 +105,23 @@ export function BatchBarcodeModal({
     });
   };
 
-  const toggleSelectAllFiltered = () => {
+  const toggleSelectCurrentPage = () => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        for (const p of filteredProducts) next.delete(p.id);
+      if (allPageSelected) {
+        for (const p of pagedProducts) next.delete(p.id);
       } else {
-        for (const p of filteredProducts) next.add(p.id);
+        for (const p of pagedProducts) next.add(p.id);
       }
       return next;
     });
   };
 
-  const selectAllVisible = () => {
+  const selectCurrentPageOnly = () => {
+    setSelectedIds(new Set(pagedProducts.map(p => p.id)));
+  };
+
+  const selectAllFiltered = () => {
     setSelectedIds(new Set(filteredProducts.map(p => p.id)));
   };
 
@@ -223,7 +227,48 @@ export function BatchBarcodeModal({
     }
   };
 
-  // Auto-generate missing ZD barcodes for selected items then print
+  // Lightweight summary counts + first 6 preview stickers (no heavy 3000-SVG allocation!)
+  const { totalStickersCount, previewItems } = useMemo(() => {
+    let total = 0;
+    const preview = [];
+    for (const p of effectiveProducts) {
+      if (!selectedIds.has(p.id)) continue;
+      const count = getCopies(p);
+      total += count;
+      if (preview.length < 6) {
+        const barcodeValue = p.effectiveBarcode || p.sku;
+        for (let i = 0; i < count && preview.length < 6; i++) {
+          preview.push({ product: p, barcodeValue });
+        }
+      }
+    }
+    return { totalStickersCount: total, previewItems: preview };
+  }, [effectiveProducts, selectedIds, copiesMap]);
+
+  // Only build the full printQueue DOM when actually printing!
+  const printSheetQueue = useMemo(() => {
+    if (!isPrinting) return [];
+    const queue = [];
+    for (const p of effectiveProducts) {
+      if (!selectedIds.has(p.id)) continue;
+      const count = getCopies(p);
+      const barcodeValue = p.effectiveBarcode || p.sku;
+      for (let i = 0; i < count; i++) {
+        queue.push({ product: p, barcodeValue });
+      }
+    }
+    return queue;
+  }, [isPrinting, effectiveProducts, selectedIds, copiesMap]);
+
+  useEffect(() => {
+    if (!isPrinting) return;
+    const timer = setTimeout(() => {
+      window.print();
+      setIsPrinting(false);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [isPrinting]);
+
   const handlePrintAll = async () => {
     const missingSelected = effectiveProducts
       .filter(p => !p.effectiveBarcode && selectedIds.has(p.id))
@@ -232,22 +277,8 @@ export function BatchBarcodeModal({
     if (missingSelected.length > 0) {
       await runBulkGenerate(missingSelected, false);
     }
-    setTimeout(() => window.print(), 120);
+    setIsPrinting(true);
   };
-
-  // Compute printable queue
-  const printQueue = useMemo(() => {
-    const queue = [];
-    for (const p of effectiveProducts) {
-      if (!selectedIds.has(p.id)) continue;
-      const count = copiesMap[p.id] || 1;
-      const barcodeValue = p.effectiveBarcode || p.sku;
-      for (let i = 0; i < count; i++) {
-        queue.push({ product: p, barcodeValue });
-      }
-    }
-    return queue;
-  }, [effectiveProducts, selectedIds, copiesMap]);
 
   const missingTotalCount = effectiveProducts.filter(p => !p.effectiveBarcode).length;
   const missingBarcodeSelectedCount = effectiveProducts.filter(
@@ -257,12 +288,15 @@ export function BatchBarcodeModal({
     p => selectedIds.has(p.id) && !String(p.effectiveBarcode).startsWith('ZD')
   ).length;
 
+  const startItem = filteredProducts.length ? (page - 1) * pageSize + 1 : 0;
+  const endItem = Math.min(page * pageSize, filteredProducts.length);
+
   return (
     <Modal
       title="Batch ZD Barcode Generator & Label Printing"
-      description="Auto-generate & save ZDXXXXXXX barcodes and bulk-print selected product labels."
+      description="Auto-generate & save ZDXXXXXXX barcodes, paginate items, and bulk-print selected labels."
       onClose={onClose}
-      wide={true}
+      xl={true}
     >
       <div className="batch-barcode-modal">
         {/* Top Control Bar */}
@@ -318,7 +352,10 @@ export function BatchBarcodeModal({
             )}
 
             <div className="selection-helpers" style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-              <Button size="small" variant="secondary" onClick={selectAllVisible}>
+              <Button size="small" variant="secondary" onClick={selectCurrentPageOnly}>
+                Select Page ({pagedProducts.length})
+              </Button>
+              <Button size="small" variant="secondary" onClick={selectAllFiltered}>
                 Select All ({filteredProducts.length})
               </Button>
               {missingTotalCount > 0 && (
@@ -387,115 +424,162 @@ export function BatchBarcodeModal({
         </div>
 
         {/* Middle: Product Selection Table & Settings */}
-        <div className="batch-layout-grid">
-          {/* Products List */}
-          <div className="batch-products-list">
-            <table className="batch-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 38 }}>
-                    <button
-                      type="button"
-                      className="btn-checkbox"
-                      onClick={toggleSelectAllFiltered}
-                      title={allFilteredSelected ? 'Deselect all visible' : 'Select all visible'}
-                    >
-                      {allFilteredSelected ? (
-                        <CheckSquare size={17} className="text-primary" />
-                      ) : someFilteredSelected ? (
-                        <MinusSquare size={17} className="text-primary" />
-                      ) : (
-                        <Square size={17} className="text-muted" />
-                      )}
-                    </button>
-                  </th>
-                  <th>Product</th>
-                  <th>ZD Barcode</th>
-                  <th style={{ width: 90 }}>Copies</th>
-                  <th style={{ width: 85 }}>Auto-Save</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProducts.map(p => {
-                  const isChecked = selectedIds.has(p.id);
-                  const copies = copiesMap[p.id] || 1;
-                  const isRowBusy = savingId === p.id;
-                  const isZd = String(p.effectiveBarcode).startsWith('ZD');
-
-                  return (
-                    <tr
-                      key={p.id}
-                      className={isChecked ? 'row-selected' : 'row-dimmed'}
-                    >
-                      <td>
-                        <button
-                          type="button"
-                          className="btn-checkbox"
-                          onClick={() => toggleSelect(p.id)}
-                        >
-                          {isChecked ? (
-                            <CheckSquare size={17} className="text-primary" />
-                          ) : (
-                            <Square size={17} className="text-muted" />
-                          )}
-                        </button>
-                      </td>
-                      <td>
-                        <div className="product-title-cell">
-                          <strong>{p.name}</strong>
-                          <small className="mono subtext">
-                            {p.sku} · Stock: {p.qty ?? 0}
-                          </small>
-                        </div>
-                      </td>
-                      <td>
-                        {p.effectiveBarcode ? (
-                          <span
-                            className="barcode-pill mono"
-                            style={{
-                              fontSize: 11,
-                              background: isZd ? '#f0fdfa' : '#f1f5f9',
-                              color: isZd ? '#0f766e' : '#334155',
-                              borderColor: isZd ? '#99f6e4' : '#cbd5e1',
-                            }}
-                          >
-                            <Barcode size={12} /> {p.effectiveBarcode}
-                          </span>
+        <div className="batch-layout-grid xl">
+          {/* Left Column: Page-wise Products Table + Pagination */}
+          <div>
+            <div className="batch-products-list xl">
+              <table className="batch-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 38 }}>
+                      <button
+                        type="button"
+                        className="btn-checkbox"
+                        onClick={toggleSelectCurrentPage}
+                        title={allPageSelected ? 'Deselect current page' : 'Select current page'}
+                      >
+                        {allPageSelected ? (
+                          <CheckSquare size={17} className="text-primary" />
+                        ) : somePageSelected ? (
+                          <MinusSquare size={17} className="text-primary" />
                         ) : (
-                          <span className="badge-no-barcode" style={{ fontSize: 10 }}>
-                            No Barcode
-                          </span>
+                          <Square size={17} className="text-muted" />
                         )}
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          className="copies-input"
-                          min={1}
-                          max={500}
-                          value={copies}
-                          onChange={e => updateCopies(p.id, e.target.value)}
-                        />
-                      </td>
-                      <td>
-                        {!isZd && (
-                          <Button
-                            size="small"
-                            variant="secondary"
-                            icon={isRowBusy ? RefreshCw : Sparkles}
-                            disabled={isRowBusy || generating}
-                            title="Generate & auto-save ZDXXXXXXX barcode"
-                            onClick={() => handleGenerateSingle(p.id)}
+                      </button>
+                    </th>
+                    <th>Product</th>
+                    <th>ZD Barcode</th>
+                    <th style={{ width: 90 }}>Copies</th>
+                    <th style={{ width: 90 }}>Auto-Save</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedProducts.map(p => {
+                    const isChecked = selectedIds.has(p.id);
+                    const copies = getCopies(p);
+                    const isRowBusy = savingId === p.id;
+                    const isZd = String(p.effectiveBarcode).startsWith('ZD');
+
+                    return (
+                      <tr
+                        key={p.id}
+                        className={isChecked ? 'row-selected' : 'row-dimmed'}
+                      >
+                        <td>
+                          <button
+                            type="button"
+                            className="btn-checkbox"
+                            onClick={() => toggleSelect(p.id)}
                           >
-                            {isRowBusy ? '…' : 'Gen ZD'}
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            {isChecked ? (
+                              <CheckSquare size={17} className="text-primary" />
+                            ) : (
+                              <Square size={17} className="text-muted" />
+                            )}
+                          </button>
+                        </td>
+                        <td>
+                          <div className="product-title-cell">
+                            <strong>{p.name}</strong>
+                            <small className="mono subtext">
+                              {p.sku} · Stock: {p.qty ?? 0}
+                            </small>
+                          </div>
+                        </td>
+                        <td>
+                          {p.effectiveBarcode ? (
+                            <span
+                              className="barcode-pill mono"
+                              style={{
+                                fontSize: 11,
+                                background: isZd ? '#f0fdfa' : '#f1f5f9',
+                                color: isZd ? '#0f766e' : '#334155',
+                                borderColor: isZd ? '#99f6e4' : '#cbd5e1',
+                              }}
+                            >
+                              <Barcode size={12} /> {p.effectiveBarcode}
+                            </span>
+                          ) : (
+                            <span className="badge-no-barcode" style={{ fontSize: 10 }}>
+                              No Barcode
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="copies-input"
+                            min={1}
+                            max={500}
+                            value={copies}
+                            onChange={e => updateCopies(p.id, e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          {!isZd && (
+                            <Button
+                              size="small"
+                              variant="secondary"
+                              icon={isRowBusy ? RefreshCw : Sparkles}
+                              disabled={isRowBusy || generating}
+                              title="Generate & auto-save ZDXXXXXXX barcode"
+                              onClick={() => handleGenerateSingle(p.id)}
+                            >
+                              {isRowBusy ? '…' : 'Gen ZD'}
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Table Pagination Bar */}
+            <div className="zk-pagination-bar" style={{ marginTop: '10px' }}>
+              <div className="zk-pagination-info">
+                <span>
+                  Showing <strong>{startItem}–{endItem}</strong> of <strong>{filteredProducts.length}</strong>
+                </span>
+                <select
+                  aria-label="Modal rows per page"
+                  className="zk-page-size-select"
+                  value={pageSize}
+                  onChange={e => setPageSize(Number(e.target.value))}
+                >
+                  {[10, 20, 50, 100].map(sz => (
+                    <option key={sz} value={sz}>
+                      {sz} / page
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="zk-pagination-controls">
+                <button
+                  type="button"
+                  className="zk-page-btn"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft size={14} />
+                  <span>Prev</span>
+                </button>
+                <span style={{ fontSize: '12px', fontWeight: 700, padding: '0 8px', color: '#334155' }}>
+                  Page {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="zk-page-btn"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                >
+                  <span>Next</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Right Preview & Options */}
@@ -523,7 +607,7 @@ export function BatchBarcodeModal({
                 <div className="stat-row">
                   <span>Total Sticker Labels:</span>
                   <strong className="text-primary" style={{ fontSize: 16 }}>
-                    {printQueue.length} stickers
+                    {totalStickersCount} stickers
                   </strong>
                 </div>
                 {missingBarcodeSelectedCount > 0 && (
@@ -534,7 +618,7 @@ export function BatchBarcodeModal({
                 )}
               </div>
 
-              {printQueue.length > 0 && (
+              {previewItems.length > 0 && (
                 <div className="single-preview-wrap">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                     <h5 style={{ margin: 0 }}>Label Preview</h5>
@@ -551,7 +635,7 @@ export function BatchBarcodeModal({
                         className={`zk-3way-btn ${previewMode === 'grid' ? 'active-inherit' : ''}`}
                         onClick={() => setPreviewMode('grid')}
                       >
-                        Queue ({Math.min(printQueue.length, 6)})
+                        Queue ({previewItems.length})
                       </button>
                     </div>
                   </div>
@@ -560,26 +644,26 @@ export function BatchBarcodeModal({
                     <div className={`barcode-label-card ${labelFormat}`}>
                       <div className="label-header">
                         <span className="label-shop">{shopName}</span>
-                        <span className="label-sku mono">{printQueue[0].product.sku}</span>
+                        <span className="label-sku mono">{previewItems[0].product.sku}</span>
                       </div>
-                      <div className="label-title">{printQueue[0].product.name}</div>
+                      <div className="label-title">{previewItems[0].product.name}</div>
                       <div className="label-barcode">
                         <BarcodeSvg
-                          value={printQueue[0].barcodeValue}
+                          value={previewItems[0].barcodeValue}
                           height={labelFormat === 'compact' ? 30 : 40}
                           showText={true}
                         />
                       </div>
                       <div className="label-footer">
                         <span className="label-price">
-                          {money(printQueue[0].product.price)}
+                          {money(previewItems[0].product.price)}
                         </span>
                         <span className="label-vat">Incl. Taxes</span>
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
-                      {printQueue.slice(0, 6).map((item, i) => (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+                      {previewItems.map((item, i) => (
                         <div key={i} className="barcode-label-card compact" style={{ width: '100%' }}>
                           <div className="label-title" style={{ fontSize: '10px' }}>{item.product.name}</div>
                           <div className="label-barcode">
@@ -598,43 +682,47 @@ export function BatchBarcodeModal({
           </div>
         </div>
 
-        {/* Hidden Printable Sheet for Browser Print (Triggered by window.print()) */}
-        <div className={`batch-print-sheet print-only ${labelFormat}`} aria-hidden="true">
-          {printQueue.map((item, idx) => (
-            <div key={idx} className={`batch-print-label ${labelFormat}`}>
-              <div className="label-header">
-                <span className="label-shop">{shopName}</span>
-                <span className="label-sku mono">{item.product.sku}</span>
+        {/* On-Demand Printable Sheet (only rendered when isPrinting is true for 0ms modal open!) */}
+        {isPrinting && (
+          <div className={`batch-print-sheet print-only ${labelFormat}`} aria-hidden="true">
+            {printSheetQueue.map((item, idx) => (
+              <div key={idx} className={`batch-print-label ${labelFormat}`}>
+                <div className="label-header">
+                  <span className="label-shop">{shopName}</span>
+                  <span className="label-sku mono">{item.product.sku}</span>
+                </div>
+                <div className="label-title">{item.product.name}</div>
+                <div className="label-barcode">
+                  <BarcodeSvg
+                    value={item.barcodeValue}
+                    height={labelFormat === 'compact' ? 30 : 42}
+                    showText={true}
+                  />
+                </div>
+                <div className="label-footer">
+                  <span className="label-price">{money(item.product.price)}</span>
+                </div>
               </div>
-              <div className="label-title">{item.product.name}</div>
-              <div className="label-barcode">
-                <BarcodeSvg
-                  value={item.barcodeValue}
-                  height={labelFormat === 'compact' ? 30 : 42}
-                  showText={true}
-                />
-              </div>
-              <div className="label-footer">
-                <span className="label-price">{money(item.product.price)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="modal-footer">
         <Button onClick={onClose}>Close</Button>
         <Button
           variant="primary"
-          icon={generating ? RefreshCw : Printer}
-          disabled={!printQueue.length || generating}
+          icon={generating || isPrinting ? RefreshCw : Printer}
+          disabled={!totalStickersCount || generating || isPrinting}
           onClick={handlePrintAll}
         >
           {generating
             ? 'Generating & Saving ZD Barcodes…'
+            : isPrinting
+            ? 'Preparing Print Sheet…'
             : missingBarcodeSelectedCount > 0
-            ? `Auto-Generate ZD & Print (${printQueue.length})`
-            : `Print All Selected (${printQueue.length} Stickers)`}
+            ? `Auto-Generate ZD & Print (${totalStickersCount})`
+            : `Print All Selected (${totalStickersCount} Stickers)`}
         </Button>
       </div>
     </Modal>

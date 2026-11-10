@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Button } from './Button';
 
-export function Modal({ title, description, children, onClose, wide = false, busy = false }) {
+export function Modal({ title, description, children, onClose, wide = false, xl = false, busy = false }) {
   useEffect(() => {
     const previous = document.activeElement;
     const handle = e => {
@@ -40,7 +40,7 @@ export function Modal({ title, description, children, onClose, wide = false, bus
       }}
     >
       <section
-        className={'modal ' + (wide ? 'wide' : '')}
+        className={'modal ' + (xl ? 'xl' : wide ? 'wide' : '')}
         role="dialog"
         aria-modal="true"
         aria-label={title}
