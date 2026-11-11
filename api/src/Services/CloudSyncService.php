@@ -19,7 +19,11 @@ class CloudSyncService {
         $configuredDriver = strtolower(Database::env('DB_DRIVER', $driver));
         $fallbackActive = Database::isFallbackActive();
 
-        $tables = ['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs'];
+        $tables = [
+            'branches', 'products', 'customers', 'units', 'suppliers', 'purchases',
+            'transfers', 'stock_movements', 'sales', 'repairs',
+            'drawers', 'cash_movements', 'returns_log', 'supplier_payments', 'barcode_print_logs', 'audit_log',
+        ];
         $counts = [];
         $totalPending = 0;
         if ($driver === 'sqlite') {
@@ -56,19 +60,30 @@ class CloudSyncService {
             'unsynced_units' => $counts['units'],
             'unsynced_transfers' => $counts['transfers'],
             'unsynced_purchases' => $counts['purchases'],
+            'unsynced_cashbook' => $counts['drawers'] + $counts['cash_movements'],
+            'unsynced_drawers' => $counts['drawers'],
+            'unsynced_cash_movements' => $counts['cash_movements'],
+            'unsynced_returns' => $counts['returns_log'],
+            'unsynced_supplier_payments' => $counts['supplier_payments'],
+            'unsynced_barcodes' => $counts['barcode_print_logs'],
+            'unsynced_audits' => $counts['audit_log'],
             'total_sales' => (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales'),
             'total_pending' => $totalPending,
         ];
     }
 
-    private static function ensureSyncUuids(string $table, string $prefix, array $rows, callable $seedBuilder): array {
+    private static function ensureSyncUuids(string $table, string $prefix, array $rows, callable $seedBuilder, bool $markPending = true): array {
         foreach ($rows as &$row) {
             if (empty($row['sync_uuid'])) {
                 $seed = $seedBuilder($row);
                 $uuid = $row['uuid'] ?? ($prefix . '-' . ($row['id'] ?? 0) . '-' . substr(md5($seed), 0, 10));
                 $row['sync_uuid'] = $uuid;
                 try {
-                    BaseRepository::run("UPDATE {$table} SET sync_uuid=?, synced=0 WHERE id=?", [$uuid, $row['id']]);
+                    if ($markPending) {
+                        BaseRepository::run("UPDATE {$table} SET sync_uuid=?, synced=0 WHERE id=?", [$uuid, $row['id']]);
+                    } else {
+                        BaseRepository::run("UPDATE {$table} SET sync_uuid=? WHERE id=?", [$uuid, $row['id']]);
+                    }
                 } catch (Throwable) {
                 }
             }
@@ -113,7 +128,7 @@ class CloudSyncService {
         $products = self::ensureSyncUuids(
             'products',
             'PRD',
-            self::safeRows('SELECT * FROM products WHERE ' . $pendingWhere() . ' ORDER BY id ASC LIMIT 200'),
+            self::safeRows('SELECT * FROM products WHERE ' . $pendingWhere() . ' ORDER BY id ASC LIMIT 1000'),
             static fn($r) => (string) ($r['sku'] ?? $r['name'] ?? '')
         );
 
@@ -123,7 +138,7 @@ class CloudSyncService {
             self::safeRows(
                 'SELECT c.*, COALESCE(b.name, "") AS branch_name
                  FROM customers c LEFT JOIN branches b ON b.id=c.branch_id
-                 WHERE ' . $pendingWhere('c') . ' ORDER BY c.id ASC LIMIT 150'
+                 WHERE ' . $pendingWhere('c') . ' ORDER BY c.id ASC LIMIT 500'
             ),
             static fn($r) => ($r['phone'] ?? '') . '|' . ($r['name'] ?? '')
         );
@@ -200,9 +215,11 @@ class CloudSyncService {
             'SL',
             self::safeRows(
                 'SELECT s.*, COALESCE(b.name, "") AS branch_name, COALESCE(u.email, "") AS user_email,
+                        COALESCE(d.sync_uuid, "") AS drawer_sync_uuid,
                         COALESCE(c.sync_uuid, c.uuid, "") AS customer_sync_uuid, COALESCE(c.phone, "") AS customer_phone
                  FROM sales s
                  LEFT JOIN branches b ON b.id=s.branch_id
+                 LEFT JOIN drawers d ON d.id=s.drawer_id
                  LEFT JOIN users u ON u.id=s.user_id
                  LEFT JOIN customers c ON c.id=s.customer_id
                  WHERE ' . $pendingWhere('s') . ' ORDER BY s.id ASC LIMIT 100'
@@ -238,14 +255,123 @@ class CloudSyncService {
             static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['product_sku'] ?? '') . '|' . ($r['kind'] ?? '') . '|' . ($r['reference'] ?? '') . '|' . ($r['created_at'] ?? '')
         );
 
+        $drawers = self::ensureSyncUuids(
+            'drawers',
+            'DRW',
+            self::safeRows(
+                'SELECT d.*, COALESCE(b.name, "") AS branch_name, COALESCE(u.email, "") AS user_email, COALESCE(c.business_date, "") AS business_date
+                 FROM drawers d
+                 LEFT JOIN branches b ON b.id=d.branch_id
+                 LEFT JOIN users u ON u.id=d.user_id
+                 LEFT JOIN cycles c ON c.id=d.cycle_id
+                 WHERE ' . $pendingWhere('d') . ' ORDER BY d.id ASC LIMIT 100'
+            ),
+            static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['business_date'] ?? '') . '|' . ($r['created_at'] ?? '')
+        );
+
+        $cashMovements = self::ensureSyncUuids(
+            'cash_movements',
+            'CM',
+            self::safeRows(
+                'SELECT cm.*, d.branch_id, COALESCE(b.name, "") AS branch_name, COALESCE(d.sync_uuid, "") AS drawer_sync_uuid,
+                        COALESCE(c.business_date, "") AS business_date, COALESCE(u.email, "") AS user_email
+                 FROM cash_movements cm
+                 JOIN drawers d ON d.id=cm.drawer_id
+                 LEFT JOIN branches b ON b.id=d.branch_id
+                 LEFT JOIN cycles c ON c.id=d.cycle_id
+                 LEFT JOIN users u ON u.id=cm.user_id
+                 WHERE ' . $pendingWhere('cm') . ' ORDER BY cm.id ASC LIMIT 300'
+            ),
+            static fn($r) => ($r['drawer_id'] ?? 1) . '|' . ($r['amount'] ?? 0) . '|' . ($r['kind'] ?? '') . '|' . ($r['reference'] ?? '') . '|' . ($r['created_at'] ?? '')
+        );
+
+        $supplierPayments = self::ensureSyncUuids(
+            'supplier_payments',
+            'SPAY',
+            self::safeRows(
+                'SELECT sp.*, pu.branch_id, COALESCE(b.name, "") AS branch_name, COALESCE(pu.sync_uuid, "") AS purchase_sync_uuid,
+                        sup.name AS supplier_name, pu.invoice AS purchase_invoice, p.sku AS product_sku,
+                        COALESCE(d.sync_uuid, "") AS drawer_sync_uuid, COALESCE(u.email, "") AS user_email
+                 FROM supplier_payments sp
+                 JOIN purchases pu ON pu.id=sp.purchase_id
+                 JOIN suppliers sup ON sup.id=pu.supplier_id
+                 JOIN products p ON p.id=pu.product_id
+                 LEFT JOIN branches b ON b.id=pu.branch_id
+                 LEFT JOIN drawers d ON d.id=sp.drawer_id
+                 LEFT JOIN users u ON u.id=sp.user_id
+                 WHERE ' . $pendingWhere('sp') . ' ORDER BY sp.id ASC LIMIT 150'
+            ),
+            static fn($r) => ($r['purchase_id'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? '')
+        );
+
+        $returnsRaw = self::ensureSyncUuids(
+            'returns_log',
+            'RET',
+            self::safeRows(
+                'SELECT rl.*, COALESCE(b.name, "") AS branch_name, COALESCE(s.sync_uuid, s.uuid, "") AS sale_sync_uuid,
+                        p.sku AS product_sku, si.name AS sale_item_name, COALESCE(d.sync_uuid, "") AS drawer_sync_uuid
+                 FROM returns_log rl
+                 LEFT JOIN branches b ON b.id=rl.branch_id
+                 JOIN sale_items si ON si.id=rl.sale_item_id
+                 JOIN sales s ON s.id=si.sale_id
+                 JOIN products p ON p.id=si.product_id
+                 LEFT JOIN drawers d ON d.id=rl.processed_drawer_id
+                 WHERE ' . $pendingWhere('rl') . ' ORDER BY rl.id ASC LIMIT 100'
+            ),
+            static fn($r) => ($r['sale_item_id'] ?? 0) . '|' . ($r['qty'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? '')
+        );
+        $returnsPayload = [];
+        foreach ($returnsRaw as $ret) {
+            $exch = BaseRepository::one(
+                'SELECT ex.*, p.sku AS product_sku, COALESCE(un.code, "") AS unit_code, COALESCE(rs.sync_uuid, rs.uuid, "") AS replacement_sale_sync_uuid
+                 FROM exchanges ex
+                 JOIN products p ON p.id=ex.product_id
+                 LEFT JOIN units un ON un.id=ex.unit_id
+                 LEFT JOIN sales rs ON rs.id=ex.replacement_sale_id
+                 WHERE ex.return_id=?',
+                [$ret['id']]
+            );
+            $ret['exchange'] = $exch ?: null;
+            $returnsPayload[] = $ret;
+        }
+
+        $barcodeLogs = self::ensureSyncUuids(
+            'barcode_print_logs',
+            'BPL',
+            self::safeRows(
+                'SELECT bp.*, COALESCE(b.name, "") AS branch_name, COALESCE(p.sku, "") AS product_sku, COALESCE(u.email, "") AS user_email
+                 FROM barcode_print_logs bp
+                 LEFT JOIN branches b ON b.id=bp.branch_id
+                 LEFT JOIN products p ON p.id=bp.product_id
+                 LEFT JOIN users u ON u.id=bp.user_id
+                 WHERE ' . $pendingWhere('bp') . ' ORDER BY bp.id ASC LIMIT 150'
+            ),
+            static fn($r) => ($r['product_id'] ?? 0) . '|' . ($r['copies'] ?? 1) . '|' . ($r['created_at'] ?? '')
+        );
+
+        $auditLogs = self::ensureSyncUuids(
+            'audit_log',
+            'AUD',
+            self::safeRows(
+                'SELECT a.*, COALESCE(b.name, "") AS branch_name, COALESCE(u.email, "") AS user_email
+                 FROM audit_log a
+                 LEFT JOIN branches b ON b.id=a.branch_id
+                 LEFT JOIN users u ON u.id=a.user_id
+                 WHERE ' . $pendingWhere('a') . ' ORDER BY a.id ASC LIMIT 150'
+            ),
+            static fn($r) => ($r['action'] ?? '') . '|' . ($r['user_id'] ?? 0) . '|' . ($r['created_at'] ?? '')
+        );
+
         if (empty($branches) && empty($products) && empty($customers) && empty($units)
             && empty($suppliers) && empty($purchases) && empty($transfers)
-            && empty($repairs) && empty($salePayloads) && empty($movements)) {
+            && empty($repairs) && empty($salePayloads) && empty($movements)
+            && empty($drawers) && empty($cashMovements) && empty($supplierPayments)
+            && empty($returnsPayload) && empty($barcodeLogs) && empty($auditLogs)) {
             return [];
         }
 
         return [
-            'branch_id' => $sales[0]['branch_id'] ?? $customers[0]['branch_id'] ?? 1,
+            'branch_id' => $sales[0]['branch_id'] ?? $drawers[0]['branch_id'] ?? $customers[0]['branch_id'] ?? 1,
             'branches' => $branches,
             'products' => $products,
             'customers' => $customers,
@@ -256,6 +382,12 @@ class CloudSyncService {
             'repairs' => $repairs,
             'sales' => $salePayloads,
             'stock_movements' => $movements,
+            'drawers' => $drawers,
+            'cash_movements' => $cashMovements,
+            'supplier_payments' => $supplierPayments,
+            'returns_log' => $returnsPayload,
+            'barcode_print_logs' => $barcodeLogs,
+            'audit_log' => $auditLogs,
             'timestamp' => date('c'),
         ];
     }
@@ -272,6 +404,12 @@ class CloudSyncService {
             'synced_repairs' => self::markSyncedIds('repairs', $srv['synced_repairs'] ?? []),
             'synced_sales' => self::markSyncedIds('sales', $srv['synced_sales'] ?? []),
             'synced_movements' => self::markSyncedIds('stock_movements', $srv['synced_movements'] ?? []),
+            'synced_drawers' => self::markSyncedIds('drawers', $srv['synced_drawers'] ?? []),
+            'synced_cash_movements' => self::markSyncedIds('cash_movements', $srv['synced_cash_movements'] ?? []),
+            'synced_supplier_payments' => self::markSyncedIds('supplier_payments', $srv['synced_supplier_payments'] ?? []),
+            'synced_returns' => self::markSyncedIds('returns_log', $srv['synced_returns'] ?? []),
+            'synced_barcode_logs' => self::markSyncedIds('barcode_print_logs', $srv['synced_barcode_logs'] ?? []),
+            'synced_audit_logs' => self::markSyncedIds('audit_log', $srv['synced_audit_logs'] ?? []),
         ];
 
         BaseRepository::run(
@@ -326,12 +464,37 @@ class CloudSyncService {
         }
 
         $endpoint = BackupService::resolveCloudEndpoint($cloudUrl, 'sync.receive');
-        $res = self::postJson($endpoint, $postData, $apiKey);
-        if (!$res['success']) {
-            return ['success' => false, 'error' => $res['error'] ?? 'Sync transmission failed.'];
+        $totals = [
+            'synced_branches' => 0, 'synced_products' => 0, 'synced_customers' => 0,
+            'synced_units' => 0, 'synced_suppliers' => 0, 'synced_purchases' => 0,
+            'synced_transfers' => 0, 'synced_repairs' => 0, 'synced_sales' => 0,
+            'synced_movements' => 0, 'synced_drawers' => 0, 'synced_cash_movements' => 0,
+            'synced_supplier_payments' => 0, 'synced_returns' => 0,
+            'synced_barcode_logs' => 0, 'synced_audit_logs' => 0, 'synced_count' => 0,
+        ];
+
+        for ($pass = 0; $pass < 10; $pass++) {
+            $batchPayload = $pass === 0 ? $postData : self::collectPendingPushPayload();
+            if (empty($batchPayload)) {
+                break;
+            }
+            $res = self::postJson($endpoint, $batchPayload, $apiKey);
+            if (!$res['success']) {
+                return ['success' => false, 'error' => $res['error'] ?? 'Sync transmission failed.'];
+            }
+            $ackRes = self::applyPushAcknowledgements($res['data'] ?? []);
+            foreach ($totals as $k => $v) {
+                $totals[$k] += (int) ($ackRes[$k] ?? 0);
+            }
+            if ((int) ($ackRes['synced_count'] ?? 0) === 0) {
+                break;
+            }
         }
 
-        return self::applyPushAcknowledgements($res['data'] ?? []);
+        return array_merge($totals, [
+            'success' => true,
+            'message' => "Pushed {$totals['synced_count']} offline record(s) to cloud MySQL.",
+        ]);
     }
 
     /**
@@ -372,6 +535,12 @@ class CloudSyncService {
             'repairs_synced' => 0,
             'transfers_synced' => 0,
             'sales_synced' => 0,
+            'drawers_synced' => 0,
+            'cash_movements_synced' => 0,
+            'supplier_payments_synced' => 0,
+            'returns_synced' => 0,
+            'barcode_logs_synced' => 0,
+            'audit_logs_synced' => 0,
         ];
 
         BaseRepository::transaction(function () use ($data, $isSqlite, &$stats) {
@@ -703,23 +872,41 @@ class CloudSyncService {
                 $stats['repairs_synced']++;
             }
 
+            // 9.5 Drawers / Cash Register shifts (before sales & cashbook movements)
+            [$drawerMap, , $stats['drawers_synced']] = self::upsertSyncedDrawers(
+                $data['drawers'] ?? [],
+                $resolveLocalBranch,
+                $resolveLocalUser,
+                true
+            );
+
             // 10. Online branch sales (latest history pulled to local DB without duplicating)
             foreach ($data['sales'] ?? [] as $entry) {
                 $s = $entry['sale'] ?? [];
                 if (empty($s)) continue;
                 $syncUuid = (string) ($s['sync_uuid'] ?? ('SL-' . ($s['id'] ?? 0) . '-' . substr(md5(($s['created_at'] ?? '') . '|' . ($s['total'] ?? 0)), 0, 8)));
-                if (BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid=? LIMIT 1', [$syncUuid])) {
-                    continue;
-                }
                 $bid = $resolveLocalBranch($s['branch_name'] ?? null, (int) ($s['branch_id'] ?? 1));
                 $uid = $resolveLocalUser($s['user_email'] ?? null);
+                $drawerSyncUuid = (string) ($s['drawer_sync_uuid'] ?? '');
+                $drawerId = ($drawerSyncUuid !== '' && isset($drawerMap[$drawerSyncUuid]))
+                    ? $drawerMap[$drawerSyncUuid]
+                    : self::ensureSyncDrawer($bid, $uid, substr((string) ($s['created_at'] ?? date('Y-m-d')), 0, 10));
+
+                $existingSale = BaseRepository::one('SELECT id, synced FROM sales WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
+                if ($existingSale) {
+                    if ((int) ($existingSale['synced'] ?? 1) === 1) {
+                        BaseRepository::run('UPDATE sales SET credit=?, synced=1 WHERE id=?', [(int) ($s['credit'] ?? 0), $existingSale['id']]);
+                        self::syncSalePayments((int) $existingSale['id'], $drawerId, $uid, $entry['payments'] ?? [], $isSqlite);
+                    }
+                    continue;
+                }
+
                 $cid = (!empty($s['customer_sync_uuid']) || !empty($s['customer_phone']))
                     ? (BaseRepository::scalar(
                         'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
                         [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '']
                     ) ?: null)
                     : null;
-                $drawerId = self::ensureSyncDrawer($bid, $uid, substr((string) ($s['created_at'] ?? date('Y-m-d')), 0, 10));
 
                 $saleSql = $isSqlite
                     ? 'INSERT INTO sales (uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)'
@@ -739,13 +926,66 @@ class CloudSyncService {
                     );
                 }
 
-                foreach ($entry['payments'] ?? [] as $pm) {
-                    $pSql = $isSqlite
-                        ? 'INSERT OR IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)'
-                        : 'INSERT IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)';
-                    BaseRepository::run($pSql, [$newSaleId, $drawerId, $uid, $pm['kind'] ?? 'Sale', $pm['method'] ?? 'Cash', (int) ($pm['amount'] ?? 0), !empty($pm['reference']) ? $pm['reference'] : null, $pm['created_at'] ?? date('Y-m-d H:i:s')]);
-                }
+                self::syncSalePayments($newSaleId, $drawerId, $uid, $entry['payments'] ?? [], $isSqlite);
                 $stats['sales_synced']++;
+            }
+
+            // 10.1 Cashbook movements
+            [, $stats['cash_movements_synced']] = self::upsertSyncedCashMovements(
+                $data['cash_movements'] ?? [],
+                $drawerMap,
+                $resolveLocalBranch,
+                $resolveLocalUser,
+                $isSqlite
+            );
+
+            // 10.2 Supplier payments
+            [, $stats['supplier_payments_synced']] = self::upsertSyncedSupplierPayments(
+                $data['supplier_payments'] ?? [],
+                $drawerMap,
+                $resolveLocalBranch,
+                $resolveLocalUser
+            );
+
+            // 10.3 Returns & Exchanges
+            [, $stats['returns_synced']] = self::upsertSyncedReturns(
+                $data['returns_log'] ?? [],
+                $drawerMap,
+                $resolveLocalBranch,
+                true
+            );
+
+            // 10.4 Barcode print logs & Audit logs
+            [, $stats['barcode_logs_synced']] = self::upsertSyncedBarcodeLogs(
+                $data['barcode_print_logs'] ?? [],
+                $resolveLocalBranch,
+                $resolveLocalUser
+            );
+            [, $stats['audit_logs_synced']] = self::upsertSyncedAuditLogs(
+                $data['audit_log'] ?? [],
+                $resolveLocalBranch,
+                $resolveLocalUser
+            );
+
+            // 10.5 User permission overrides
+            if (array_key_exists('user_permissions', $data) && is_array($data['user_permissions'])) {
+                try {
+                    \Zeedat\Repositories\PermissionRepository::ensureTable();
+                    $byUserPerms = [];
+                    foreach ($data['user_permissions'] as $up) {
+                        $email = strtolower(trim((string) ($up['email'] ?? '')));
+                        $perm = (string) ($up['permission'] ?? '');
+                        if ($email === '' || $perm === '' || !isset($userByEmail[$email])) continue;
+                        $byUserPerms[$userByEmail[$email]][$perm] = !empty($up['allowed']) ? 1 : 0;
+                    }
+                    foreach ($userByEmail as $localUId) {
+                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$localUId]);
+                        foreach ($byUserPerms[$localUId] ?? [] as $perm => $allowed) {
+                            BaseRepository::run('INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)', [$localUId, $perm, $allowed]);
+                        }
+                    }
+                } catch (\Throwable) {
+                }
             }
 
             // 11. Shop & receipt settings (preserve local cloud_backup_url/cloud_api_key/delete_pin_hash)
@@ -774,7 +1014,7 @@ class CloudSyncService {
 
         return array_merge($stats, [
             'success' => true,
-            'message' => "Synced {$stats['branches_synced']} branch(es), {$stats['products_synced']} product(s), {$stats['stock_synced']} stock record(s), {$stats['customers_synced']} customer(s), and {$stats['sales_synced']} online sale(s).",
+            'message' => "Synced {$stats['branches_synced']} branch(es), {$stats['products_synced']} product(s), {$stats['stock_synced']} stock, {$stats['customers_synced']} customer(s), {$stats['sales_synced']} sale(s), {$stats['drawers_synced']} drawer(s), {$stats['cash_movements_synced']} cashbook entry(s), and {$stats['returns_synced']} return(s).",
         ]);
     }
 
@@ -804,6 +1044,363 @@ class CloudSyncService {
         );
     }
 
+    private static function syncSalePayments(int $saleId, int $drawerId, int $userId, array $payments, bool $isSqlite): void {
+        foreach ($payments as $pm) {
+            $kind = $pm['kind'] ?? 'Sale';
+            $method = $pm['method'] ?? 'Cash';
+            $amount = (int) ($pm['amount'] ?? 0);
+            $refVal = !empty($pm['reference']) ? (string) $pm['reference'] : null;
+            $createdAt = $pm['created_at'] ?? date('Y-m-d H:i:s');
+
+            $dup = BaseRepository::scalar(
+                'SELECT id FROM payments WHERE sale_id=? AND kind=? AND method=? AND amount=? AND COALESCE(reference, "")=? LIMIT 1',
+                [$saleId, $kind, $method, $amount, $refVal ?? '']
+            );
+            if ($dup) {
+                continue;
+            }
+            $pSql = $isSqlite
+                ? 'INSERT OR IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)'
+                : 'INSERT IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)';
+            BaseRepository::run($pSql, [$saleId, $drawerId, $userId, $kind, $method, $amount, $refVal, $createdAt]);
+        }
+    }
+
+    private static function upsertSyncedDrawers(array $drawers, callable $resolveBranch, callable $resolveUser, bool $respectDirtyLocal = false): array {
+        $drawerMap = [];
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($drawers as $d) {
+            $bid = $resolveBranch($d['branch_name'] ?? null, (int) ($d['branch_id'] ?? 1));
+            $uid = $resolveUser($d['user_email'] ?? null);
+            $createdAt = (string) ($d['created_at'] ?? date('Y-m-d H:i:s'));
+            $bDate = (string) ($d['business_date'] ?? substr($createdAt, 0, 10));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $bDate)) {
+                $bDate = date('Y-m-d');
+            }
+            $syncUuid = trim((string) ($d['sync_uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'DRW-' . ($d['id'] ?? 0) . '-' . substr(md5("{$bid}|{$bDate}|{$createdAt}"), 0, 10);
+            }
+
+            $cycleSql = Database::isSqlite()
+                ? 'INSERT OR IGNORE INTO cycles (branch_id, business_date) VALUES (?,?)'
+                : 'INSERT IGNORE INTO cycles (branch_id, business_date) VALUES (?,?)';
+            BaseRepository::run($cycleSql, [$bid, $bDate]);
+            $cycleId = (int) BaseRepository::scalar('SELECT id FROM cycles WHERE branch_id=? AND business_date=? LIMIT 1', [$bid, $bDate]);
+
+            $existing = BaseRepository::one('SELECT id, synced FROM drawers WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
+            if ($existing) {
+                $localId = (int) $existing['id'];
+                if (!$respectDirtyLocal || (int) ($existing['synced'] ?? 1) === 1) {
+                    BaseRepository::run(
+                        'UPDATE drawers SET counted=?, expected=?, notes=?, closed_at=?, synced=1 WHERE id=?',
+                        [
+                            isset($d['counted']) && $d['counted'] !== null ? (int) $d['counted'] : null,
+                            isset($d['expected']) && $d['expected'] !== null ? (int) $d['expected'] : null,
+                            $d['notes'] ?? '',
+                            $d['closed_at'] ?? null,
+                            $localId,
+                        ]
+                    );
+                }
+                $drawerMap[$syncUuid] = $localId;
+            } elseif (empty($d['closed_at'])) {
+                // Avoid violating MySQL UNIQUE(open_branch) if another open drawer already exists on target branch
+                $openExisting = BaseRepository::one('SELECT id, sync_uuid FROM drawers WHERE branch_id=? AND closed_at IS NULL LIMIT 1', [$bid]);
+                if ($openExisting) {
+                    $localId = (int) $openExisting['id'];
+                    if (empty($openExisting['sync_uuid'])) {
+                        BaseRepository::run('UPDATE drawers SET sync_uuid=?, notes=?, synced=1 WHERE id=?', [$syncUuid, $d['notes'] ?? '', $localId]);
+                    }
+                    $drawerMap[$syncUuid] = $localId;
+                } else {
+                    $localId = BaseRepository::insert(
+                        'INSERT INTO drawers (branch_id, user_id, cycle_id, opening, counted, expected, notes, sync_uuid, synced, created_at, closed_at) VALUES (?,?,?,?,?,?,?,?,1,?,?)',
+                        [
+                            $bid,
+                            $uid,
+                            $cycleId,
+                            (int) ($d['opening'] ?? 0),
+                            isset($d['counted']) && $d['counted'] !== null ? (int) $d['counted'] : null,
+                            isset($d['expected']) && $d['expected'] !== null ? (int) $d['expected'] : null,
+                            $d['notes'] ?? '',
+                            $syncUuid,
+                            $createdAt,
+                            null,
+                        ]
+                    );
+                    $drawerMap[$syncUuid] = $localId;
+                }
+            } else {
+                $localId = BaseRepository::insert(
+                    'INSERT INTO drawers (branch_id, user_id, cycle_id, opening, counted, expected, notes, sync_uuid, synced, created_at, closed_at) VALUES (?,?,?,?,?,?,?,?,1,?,?)',
+                    [
+                        $bid,
+                        $uid,
+                        $cycleId,
+                        (int) ($d['opening'] ?? 0),
+                        isset($d['counted']) && $d['counted'] !== null ? (int) $d['counted'] : null,
+                        isset($d['expected']) && $d['expected'] !== null ? (int) $d['expected'] : null,
+                        $d['notes'] ?? '',
+                        $syncUuid,
+                        $createdAt,
+                        $d['closed_at'],
+                    ]
+                );
+                $drawerMap[$syncUuid] = $localId;
+            }
+
+            if (isset($d['id'])) {
+                $ackedIds[] = $d['id'];
+            }
+            $count++;
+        }
+
+        return [$drawerMap, $ackedIds, $count];
+    }
+
+    private static function resolveDrawerIdBySync(string $drawerSyncUuid, array $drawerMap, int $branchId, int $userId, string $businessDate): int {
+        if ($drawerSyncUuid !== '' && isset($drawerMap[$drawerSyncUuid])) {
+            return (int) $drawerMap[$drawerSyncUuid];
+        }
+        if ($drawerSyncUuid !== '') {
+            $found = (int) BaseRepository::scalar('SELECT id FROM drawers WHERE sync_uuid=? LIMIT 1', [$drawerSyncUuid]);
+            if ($found > 0) {
+                return $found;
+            }
+        }
+        return self::ensureSyncDrawer($branchId, $userId, $businessDate);
+    }
+
+    private static function upsertSyncedCashMovements(array $movements, array $drawerMap, callable $resolveBranch, callable $resolveUser, bool $isSqlite): array {
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($movements as $cm) {
+            $createdAt = (string) ($cm['created_at'] ?? date('Y-m-d H:i:s'));
+            $syncUuid = trim((string) ($cm['sync_uuid'] ?? $cm['uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'CM-' . ($cm['id'] ?? 0) . '-' . substr(md5(($cm['kind'] ?? '') . '|' . ($cm['amount'] ?? 0) . '|' . $createdAt), 0, 10);
+            }
+
+            if (!BaseRepository::scalar('SELECT id FROM cash_movements WHERE sync_uuid=? LIMIT 1', [$syncUuid])) {
+                $bid = $resolveBranch($cm['branch_name'] ?? null, (int) ($cm['branch_id'] ?? 1));
+                $uid = $resolveUser($cm['user_email'] ?? null);
+                $bDate = (string) ($cm['business_date'] ?? substr($createdAt, 0, 10));
+                $drawerId = self::resolveDrawerIdBySync((string) ($cm['drawer_sync_uuid'] ?? ''), $drawerMap, $bid, $uid, $bDate);
+
+                if ($isSqlite) {
+                    BaseRepository::run(
+                        'INSERT INTO cash_movements (uuid, drawer_id, user_id, amount, kind, reference, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,1,?)',
+                        [$syncUuid, $drawerId, $uid, (int) ($cm['amount'] ?? 0), (string) ($cm['kind'] ?? 'Cash'), (string) ($cm['reference'] ?? ''), $syncUuid, $createdAt]
+                    );
+                } else {
+                    BaseRepository::run(
+                        'INSERT INTO cash_movements (drawer_id, user_id, amount, kind, reference, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,1,?)',
+                        [$drawerId, $uid, (int) ($cm['amount'] ?? 0), (string) ($cm['kind'] ?? 'Cash'), (string) ($cm['reference'] ?? ''), $syncUuid, $createdAt]
+                    );
+                }
+                $count++;
+            }
+
+            if (isset($cm['id'])) {
+                $ackedIds[] = $cm['id'];
+            }
+        }
+
+        return [$ackedIds, $count];
+    }
+
+    private static function upsertSyncedSupplierPayments(array $payments, array $drawerMap, callable $resolveBranch, callable $resolveUser): array {
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($payments as $sp) {
+            $createdAt = (string) ($sp['created_at'] ?? date('Y-m-d H:i:s'));
+            $syncUuid = trim((string) ($sp['sync_uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'SPAY-' . ($sp['id'] ?? 0) . '-' . substr(md5(($sp['purchase_sync_uuid'] ?? '') . '|' . ($sp['amount'] ?? 0) . '|' . $createdAt), 0, 10);
+            }
+
+            if (!BaseRepository::scalar('SELECT id FROM supplier_payments WHERE sync_uuid=? LIMIT 1', [$syncUuid])) {
+                $bid = $resolveBranch($sp['branch_name'] ?? null, (int) ($sp['branch_id'] ?? 1));
+                $uid = $resolveUser($sp['user_email'] ?? null);
+                $purchaseId = 0;
+                if (!empty($sp['purchase_sync_uuid'])) {
+                    $purchaseId = (int) BaseRepository::scalar('SELECT id FROM purchases WHERE sync_uuid=? LIMIT 1', [$sp['purchase_sync_uuid']]);
+                }
+                if ($purchaseId <= 0 && !empty($sp['purchase_invoice']) && !empty($sp['supplier_name']) && !empty($sp['product_sku'])) {
+                    $purchaseId = (int) BaseRepository::scalar(
+                        'SELECT pu.id FROM purchases pu JOIN suppliers sup ON sup.id=pu.supplier_id JOIN products p ON p.id=pu.product_id
+                         WHERE pu.branch_id=? AND sup.name=? AND pu.invoice=? AND p.sku=? LIMIT 1',
+                        [$bid, $sp['supplier_name'], $sp['purchase_invoice'], $sp['product_sku']]
+                    );
+                }
+                if ($purchaseId <= 0) {
+                    continue;
+                }
+                $drawerId = self::resolveDrawerIdBySync((string) ($sp['drawer_sync_uuid'] ?? ''), $drawerMap, $bid, $uid, substr($createdAt, 0, 10));
+                BaseRepository::run(
+                    'INSERT INTO supplier_payments (purchase_id, drawer_id, user_id, amount, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,1,?)',
+                    [$purchaseId, $drawerId, $uid, (int) ($sp['amount'] ?? 0), $syncUuid, $createdAt]
+                );
+                $count++;
+            }
+
+            if (isset($sp['id'])) {
+                $ackedIds[] = $sp['id'];
+            }
+        }
+
+        return [$ackedIds, $count];
+    }
+
+    private static function upsertSyncedReturns(array $returns, array $drawerMap, callable $resolveBranch, bool $respectDirtyLocal = false): array {
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($returns as $ret) {
+            $createdAt = (string) ($ret['created_at'] ?? date('Y-m-d H:i:s'));
+            $syncUuid = trim((string) ($ret['sync_uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'RET-' . ($ret['id'] ?? 0) . '-' . substr(md5(($ret['sale_sync_uuid'] ?? '') . '|' . ($ret['amount'] ?? 0) . '|' . $createdAt), 0, 10);
+            }
+
+            $bid = $resolveBranch($ret['branch_name'] ?? null, (int) ($ret['branch_id'] ?? 1));
+            $drawerId = !empty($ret['drawer_sync_uuid'])
+                ? self::resolveDrawerIdBySync((string) $ret['drawer_sync_uuid'], $drawerMap, $bid, 1, substr($createdAt, 0, 10))
+                : null;
+
+            $existing = BaseRepository::one('SELECT id, synced, status FROM returns_log WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
+            if ($existing) {
+                if ((!$respectDirtyLocal || (int) ($existing['synced'] ?? 1) === 1)
+                    && $existing['status'] !== ($ret['status'] ?? 'Pending')) {
+                    BaseRepository::run(
+                        'UPDATE returns_log SET status=?, reference=?, processed_drawer_id=?, synced=1 WHERE id=?',
+                        [$ret['status'] ?? 'Pending', !empty($ret['reference']) ? $ret['reference'] : null, $drawerId, $existing['id']]
+                    );
+                }
+            } else {
+                $saleItemId = 0;
+                if (!empty($ret['sale_sync_uuid']) && !empty($ret['product_sku'])) {
+                    $saleItemId = (int) BaseRepository::scalar(
+                        'SELECT si.id FROM sale_items si JOIN sales s ON s.id=si.sale_id JOIN products p ON p.id=si.product_id
+                         WHERE s.sync_uuid=? AND p.sku=? LIMIT 1',
+                        [$ret['sale_sync_uuid'], $ret['product_sku']]
+                    );
+                }
+                if ($saleItemId <= 0) {
+                    continue;
+                }
+                $newRetId = BaseRepository::insert(
+                    'INSERT INTO returns_log (branch_id, sale_item_id, qty, reason, condition_note, restock, amount, method, reference, status, processed_drawer_id, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
+                    [
+                        $bid,
+                        $saleItemId,
+                        (int) ($ret['qty'] ?? 1),
+                        (string) ($ret['reason'] ?? ''),
+                        (string) ($ret['condition_note'] ?? ''),
+                        !empty($ret['restock']) ? 1 : 0,
+                        (int) ($ret['amount'] ?? 0),
+                        (string) ($ret['method'] ?? 'Cash'),
+                        !empty($ret['reference']) ? $ret['reference'] : null,
+                        (string) ($ret['status'] ?? 'Pending'),
+                        $drawerId,
+                        $syncUuid,
+                        $createdAt,
+                    ]
+                );
+
+                if (!empty($ret['exchange']) && is_array($ret['exchange'])) {
+                    $ex = $ret['exchange'];
+                    $exPid = !empty($ex['product_sku']) ? (int) BaseRepository::scalar('SELECT id FROM products WHERE sku=? LIMIT 1', [$ex['product_sku']]) : 0;
+                    if ($exPid > 0) {
+                        $exUid = !empty($ex['unit_code']) ? (BaseRepository::scalar('SELECT id FROM units WHERE code=? LIMIT 1', [$ex['unit_code']]) ?: null) : null;
+                        $repSaleId = !empty($ex['replacement_sale_sync_uuid'])
+                            ? (BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid=? LIMIT 1', [$ex['replacement_sale_sync_uuid']]) ?: null)
+                            : null;
+                        $exSql = Database::isSqlite()
+                            ? 'INSERT OR IGNORE INTO exchanges (return_id, product_id, unit_id, qty, quoted_total, replacement_sale_id) VALUES (?,?,?,?,?,?)'
+                            : 'INSERT IGNORE INTO exchanges (return_id, product_id, unit_id, qty, quoted_total, replacement_sale_id) VALUES (?,?,?,?,?,?)';
+                        BaseRepository::run($exSql, [$newRetId, $exPid, $exUid, (int) ($ex['qty'] ?? 1), (int) ($ex['quoted_total'] ?? 0), $repSaleId]);
+                    }
+                }
+                $count++;
+            }
+
+            if (isset($ret['id'])) {
+                $ackedIds[] = $ret['id'];
+            }
+        }
+
+        return [$ackedIds, $count];
+    }
+
+    private static function upsertSyncedBarcodeLogs(array $logs, callable $resolveBranch, callable $resolveUser): array {
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($logs as $bp) {
+            $createdAt = (string) ($bp['created_at'] ?? date('Y-m-d H:i:s'));
+            $syncUuid = trim((string) ($bp['sync_uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'BPL-' . ($bp['id'] ?? 0) . '-' . substr(md5(($bp['product_sku'] ?? '') . '|' . ($bp['copies'] ?? 1) . '|' . $createdAt), 0, 10);
+            }
+
+            if (!BaseRepository::scalar('SELECT id FROM barcode_print_logs WHERE sync_uuid=? LIMIT 1', [$syncUuid])) {
+                $pid = !empty($bp['product_sku']) ? (int) BaseRepository::scalar('SELECT id FROM products WHERE sku=? LIMIT 1', [$bp['product_sku']]) : (int) ($bp['product_id'] ?? 0);
+                if ($pid > 0) {
+                    $bid = (int) ($bp['branch_id'] ?? 0) > 0 ? $resolveBranch($bp['branch_name'] ?? null, (int) $bp['branch_id']) : 0;
+                    $uid = $resolveUser($bp['user_email'] ?? null);
+                    BaseRepository::run(
+                        'INSERT INTO barcode_print_logs (branch_id, product_id, user_id, copies, price, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,1,?)',
+                        [$bid, $pid, $uid, max(1, (int) ($bp['copies'] ?? 1)), (int) ($bp['price'] ?? 0), $syncUuid, $createdAt]
+                    );
+                    $count++;
+                }
+            }
+
+            if (isset($bp['id'])) {
+                $ackedIds[] = $bp['id'];
+            }
+        }
+
+        return [$ackedIds, $count];
+    }
+
+    private static function upsertSyncedAuditLogs(array $logs, callable $resolveBranch, callable $resolveUser): array {
+        $ackedIds = [];
+        $count = 0;
+
+        foreach ($logs as $al) {
+            $createdAt = (string) ($al['created_at'] ?? date('Y-m-d H:i:s'));
+            $syncUuid = trim((string) ($al['sync_uuid'] ?? ''));
+            if ($syncUuid === '') {
+                $syncUuid = 'AUD-' . ($al['id'] ?? 0) . '-' . substr(md5(($al['action'] ?? '') . '|' . ($al['user_email'] ?? '') . '|' . $createdAt), 0, 10);
+            }
+
+            if (!BaseRepository::scalar('SELECT id FROM audit_log WHERE sync_uuid=? LIMIT 1', [$syncUuid])) {
+                $uid = $resolveUser($al['user_email'] ?? null);
+                $bid = !empty($al['branch_name']) || !empty($al['branch_id'])
+                    ? $resolveBranch($al['branch_name'] ?? null, (int) ($al['branch_id'] ?? 1))
+                    : null;
+                BaseRepository::run(
+                    'INSERT INTO audit_log (user_id, branch_id, action, details, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,1,?)',
+                    [$uid, $bid, (string) ($al['action'] ?? 'sync'), (string) ($al['details'] ?? '{}'), $syncUuid, $createdAt]
+                );
+                $count++;
+            }
+
+            if (isset($al['id'])) {
+                $ackedIds[] = $al['id'];
+            }
+        }
+
+        return [$ackedIds, $count];
+    }
+
     /**
      * Server Receiver: Applies incoming offline changes cleanly into Server MySQL with full FK mapping.
      */
@@ -828,6 +1425,12 @@ class CloudSyncService {
             'synced_repairs' => [],
             'synced_sales' => [],
             'synced_movements' => [],
+            'synced_drawers' => [],
+            'synced_cash_movements' => [],
+            'synced_supplier_payments' => [],
+            'synced_returns' => [],
+            'synced_barcode_logs' => [],
+            'synced_audit_logs' => [],
         ];
 
         BaseRepository::transaction(function () use ($payload, $isSqlite, &$acked) {
@@ -1079,6 +1682,15 @@ class CloudSyncService {
                 $acked['synced_repairs'][] = $r['id'];
             }
 
+            // 7.5 Drawers / Cash Register shifts (resolved before sales & cashbook movements)
+            [$drawerMap, $ackedDrawers] = self::upsertSyncedDrawers(
+                $payload['drawers'] ?? [],
+                $resolveBranch,
+                $resolveUser,
+                false
+            );
+            $acked['synced_drawers'] = $ackedDrawers;
+
             // 8. Sales + Sale Items + Payments (with resolved Branch, User, Drawer, Customer, Product, Unit FKs)
             foreach ($payload['sales'] ?? [] as $saleEntry) {
                 $s = $saleEntry['sale'] ?? [];
@@ -1086,15 +1698,25 @@ class CloudSyncService {
                 $bid = $resolveBranch($s['branch_name'] ?? null, (int) ($s['branch_id'] ?? $defaultBranchId));
                 $uid = $resolveUser($s['user_email'] ?? null);
                 $syncUuid = (string) ($s['sync_uuid'] ?? $s['uuid'] ?? ('SL-' . ($s['id'] ?? 0)));
+                $drawerId = self::resolveDrawerIdBySync(
+                    (string) ($s['drawer_sync_uuid'] ?? ''),
+                    $drawerMap,
+                    $bid,
+                    $uid,
+                    substr((string) ($s['created_at'] ?? date('Y-m-d')), 0, 10)
+                );
 
-                if (!BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid = ? LIMIT 1', [$syncUuid])) {
+                $existingSaleId = (int) BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid = ? LIMIT 1', [$syncUuid]);
+                if ($existingSaleId > 0) {
+                    BaseRepository::run('UPDATE sales SET credit=?, synced=1 WHERE id=?', [(int) ($s['credit'] ?? 0), $existingSaleId]);
+                    self::syncSalePayments($existingSaleId, $drawerId, $uid, $saleEntry['payments'] ?? [], $isSqlite);
+                } else {
                     $cid = (!empty($s['customer_sync_uuid']) || !empty($s['customer_phone']))
                         ? (BaseRepository::scalar(
                             'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
                             [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '']
                         ) ?: null)
                         : null;
-                    $drawerId = self::ensureSyncDrawer($bid, $uid, substr((string) ($s['created_at'] ?? date('Y-m-d')), 0, 10));
 
                     $saleSql = $isSqlite
                         ? 'INSERT INTO sales (uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)'
@@ -1124,12 +1746,7 @@ class CloudSyncService {
                         }
                     }
 
-                    foreach ($saleEntry['payments'] ?? [] as $p) {
-                        $paySql = $isSqlite
-                            ? 'INSERT OR IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)'
-                            : 'INSERT IGNORE INTO payments (sale_id, drawer_id, user_id, kind, method, amount, reference, created_at) VALUES (?,?,?,?,?,?,?,?)';
-                        BaseRepository::run($paySql, [$newSaleId, $drawerId, $uid, $p['kind'] ?? 'Sale', $p['method'] ?? 'Cash', (int) ($p['amount'] ?? 0), !empty($p['reference']) ? $p['reference'] : null, $p['created_at'] ?? date('Y-m-d H:i:s')]);
-                    }
+                    self::syncSalePayments($newSaleId, $drawerId, $uid, $saleEntry['payments'] ?? [], $isSqlite);
                 }
                 $acked['synced_sales'][] = $s['id'];
             }
@@ -1164,6 +1781,37 @@ class CloudSyncService {
                 }
                 $acked['synced_movements'][] = $mv['id'];
             }
+
+            // 10. Cashbook movements, Supplier payments, Returns & Exchanges, Barcode logs & Audit logs
+            [$acked['synced_cash_movements']] = self::upsertSyncedCashMovements(
+                $payload['cash_movements'] ?? [],
+                $drawerMap,
+                $resolveBranch,
+                $resolveUser,
+                $isSqlite
+            );
+            [$acked['synced_supplier_payments']] = self::upsertSyncedSupplierPayments(
+                $payload['supplier_payments'] ?? [],
+                $drawerMap,
+                $resolveBranch,
+                $resolveUser
+            );
+            [$acked['synced_returns']] = self::upsertSyncedReturns(
+                $payload['returns_log'] ?? [],
+                $drawerMap,
+                $resolveBranch,
+                false
+            );
+            [$acked['synced_barcode_logs']] = self::upsertSyncedBarcodeLogs(
+                $payload['barcode_print_logs'] ?? [],
+                $resolveBranch,
+                $resolveUser
+            );
+            [$acked['synced_audit_logs']] = self::upsertSyncedAuditLogs(
+                $payload['audit_log'] ?? [],
+                $resolveBranch,
+                $resolveUser
+            );
         });
 
         return array_merge($acked, [
@@ -1193,14 +1841,37 @@ class CloudSyncService {
              FROM products ORDER BY id ASC"
         );
 
-        $sales = BaseRepository::rows(
-            "SELECT s.*, b.name AS branch_name, COALESCE(u.email, '') AS user_email,
-                    COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone
-             FROM sales s
-             JOIN branches b ON b.id=s.branch_id
-             LEFT JOIN users u ON u.id=s.user_id
-             LEFT JOIN customers c ON c.id=s.customer_id
-             ORDER BY s.id DESC LIMIT 200"
+        $drawers = self::ensureSyncUuids(
+            'drawers',
+            'DRW',
+            self::safeRows(
+                "SELECT d.*, b.name AS branch_name, COALESCE(u.email, '') AS user_email, COALESCE(c.business_date, '') AS business_date
+                 FROM drawers d
+                 JOIN branches b ON b.id=d.branch_id
+                 LEFT JOIN users u ON u.id=d.user_id
+                 LEFT JOIN cycles c ON c.id=d.cycle_id
+                 ORDER BY d.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['business_date'] ?? '') . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+
+        $sales = self::ensureSyncUuids(
+            'sales',
+            'SL',
+            BaseRepository::rows(
+                "SELECT s.*, b.name AS branch_name, COALESCE(u.email, '') AS user_email,
+                        COALESCE(d.sync_uuid, '') AS drawer_sync_uuid,
+                        COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone
+                 FROM sales s
+                 JOIN branches b ON b.id=s.branch_id
+                 LEFT JOIN drawers d ON d.id=s.drawer_id
+                 LEFT JOIN users u ON u.id=s.user_id
+                 LEFT JOIN customers c ON c.id=s.customer_id
+                 ORDER BY s.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['created_at'] ?? '') . '|' . ($r['total'] ?? 0) . '|' . ($r['branch_id'] ?? 1),
+            false
         );
         $saleEntries = [];
         foreach ($sales as $s) {
@@ -1216,6 +1887,103 @@ class CloudSyncService {
             ];
         }
 
+        $cashMovements = self::ensureSyncUuids(
+            'cash_movements',
+            'CM',
+            self::safeRows(
+                "SELECT cm.*, d.branch_id, b.name AS branch_name, COALESCE(d.sync_uuid, '') AS drawer_sync_uuid,
+                        COALESCE(c.business_date, '') AS business_date, COALESCE(u.email, '') AS user_email
+                 FROM cash_movements cm
+                 JOIN drawers d ON d.id=cm.drawer_id
+                 JOIN branches b ON b.id=d.branch_id
+                 LEFT JOIN cycles c ON c.id=d.cycle_id
+                 LEFT JOIN users u ON u.id=cm.user_id
+                 ORDER BY cm.id DESC LIMIT 500"
+            ),
+            static fn($r) => ($r['drawer_id'] ?? 1) . '|' . ($r['amount'] ?? 0) . '|' . ($r['kind'] ?? '') . '|' . ($r['reference'] ?? '') . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+
+        $supplierPayments = self::ensureSyncUuids(
+            'supplier_payments',
+            'SPAY',
+            self::safeRows(
+                "SELECT sp.*, pu.branch_id, b.name AS branch_name, COALESCE(pu.sync_uuid, '') AS purchase_sync_uuid,
+                        sup.name AS supplier_name, pu.invoice AS purchase_invoice, p.sku AS product_sku,
+                        COALESCE(d.sync_uuid, '') AS drawer_sync_uuid, COALESCE(u.email, '') AS user_email
+                 FROM supplier_payments sp
+                 JOIN purchases pu ON pu.id=sp.purchase_id
+                 JOIN branches b ON b.id=pu.branch_id
+                 JOIN suppliers sup ON sup.id=pu.supplier_id
+                 JOIN products p ON p.id=pu.product_id
+                 LEFT JOIN drawers d ON d.id=sp.drawer_id
+                 LEFT JOIN users u ON u.id=sp.user_id
+                 ORDER BY sp.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['purchase_id'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+
+        $returnsRaw = self::ensureSyncUuids(
+            'returns_log',
+            'RET',
+            self::safeRows(
+                "SELECT rl.*, b.name AS branch_name, COALESCE(s.sync_uuid, '') AS sale_sync_uuid,
+                        p.sku AS product_sku, si.name AS sale_item_name, COALESCE(d.sync_uuid, '') AS drawer_sync_uuid
+                 FROM returns_log rl
+                 JOIN branches b ON b.id=rl.branch_id
+                 JOIN sale_items si ON si.id=rl.sale_item_id
+                 JOIN sales s ON s.id=si.sale_id
+                 JOIN products p ON p.id=si.product_id
+                 LEFT JOIN drawers d ON d.id=rl.processed_drawer_id
+                 ORDER BY rl.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['sale_item_id'] ?? 0) . '|' . ($r['qty'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+        foreach ($returnsRaw as &$retRow) {
+            $exch = BaseRepository::one(
+                "SELECT ex.*, p.sku AS product_sku, COALESCE(un.code, '') AS unit_code, COALESCE(rs.sync_uuid, '') AS replacement_sale_sync_uuid
+                 FROM exchanges ex
+                 JOIN products p ON p.id=ex.product_id
+                 LEFT JOIN units un ON un.id=ex.unit_id
+                 LEFT JOIN sales rs ON rs.id=ex.replacement_sale_id
+                 WHERE ex.return_id=?",
+                [$retRow['id']]
+            );
+            $retRow['exchange'] = $exch ?: null;
+        }
+        unset($retRow);
+
+        $barcodeLogs = self::ensureSyncUuids(
+            'barcode_print_logs',
+            'BPL',
+            self::safeRows(
+                "SELECT bp.*, COALESCE(b.name, '') AS branch_name, COALESCE(p.sku, '') AS product_sku, COALESCE(u.email, '') AS user_email
+                 FROM barcode_print_logs bp
+                 LEFT JOIN branches b ON b.id=bp.branch_id
+                 LEFT JOIN products p ON p.id=bp.product_id
+                 LEFT JOIN users u ON u.id=bp.user_id
+                 ORDER BY bp.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['product_id'] ?? 0) . '|' . ($r['copies'] ?? 1) . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+
+        $auditLogs = self::ensureSyncUuids(
+            'audit_log',
+            'AUD',
+            self::safeRows(
+                "SELECT a.*, COALESCE(b.name, '') AS branch_name, COALESCE(u.email, '') AS user_email
+                 FROM audit_log a
+                 LEFT JOIN branches b ON b.id=a.branch_id
+                 LEFT JOIN users u ON u.id=a.user_id
+                 ORDER BY a.id DESC LIMIT 200"
+            ),
+            static fn($r) => ($r['action'] ?? '') . '|' . ($r['user_id'] ?? 0) . '|' . ($r['created_at'] ?? ''),
+            false
+        );
+
         $userBranches = [];
         try {
             $userBranches = BaseRepository::rows(
@@ -1224,6 +1992,18 @@ class CloudSyncService {
                  JOIN users u ON u.id=ub.user_id
                  JOIN branches b ON b.id=ub.branch_id
                  ORDER BY ub.user_id ASC, ub.branch_id ASC"
+            );
+        } catch (\Throwable $ignore) {
+        }
+
+        $userPermissions = [];
+        try {
+            \Zeedat\Repositories\PermissionRepository::ensureTable();
+            $userPermissions = BaseRepository::rows(
+                "SELECT u.email, up.permission, up.allowed
+                 FROM user_permissions up
+                 JOIN users u ON u.id=up.user_id
+                 ORDER BY up.user_id ASC, up.permission ASC"
             );
         } catch (\Throwable $ignore) {
         }
@@ -1238,6 +2018,7 @@ class CloudSyncService {
                  FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id ASC"
             ),
             'user_branches' => $userBranches,
+            'user_permissions' => $userPermissions,
             'products' => $products,
             'stock' => BaseRepository::rows(
                 "SELECT st.branch_id, b.name AS branch_name, p.sku AS product_sku, st.qty
@@ -1267,7 +2048,13 @@ class CloudSyncService {
                  FROM repairs r JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=r.customer_id
                  LEFT JOIN users t ON t.id=r.technician_id ORDER BY r.id DESC LIMIT 200"
             ),
+            'drawers' => $drawers,
             'sales' => $saleEntries,
+            'cash_movements' => $cashMovements,
+            'supplier_payments' => $supplierPayments,
+            'returns_log' => $returnsRaw,
+            'barcode_print_logs' => $barcodeLogs,
+            'audit_log' => $auditLogs,
             'settings' => [
                 'shop_name' => $settings['shop_name'] ?? 'ZEEDAT POS',
                 'shop_phone' => $settings['shop_phone'] ?? '',
@@ -1302,17 +2089,28 @@ class CloudSyncService {
         $pullSummary = ['success' => true, 'products_synced' => 0];
 
         try {
-            Database::overrideConnection('sqlite', $sqlitePdo);
-            $pendingPayload = self::collectPendingPushPayload();
+            $totalPushed = 0;
+            for ($pass = 0; $pass < 10; $pass++) {
+                Database::overrideConnection('sqlite', $sqlitePdo);
+                $pendingPayload = self::collectPendingPushPayload();
+                if (empty($pendingPayload)) {
+                    break;
+                }
 
-            Database::overrideConnection('mysql', $mysqlPdo);
-            if (!empty($pendingPayload)) {
+                Database::overrideConnection('mysql', $mysqlPdo);
                 $ack = self::handleSyncReceive([], $pendingPayload, true);
                 Database::overrideConnection('sqlite', $sqlitePdo);
-                $pushSummary = self::applyPushAcknowledgements($ack);
-                Database::overrideConnection('mysql', $mysqlPdo);
+                $batchSummary = self::applyPushAcknowledgements($ack);
+                $batchCount = (int) ($batchSummary['synced_count'] ?? 0);
+                $totalPushed += $batchCount;
+                $pushSummary = $batchSummary;
+                $pushSummary['synced_count'] = $totalPushed;
+                if ($batchCount === 0) {
+                    break;
+                }
             }
 
+            Database::overrideConnection('mysql', $mysqlPdo);
             $catalog = self::handleServerCatalog(0, [], true);
             Database::overrideConnection('sqlite', $sqlitePdo);
             $pullSummary = self::applyServerCatalogSnapshot($catalog);

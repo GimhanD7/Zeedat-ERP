@@ -107,9 +107,10 @@ class DrawerService {
             ? (int) $cycle['id']
             : BaseRepository::insert('INSERT INTO cycles(branch_id, business_date) VALUES (?,?)', [$branch, $date]);
 
+        $syncUuid = 'DRW-' . bin2hex(random_bytes(8));
         $id = BaseRepository::insert(
-            'INSERT INTO drawers(branch_id, user_id, cycle_id, opening) VALUES (?,?,?,?)',
-            [$branch, $user['id'], $cycleId, $opening]
+            'INSERT INTO drawers(branch_id, user_id, cycle_id, opening, sync_uuid, synced) VALUES (?,?,?,?,?,0)',
+            [$branch, $user['id'], $cycleId, $opening, $syncUuid]
         );
 
         return ['id' => $id, 'status' => 'Open', 'opening' => $opening, 'cycle_id' => $cycleId];
@@ -123,7 +124,7 @@ class DrawerService {
         $variance = $counted - $expected;
 
         BaseRepository::run(
-            'UPDATE drawers SET counted=?, expected=?, notes=?, closed_at=NOW() WHERE id=?',
+            'UPDATE drawers SET counted=?, expected=?, notes=?, closed_at=NOW(), synced=0 WHERE id=?',
             [$counted, $expected, $notes, $drawer['id']]
         );
 

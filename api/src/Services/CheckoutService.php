@@ -167,7 +167,7 @@ class CheckoutService {
         $ref = $method === 'Cash' ? null : Validator::str($body, 'reference', 100, true);
 
         self::salePayment($user, $drawer, $sale['id'], $amount, $method, $ref, 'Credit');
-        BaseRepository::run('UPDATE sales SET credit=credit-? WHERE id=?', [$amount, $sale['id']]);
+        BaseRepository::run('UPDATE sales SET credit=credit-?, synced=0 WHERE id=?', [$amount, $sale['id']]);
 
         return SaleRepository::invoiceDetails($sale['id'], $branch);
     }

@@ -242,11 +242,17 @@ function Workspace({ session, onLogout }) {
           (res?.pull?.products_synced ?? 0) +
           (res?.pull?.stock_synced ?? 0) +
           (res?.pull?.customers_synced ?? 0) +
-          (res?.pull?.sales_synced ?? 0);
+          (res?.pull?.sales_synced ?? 0) +
+          (res?.pull?.drawers_synced ?? 0) +
+          (res?.pull?.cash_movements_synced ?? 0) +
+          (res?.pull?.returns_synced ?? 0) +
+          (res?.pull?.supplier_payments_synced ?? 0) +
+          (res?.pull?.barcode_logs_synced ?? 0) +
+          (res?.pull?.audit_logs_synced ?? 0);
         const backedUp =
           res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
         if (res?.ran && (pushedCount > 0 || pulledCount > 0 || backedUp)) {
-          setNotice('Online: synced local & server branch data.');
+          setNotice('Online: synced all branch & cashbook data.');
           window.dispatchEvent(new Event('zeedat-sync-complete'));
         }
       } catch {
@@ -282,11 +288,17 @@ function Workspace({ session, onLogout }) {
     const initialSyncTimer = setTimeout(triggerAllSyncs, 3000);
     const periodicSyncTimer = setInterval(triggerAllSyncs, 25000);
 
+    const onSyncComplete = () => {
+      setRevision(v => v + 1);
+      apiClient('branches').then(setBranches).catch(() => {});
+    };
+
     window.addEventListener('hashchange', changed);
     window.addEventListener('online', network);
     window.addEventListener('offline', network);
     window.addEventListener('zeedat-sync-now', runServerAutoSync);
     window.addEventListener('zeedat-local-write', onLocalWrite);
+    window.addEventListener('zeedat-sync-complete', onSyncComplete);
 
     return () => {
       clearTimeout(initialSyncTimer);
@@ -297,6 +309,7 @@ function Workspace({ session, onLogout }) {
       window.removeEventListener('offline', network);
       window.removeEventListener('zeedat-sync-now', runServerAutoSync);
       window.removeEventListener('zeedat-local-write', onLocalWrite);
+      window.removeEventListener('zeedat-sync-complete', onSyncComplete);
     };
   }, [getPage, hasPermission, csrf]);
 

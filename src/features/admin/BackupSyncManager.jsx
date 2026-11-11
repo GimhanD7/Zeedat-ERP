@@ -232,10 +232,13 @@ export function BackupSyncManager({ ctx }) {
         const pushedTotal = pushRes?.synced_count ??
           ((pushRes?.synced_sales ?? 0) +
             (pushRes?.synced_customers ?? 0) +
-            (pushRes?.synced_repairs ?? 0));
+            (pushRes?.synced_repairs ?? 0) +
+            (pushRes?.synced_drawers ?? 0) +
+            (pushRes?.synced_cash_movements ?? 0) +
+            (pushRes?.synced_returns ?? 0));
         setMessage({
           type: 'success',
-          text: `Two-Way Sync Complete! Pushed ${pushedTotal} local record(s). Pulled ${pullRes?.branches_synced ?? 0} branch(es), ${pullRes?.products_synced ?? 0} product(s), ${pullRes?.stock_synced ?? 0} stock level(s), ${pullRes?.customers_synced ?? 0} customer(s), ${pullRes?.units_synced ?? 0} unit(s), and ${pullRes?.sales_synced ?? 0} online sale(s).`,
+          text: `Two-Way Sync Complete! Pushed ${pushedTotal} local record(s). Pulled ${pullRes?.branches_synced ?? 0} branch(es), ${pullRes?.products_synced ?? 0} product(s), ${pullRes?.stock_synced ?? 0} stock, ${pullRes?.customers_synced ?? 0} customer(s), ${pullRes?.units_synced ?? 0} unit(s), ${pullRes?.sales_synced ?? 0} sale(s), ${pullRes?.drawers_synced ?? 0} drawer(s), ${pullRes?.cash_movements_synced ?? 0} cashbook entry(s), and ${pullRes?.returns_synced ?? 0} return(s).`,
         });
         window.dispatchEvent(new Event('zeedat-sync-complete'));
       }

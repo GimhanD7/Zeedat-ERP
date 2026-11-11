@@ -101,16 +101,16 @@ class DrawerRepository extends BaseRepository {
     }
 
     public static function addCashMovement(int $userId, array $drawer, int $amount, string $kind, string $reference): void {
+        $syncUuid = 'CM-' . bin2hex(random_bytes(8));
         if (\Zeedat\Config\Database::isSqlite()) {
-            $uuid = 'cmov_' . bin2hex(random_bytes(10));
             self::run(
-                'INSERT INTO cash_movements(uuid, drawer_id, user_id, amount, kind, reference) VALUES (?,?,?,?,?,?)',
-                [$uuid, $drawer['id'], $userId, $amount, $kind, $reference]
+                'INSERT INTO cash_movements(uuid, sync_uuid, synced, drawer_id, user_id, amount, kind, reference) VALUES (?,?,0,?,?,?,?,?)',
+                [$syncUuid, $syncUuid, $drawer['id'], $userId, $amount, $kind, $reference]
             );
         } else {
             self::run(
-                'INSERT INTO cash_movements(drawer_id, user_id, amount, kind, reference) VALUES (?,?,?,?,?)',
-                [$drawer['id'], $userId, $amount, $kind, $reference]
+                'INSERT INTO cash_movements(sync_uuid, synced, drawer_id, user_id, amount, kind, reference) VALUES (?,0,?,?,?,?,?)',
+                [$syncUuid, $drawer['id'], $userId, $amount, $kind, $reference]
             );
         }
     }

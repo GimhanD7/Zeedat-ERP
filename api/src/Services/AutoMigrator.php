@@ -284,7 +284,7 @@ class AutoMigrator
                     $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0");
                 }
 
-                foreach (['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs'] as $syncTbl) {
+                foreach (['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs', 'drawers', 'cash_movements', 'returns_log', 'supplier_payments', 'audit_log'] as $syncTbl) {
                     $tCols = array_column($db->query("PRAGMA table_info({$syncTbl})")->fetchAll(), 'name');
                     if (!in_array('synced', $tCols, true)) {
                         $db->exec("ALTER TABLE {$syncTbl} ADD COLUMN synced INTEGER NOT NULL DEFAULT 0");
@@ -360,7 +360,7 @@ class AutoMigrator
                 if (empty($siCommCols)) {
                     $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount BIGINT UNSIGNED NOT NULL DEFAULT 0");
                 }
-                foreach (['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs'] as $syncTbl) {
+                foreach (['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs', 'drawers', 'cash_movements', 'returns_log', 'supplier_payments', 'audit_log'] as $syncTbl) {
                     $sCol = $db->query("SHOW COLUMNS FROM `{$syncTbl}` LIKE 'synced'")->fetchAll();
                     if (empty($sCol)) {
                         $db->exec("ALTER TABLE `{$syncTbl}` ADD COLUMN synced TINYINT(1) NOT NULL DEFAULT 1");
@@ -432,8 +432,17 @@ class AutoMigrator
                     user_id INTEGER NOT NULL DEFAULT 1,
                     copies INTEGER NOT NULL DEFAULT 1,
                     price INTEGER NOT NULL DEFAULT 0,
+                    sync_uuid TEXT NULL,
+                    synced INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )");
+                $bplCols = array_column($db->query("PRAGMA table_info(barcode_print_logs)")->fetchAll(), 'name');
+                if (!in_array('synced', $bplCols, true)) {
+                    $db->exec("ALTER TABLE barcode_print_logs ADD COLUMN synced INTEGER NOT NULL DEFAULT 0");
+                }
+                if (!in_array('sync_uuid', $bplCols, true)) {
+                    $db->exec("ALTER TABLE barcode_print_logs ADD COLUMN sync_uuid TEXT NULL");
+                }
             } else {
                 $db->exec("CREATE TABLE IF NOT EXISTS barcode_print_logs (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -442,9 +451,17 @@ class AutoMigrator
                     user_id INT NOT NULL DEFAULT 1,
                     copies INT NOT NULL DEFAULT 1,
                     price BIGINT NOT NULL DEFAULT 0,
+                    sync_uuid VARCHAR(64) NULL,
+                    synced TINYINT(1) NOT NULL DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     INDEX(product_id, branch_id)
                 ) ENGINE=InnoDB");
+                if (empty($db->query("SHOW COLUMNS FROM barcode_print_logs LIKE 'synced'")->fetchAll())) {
+                    $db->exec("ALTER TABLE barcode_print_logs ADD COLUMN synced TINYINT(1) NOT NULL DEFAULT 1");
+                }
+                if (empty($db->query("SHOW COLUMNS FROM barcode_print_logs LIKE 'sync_uuid'")->fetchAll())) {
+                    $db->exec("ALTER TABLE barcode_print_logs ADD COLUMN sync_uuid VARCHAR(64) NULL");
+                }
             }
         } catch (Throwable) {
         }

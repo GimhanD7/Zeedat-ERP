@@ -109,7 +109,7 @@ class ReturnService {
         }
 
         if ($decision === 'Rejected') {
-            BaseRepository::run("UPDATE returns_log SET status='Rejected' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE returns_log SET status='Rejected', synced=0 WHERE id=?", [$id]);
             return ['id' => $id, 'status' => 'Rejected'];
         }
 
@@ -185,7 +185,7 @@ class ReturnService {
         }
 
         BaseRepository::run(
-            "UPDATE returns_log SET status='Completed', processed_drawer_id=?, reference=? WHERE id=?",
+            "UPDATE returns_log SET status='Completed', processed_drawer_id=?, reference=?, synced=0 WHERE id=?",
             [$drawer['id'] ?? null, $reference, $id]
         );
 
