@@ -40,5 +40,12 @@ export async function apiClient(route, { query = {}, data, csrf, key, background
     });
   }
 
+  if (data && typeof window !== 'undefined') {
+    const skipAutoSyncRoutes = new Set(['login', 'logout', 'sync.auto', 'sync.push', 'sync.pull']);
+    if (!skipAutoSyncRoutes.has(route)) {
+      window.dispatchEvent(new Event('zeedat-local-write'));
+    }
+  }
+
   return result;
 }

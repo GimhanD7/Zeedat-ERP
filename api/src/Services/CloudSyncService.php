@@ -16,22 +16,32 @@ class CloudSyncService {
     public static function getStatus(): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $driver = Database::getDriver();
+        $configuredDriver = strtolower(Database::env('DB_DRIVER', $driver));
+        $fallbackActive = Database::isFallbackActive();
 
         $tables = ['branches', 'products', 'customers', 'units', 'suppliers', 'purchases', 'transfers', 'stock_movements', 'sales', 'repairs'];
         $counts = [];
         $totalPending = 0;
-        foreach ($tables as $tbl) {
-            try {
-                $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0 OR sync_uuid IS NULL OR sync_uuid = ''");
-            } catch (Throwable) {
-                $cnt = 0;
+        if ($driver === 'sqlite') {
+            foreach ($tables as $tbl) {
+                try {
+                    $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0 OR sync_uuid IS NULL OR sync_uuid = ''");
+                } catch (Throwable) {
+                    $cnt = 0;
+                }
+                $counts[$tbl] = $cnt;
+                $totalPending += $cnt;
             }
-            $counts[$tbl] = $cnt;
-            $totalPending += $cnt;
+        } else {
+            foreach ($tables as $tbl) {
+                $counts[$tbl] = 0;
+            }
         }
 
         return [
             'driver' => $driver,
+            'configured_driver' => $configuredDriver,
+            'fallback_active' => $fallbackActive,
             'is_sqlite' => $driver === 'sqlite',
             'is_online' => self::isInternetAvailable(),
             'cloud_url' => $settings['cloud_backup_url'] ?? '',
@@ -86,20 +96,9 @@ class CloudSyncService {
     }
 
     /**
-     * Pushes all pending offline local SQLite records to the online Namecheap MySQL server.
+     * Collects all pending offline records into a normalized push payload.
      */
-    public static function pushToCloud(): array {
-        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
-        $apiKey = trim((string) ($settings['cloud_api_key'] ?? ''));
-
-        if ($cloudUrl === '') {
-            return ['success' => false, 'error' => 'Central cloud URL is not configured in settings.'];
-        }
-        if (!self::isInternetAvailable()) {
-            return ['success' => false, 'error' => 'Device is offline. Saved locally in SQLite; will sync when reconnected.'];
-        }
-
+    private static function collectPendingPushPayload(): array {
         $pendingWhere = static fn(string $alias = ''): string => $alias !== ''
             ? "({$alias}.synced = 0 OR {$alias}.sync_uuid IS NULL OR {$alias}.sync_uuid = '')"
             : "(synced = 0 OR sync_uuid IS NULL OR sync_uuid = '')";
@@ -242,24 +241,10 @@ class CloudSyncService {
         if (empty($branches) && empty($products) && empty($customers) && empty($units)
             && empty($suppliers) && empty($purchases) && empty($transfers)
             && empty($repairs) && empty($salePayloads) && empty($movements)) {
-            return [
-                'success' => true,
-                'synced_branches' => 0,
-                'synced_products' => 0,
-                'synced_customers' => 0,
-                'synced_units' => 0,
-                'synced_suppliers' => 0,
-                'synced_purchases' => 0,
-                'synced_transfers' => 0,
-                'synced_repairs' => 0,
-                'synced_sales' => 0,
-                'synced_movements' => 0,
-                'synced_count' => 0,
-                'message' => 'All local data is already up to date with the cloud.',
-            ];
+            return [];
         }
 
-        $postData = [
+        return [
             'branch_id' => $sales[0]['branch_id'] ?? $customers[0]['branch_id'] ?? 1,
             'branches' => $branches,
             'products' => $products,
@@ -273,14 +258,9 @@ class CloudSyncService {
             'stock_movements' => $movements,
             'timestamp' => date('c'),
         ];
+    }
 
-        $endpoint = BackupService::resolveCloudEndpoint($cloudUrl, 'sync.receive');
-        $res = self::postJson($endpoint, $postData, $apiKey);
-        if (!$res['success']) {
-            return ['success' => false, 'error' => $res['error'] ?? 'Sync transmission failed.'];
-        }
-
-        $srv = $res['data'] ?? [];
+    private static function applyPushAcknowledgements(array $srv): array {
         $counts = [
             'synced_branches' => self::markSyncedIds('branches', $srv['synced_branches'] ?? []),
             'synced_products' => self::markSyncedIds('products', $srv['synced_products'] ?? []),
@@ -307,10 +287,63 @@ class CloudSyncService {
     }
 
     /**
+     * Pushes all pending offline local SQLite records to the online Namecheap MySQL server.
+     */
+    public static function pushToCloud(): array {
+        if (!Database::isSqlite()) {
+            $sync = self::syncDirectMysqlWithSqlite();
+            return $sync['push'] ?? ['success' => true, 'synced_count' => 0, 'message' => 'Direct Server MySQL active.'];
+        }
+
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
+        $apiKey = trim((string) ($settings['cloud_api_key'] ?? ''));
+
+        if ($cloudUrl === '') {
+            return ['success' => false, 'error' => 'Central cloud URL is not configured in settings.'];
+        }
+        if (!self::isInternetAvailable()) {
+            return ['success' => false, 'error' => 'Device is offline. Saved locally in SQLite; will sync when reconnected.'];
+        }
+
+        $postData = self::collectPendingPushPayload();
+        if (empty($postData)) {
+            return [
+                'success' => true,
+                'synced_branches' => 0,
+                'synced_products' => 0,
+                'synced_customers' => 0,
+                'synced_units' => 0,
+                'synced_suppliers' => 0,
+                'synced_purchases' => 0,
+                'synced_transfers' => 0,
+                'synced_repairs' => 0,
+                'synced_sales' => 0,
+                'synced_movements' => 0,
+                'synced_count' => 0,
+                'message' => 'All local data is already up to date with the cloud.',
+            ];
+        }
+
+        $endpoint = BackupService::resolveCloudEndpoint($cloudUrl, 'sync.receive');
+        $res = self::postJson($endpoint, $postData, $apiKey);
+        if (!$res['success']) {
+            return ['success' => false, 'error' => $res['error'] ?? 'Sync transmission failed.'];
+        }
+
+        return self::applyPushAcknowledgements($res['data'] ?? []);
+    }
+
+    /**
      * Pulls authoritative online data across all branches (branches, users, products, stock, units,
      * customers, suppliers, purchases, transfers, repairs, sales, settings) from cloud MySQL into local SQLite.
      */
     public static function pullFromCloud(): array {
+        if (!Database::isSqlite()) {
+            $sync = self::syncDirectMysqlWithSqlite();
+            return $sync['pull'] ?? ['success' => true, 'products_synced' => 0, 'message' => 'Direct Server MySQL active; offline cache refreshed.'];
+        }
+
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
         $apiKey = trim((string) ($settings['cloud_api_key'] ?? ''));
@@ -325,7 +358,10 @@ class CloudSyncService {
             return ['success' => false, 'error' => $res['error'] ?? 'Catalog pull failed.'];
         }
 
-        $data = $res['data'] ?? [];
+        return self::applyServerCatalogSnapshot($res['data'] ?? []);
+    }
+
+    private static function applyServerCatalogSnapshot(array $data): array {
         $isSqlite = Database::isSqlite();
         $stats = [
             'branches_synced' => 0,
@@ -749,12 +785,12 @@ class CloudSyncService {
     /**
      * Server Receiver: Applies incoming offline changes cleanly into Server MySQL with full FK mapping.
      */
-    public static function handleSyncReceive(array $headers, array $payload): array {
+    public static function handleSyncReceive(array $headers, array $payload, bool $internal = false): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $expectedKey = trim((string) ($settings['cloud_api_key'] ?? ''));
         $token = BackupService::extractBearerToken($headers);
 
-        if ($expectedKey !== '' && ($token === '' || !hash_equals($expectedKey, $token))) {
+        if (!$internal && $expectedKey !== '' && ($token === '' || !hash_equals($expectedKey, $token))) {
             return ['success' => false, 'code' => 401, 'error' => 'Invalid or missing sync key.'];
         }
 
@@ -1118,10 +1154,10 @@ class CloudSyncService {
     /**
      * Server Catalog: Returns complete multi-branch state from central MySQL for local SQLite sync.
      */
-    public static function handleServerCatalog(int $branchId, array $headers = []): array {
+    public static function handleServerCatalog(int $branchId, array $headers = [], bool $internal = false): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $expectedKey = trim((string) ($settings['cloud_api_key'] ?? ''));
-        if ($expectedKey !== '') {
+        if (!$internal && $expectedKey !== '') {
             $token = BackupService::extractBearerToken($headers ?: (function_exists('getallheaders') ? (getallheaders() ?: []) : []));
             if ($token === '' || !hash_equals($expectedKey, $token)) {
                 Response::json(['error' => 'Invalid or missing sync key.'], 401);
@@ -1212,9 +1248,65 @@ class CloudSyncService {
     }
 
     /**
+     * When running directly against live Server MySQL, pushes any offline rows created in local
+     * SQLite during outages into MySQL and mirrors the latest MySQL state back to local SQLite.
+     */
+    public static function syncDirectMysqlWithSqlite(): array {
+        $sqlitePath = Database::getSqlitePath();
+        if (!is_file($sqlitePath)) {
+            return ['ran' => false, 'reason' => 'no_local_sqlite'];
+        }
+
+        $mysqlPdo = Database::getConnection();
+        if (Database::isSqlite()) {
+            return ['ran' => false, 'reason' => 'mysql_offline'];
+        }
+
+        $sqlitePdo = Database::openSqlite($sqlitePath, true);
+        $pushSummary = ['success' => true, 'synced_count' => 0, 'message' => 'No pending offline records.'];
+        $pullSummary = ['success' => true, 'products_synced' => 0];
+
+        try {
+            Database::overrideConnection('sqlite', $sqlitePdo);
+            $pendingPayload = self::collectPendingPushPayload();
+
+            Database::overrideConnection('mysql', $mysqlPdo);
+            if (!empty($pendingPayload)) {
+                $ack = self::handleSyncReceive([], $pendingPayload, true);
+                Database::overrideConnection('sqlite', $sqlitePdo);
+                $pushSummary = self::applyPushAcknowledgements($ack);
+                Database::overrideConnection('mysql', $mysqlPdo);
+            }
+
+            $catalog = self::handleServerCatalog(0, [], true);
+            Database::overrideConnection('sqlite', $sqlitePdo);
+            $pullSummary = self::applyServerCatalogSnapshot($catalog);
+        } finally {
+            Database::overrideConnection('mysql', $mysqlPdo);
+        }
+
+        return [
+            'ran' => true,
+            'mode' => 'direct_mysql',
+            'is_online' => true,
+            'push' => $pushSummary,
+            'pull' => $pullSummary,
+        ];
+    }
+
+    /**
      * Automatic background sync + backup triggered on internet reconnection or interval.
      */
     public static function runAutoSyncAndBackup(?int $branchId = null): array {
+        if (strtolower(Database::env('DB_DRIVER', '')) === 'mysql') {
+            Database::clearMysqlOfflineCache();
+            Database::overrideConnection('mysql', null);
+            Database::getConnection();
+            if (!Database::isSqlite()) {
+                return self::syncDirectMysqlWithSqlite();
+            }
+        }
+
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
         $autoSync = !empty($settings['auto_sync_enabled']);
@@ -1251,6 +1343,7 @@ class CloudSyncService {
 
         return [
             'ran' => true,
+            'mode' => 'https_sync',
             'is_online' => true,
             'push' => $pushRes,
             'pull' => $pullRes,

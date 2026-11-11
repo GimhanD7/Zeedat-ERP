@@ -10,6 +10,7 @@ class Database {
     private static ?PDO $connection = null;
     private static ?string $activeDriver = null;
     private static ?array $localEnv = null;
+    private static bool $fellBackToSqlite = false;
 
     public static function getSqlitePath(): string {
         return self::env(
@@ -20,6 +21,76 @@ class Database {
 
     public static function isSqlite(): bool {
         return self::getDriver() === 'sqlite';
+    }
+
+    public static function isFallbackActive(): bool {
+        self::getConnection();
+        return self::$fellBackToSqlite;
+    }
+
+    public static function overrideConnection(string $driver, ?PDO $pdo): void {
+        self::$activeDriver = $driver;
+        self::$connection = $pdo;
+    }
+
+    public static function openSqlite(?string $sqlitePath = null, bool $migrate = true): PDO {
+        $path = $sqlitePath ?: self::getSqlitePath();
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $pdo = new PDO(
+            "sqlite:{$path}",
+            null,
+            null,
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_TIMEOUT => 15,
+            ]
+        );
+
+        $pdo->exec('PRAGMA foreign_keys = ON;');
+        $pdo->exec('PRAGMA journal_mode = WAL;');
+        $pdo->exec('PRAGMA busy_timeout = 5000;');
+
+        $pdo->sqliteCreateFunction('CONCAT', static fn(...$args) => implode('', $args));
+        $pdo->sqliteCreateFunction('GREATEST', static fn(...$args) => max($args));
+        $pdo->sqliteCreateFunction('LEAST', static fn(...$args) => min($args));
+
+        if ($migrate) {
+            \Zeedat\Services\AutoMigrator::run($pdo, 'sqlite');
+        }
+
+        return $pdo;
+    }
+
+    public static function clearMysqlOfflineCache(): void {
+        $flag = self::getSqlitePath() . '.mysql_offline';
+        if (is_file($flag)) {
+            @unlink($flag);
+        }
+    }
+
+    public static function isMysqlReachable(string $host, string $port, bool $forceProbe = false): bool {
+        $flag = self::getSqlitePath() . '.mysql_offline';
+        if (!$forceProbe && is_file($flag)) {
+            $until = (int) @file_get_contents($flag);
+            if ($until > time()) {
+                return false;
+            }
+        }
+        $sock = @fsockopen($host, (int) ($port ?: 3306), $errno, $errstr, 1.2);
+        if (is_resource($sock)) {
+            fclose($sock);
+            self::clearMysqlOfflineCache();
+            return true;
+        }
+        if (is_dir(dirname($flag))) {
+            @file_put_contents($flag, (string) (time() + 10));
+        }
+        return false;
     }
 
     public static function getDriver(): string {
@@ -56,50 +127,24 @@ class Database {
         $driver = self::getDriver();
 
         if ($driver === 'sqlite') {
-            $sqlitePath = self::getSqlitePath();
-            $dir = dirname($sqlitePath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            self::$connection = new PDO(
-                "sqlite:{$sqlitePath}",
-                null,
-                null,
-                [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_TIMEOUT => 15,
-                ]
-            );
-
-            self::$connection->exec('PRAGMA foreign_keys = ON;');
-            self::$connection->exec('PRAGMA journal_mode = WAL;');
-            self::$connection->exec('PRAGMA busy_timeout = 5000;');
-
-            // Custom SQLite functions for MySQL compatibility
-            self::$connection->sqliteCreateFunction('CONCAT', function (...$args) {
-                return implode('', $args);
-            });
-            self::$connection->sqliteCreateFunction('GREATEST', function (...$args) {
-                return max($args);
-            });
-            self::$connection->sqliteCreateFunction('LEAST', function (...$args) {
-                return min($args);
-            });
-
-            // Automatically check and run migrations if tables are missing
-            \Zeedat\Services\AutoMigrator::run(self::$connection, 'sqlite');
-
+            self::$connection = self::openSqlite(self::getSqlitePath(), true);
             return self::$connection;
         }
 
-        // MySQL Connection
+        // MySQL Connection (fast reachability probe + automatic SQLite offline fallback)
         $host = self::env('DB_HOST', '127.0.0.1');
         $port = self::env('DB_PORT', '3306');
         $name = self::env('DB_NAME', 'zeedat_pos');
         $user = self::env('DB_USER', 'root');
         $pass = self::env('DB_PASSWORD', '');
+        $sqliteExists = file_exists(self::getSqlitePath());
+
+        if ($sqliteExists && !self::isMysqlReachable($host, $port)) {
+            self::$fellBackToSqlite = true;
+            self::$activeDriver = 'sqlite';
+            self::$connection = null;
+            return self::getConnection();
+        }
 
         try {
             self::$connection = new PDO(
@@ -116,14 +161,17 @@ class Database {
 
             self::$connection->exec("SET time_zone = '+05:30'");
             self::$connection->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+            self::clearMysqlOfflineCache();
+            self::$fellBackToSqlite = false;
 
             // Automatically check and run migrations if tables are missing
             if (self::env('DB_AUTO_MIGRATE', '1') !== '0') {
                 \Zeedat\Services\AutoMigrator::run(self::$connection, 'mysql');
             }
         } catch (Throwable $e) {
-            // If MySQL fails and local SQLite exists, fallback to SQLite
-            if (file_exists(self::getSqlitePath())) {
+            if ($sqliteExists) {
+                @file_put_contents(self::getSqlitePath() . '.mysql_offline', (string) (time() + 10));
+                self::$fellBackToSqlite = true;
                 self::$activeDriver = 'sqlite';
                 self::$connection = null;
                 return self::getConnection();

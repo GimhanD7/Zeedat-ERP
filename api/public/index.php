@@ -100,10 +100,11 @@ try {
         session_write_close();
 
         if ($action === 'sync.auto' && PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
-            && \Zeedat\Config\Database::isSqlite()
+            && (\Zeedat\Config\Database::isSqlite() || file_exists(\Zeedat\Config\Database::getSqlitePath()))
             && ($_SERVER['HTTP_X_ZEEDAT_BACKGROUND'] ?? '') === '1') {
             $settings = BaseRepository::one('SELECT cloud_backup_url, auto_sync_enabled FROM settings WHERE id=1');
-            if (empty($settings['auto_sync_enabled']) || trim($settings['cloud_backup_url'] ?? '') === '') {
+            $hasDirectMysql = strtolower(\Zeedat\Config\Database::env('DB_DRIVER', '')) === 'mysql';
+            if (empty($settings['auto_sync_enabled']) || (!$hasDirectMysql && trim($settings['cloud_backup_url'] ?? '') === '')) {
                 Response::json(['ran' => false]);
             }
             $script = dirname(__DIR__, 2) . '/scripts/auto_sync_sqlite.php';
@@ -458,10 +459,7 @@ try {
             RoleGuard::allowPermission($user, 'settings');
             return BackupController::getHistory();
         })(),
-        'sync.status' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
-            return \Zeedat\Services\CloudSyncService::getStatus();
-        })(),
+        'sync.status' => \Zeedat\Services\CloudSyncService::getStatus(),
         default => throw new ApiError('Route not found.', 404),
     };
 

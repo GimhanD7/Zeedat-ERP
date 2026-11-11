@@ -5,7 +5,9 @@ if (PHP_SAPI !== 'cli') {
     exit("CLI only\n");
 }
 
-putenv('DB_DRIVER=sqlite');
+if (!getenv('DB_DRIVER')) {
+    putenv('DB_DRIVER=sqlite');
+}
 require_once __DIR__ . '/../api/src/Autoloader.php';
 \Zeedat\Autoloader::register();
 

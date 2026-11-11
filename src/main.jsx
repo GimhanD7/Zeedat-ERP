@@ -267,21 +267,36 @@ function Workspace({ session, onLogout }) {
       }
     };
 
-    const initialSyncTimer = setTimeout(runServerAutoSync, 4000);
-    const periodicSyncTimer = setInterval(runServerAutoSync, 60000);
+    const triggerAllSyncs = () => {
+      syncManager.triggerSync();
+      runServerAutoSync();
+    };
+
+    let writeDebounceTimer = null;
+    const onLocalWrite = () => {
+      if (!navigator.onLine) return;
+      clearTimeout(writeDebounceTimer);
+      writeDebounceTimer = setTimeout(runServerAutoSync, 2500);
+    };
+
+    const initialSyncTimer = setTimeout(triggerAllSyncs, 3000);
+    const periodicSyncTimer = setInterval(triggerAllSyncs, 25000);
 
     window.addEventListener('hashchange', changed);
     window.addEventListener('online', network);
     window.addEventListener('offline', network);
     window.addEventListener('zeedat-sync-now', runServerAutoSync);
+    window.addEventListener('zeedat-local-write', onLocalWrite);
 
     return () => {
       clearTimeout(initialSyncTimer);
+      clearTimeout(writeDebounceTimer);
       clearInterval(periodicSyncTimer);
       window.removeEventListener('hashchange', changed);
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);
       window.removeEventListener('zeedat-sync-now', runServerAutoSync);
+      window.removeEventListener('zeedat-local-write', onLocalWrite);
     };
   }, [getPage, hasPermission, csrf]);
 
