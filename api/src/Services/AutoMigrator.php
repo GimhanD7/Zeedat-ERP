@@ -434,5 +434,35 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure multi-branch assignment table exists and backfill existing single-branch users
+        try {
+            if ($driver === 'sqlite') {
+                $exists = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='user_branches'")->fetch();
+                $db->exec("CREATE TABLE IF NOT EXISTS user_branches (
+                    user_id INTEGER NOT NULL,
+                    branch_id INTEGER NOT NULL,
+                    PRIMARY KEY(user_id, branch_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE
+                )");
+                if (!$exists) {
+                    $db->exec("INSERT OR IGNORE INTO user_branches (user_id, branch_id) SELECT id, branch_id FROM users WHERE branch_id IS NOT NULL");
+                }
+            } else {
+                $exists = $db->query("SHOW TABLES LIKE 'user_branches'")->fetch();
+                $db->exec("CREATE TABLE IF NOT EXISTS user_branches (
+                    user_id INT NOT NULL,
+                    branch_id INT NOT NULL,
+                    PRIMARY KEY(user_id, branch_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB");
+                if (!$exists) {
+                    $db->exec("INSERT IGNORE INTO user_branches (user_id, branch_id) SELECT id, branch_id FROM users WHERE branch_id IS NOT NULL");
+                }
+            }
+        } catch (Throwable) {
+        }
     }
 }

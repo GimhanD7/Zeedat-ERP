@@ -435,6 +435,28 @@ class CloudSyncService {
                     $userByEmail[$email] = $newU;
                 }
             }
+            if (array_key_exists('user_branches', $data) && is_array($data['user_branches'])) {
+                try {
+                    $byEmailBranches = [];
+                    foreach ($data['user_branches'] as $ub) {
+                        $email = strtolower(trim((string) ($ub['email'] ?? '')));
+                        $branchName = trim((string) ($ub['branch_name'] ?? ''));
+                        if ($email === '' || $branchName === '' || !isset($userByEmail[$email])) continue;
+                        $localUId = $userByEmail[$email];
+                        $localBId = $resolveLocalBranch($branchName, 0);
+                        if ($localBId > 0) {
+                            $byEmailBranches[$localUId][$localBId] = $localBId;
+                        }
+                    }
+                    foreach ($userByEmail as $localUId) {
+                        BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$localUId]);
+                        foreach ($byEmailBranches[$localUId] ?? [] as $localBId) {
+                            BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$localUId, $localBId]);
+                        }
+                    }
+                } catch (\Throwable $ignore) {
+                }
+            }
             $defaultUserId = (int) (BaseRepository::scalar('SELECT id FROM users ORDER BY id ASC LIMIT 1') ?: 1);
             $resolveLocalUser = static fn(?string $email): int => ($email && isset($userByEmail[strtolower($email)]))
                 ? $userByEmail[strtolower($email)]
@@ -1194,6 +1216,18 @@ class CloudSyncService {
             ];
         }
 
+        $userBranches = [];
+        try {
+            $userBranches = BaseRepository::rows(
+                "SELECT u.email, b.name AS branch_name
+                 FROM user_branches ub
+                 JOIN users u ON u.id=ub.user_id
+                 JOIN branches b ON b.id=ub.branch_id
+                 ORDER BY ub.user_id ASC, ub.branch_id ASC"
+            );
+        } catch (\Throwable $ignore) {
+        }
+
         return [
             'success' => true,
             'count' => count($products),
@@ -1203,6 +1237,7 @@ class CloudSyncService {
                 "SELECT u.id, u.branch_id, COALESCE(b.name, '') AS branch_name, u.name, u.email, u.password_hash, u.role, u.active
                  FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id ASC"
             ),
+            'user_branches' => $userBranches,
             'products' => $products,
             'stock' => BaseRepository::rows(
                 "SELECT st.branch_id, b.name AS branch_name, p.sku AS product_sku, st.qty

@@ -45,10 +45,55 @@ export function StaffPage({ ctx }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [profileModalMember, setProfileModalMember] = useState(null);
   const [permStaffId, setPermStaffId] = useState(null);
+  const [branchModalMember, setBranchModalMember] = useState(null);
+  const [selectedBranchIds, setSelectedBranchIds] = useState([]);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState('');
 
   const openStaffPermissions = member => {
     setPermStaffId(member.id);
     setTab('Role permissions');
+  };
+
+  const openBranchAssignModal = member => {
+    const existingIds = Array.isArray(member.branch_ids) && member.branch_ids.length > 0
+      ? member.branch_ids.map(Number)
+      : (member.branch_id ? [Number(member.branch_id)] : []);
+    setSelectedBranchIds(existingIds);
+    setAssignError('');
+    setBranchModalMember(member);
+  };
+
+  const toggleBranchSelection = branchId => {
+    const numericId = Number(branchId);
+    setSelectedBranchIds(prev => (
+      prev.includes(numericId)
+        ? prev.filter(id => id !== numericId)
+        : [...prev, numericId]
+    ));
+  };
+
+  const handleSaveBranchAssignment = async () => {
+    if (!branchModalMember) return;
+    if (selectedBranchIds.length === 0) {
+      setAssignError('Select at least one branch for this staff member.');
+      return;
+    }
+    setAssignBusy(true);
+    setAssignError('');
+    try {
+      await ctx.mutate('staff.assign_branches', {
+        user_id: branchModalMember.id,
+        branch_ids: selectedBranchIds,
+      });
+      await state.refresh();
+      ctx.setNotice(`Updated assigned branches for ${branchModalMember.name}.`);
+      setBranchModalMember(null);
+    } catch (err) {
+      setAssignError(err?.message || 'Unable to update assigned branches.');
+    } finally {
+      setAssignBusy(false);
+    }
   };
 
   const openStaffForm = member => {
@@ -151,6 +196,8 @@ export function StaffPage({ ctx }) {
           );
           const matchesBranch =
             branchFilter === 'all' ||
+            (Array.isArray(s.branch_names) &&
+              s.branch_names.some(bn => bn && bn.toLowerCase() === branchFilter.toLowerCase())) ||
             (s.branch && s.branch.toLowerCase() === branchFilter.toLowerCase());
           const matchesRole = roleFilter === 'all' || s.role === roleFilter;
           const matchesStatus =
@@ -310,7 +357,29 @@ export function StaffPage({ ctx }) {
                           );
                         },
                       ],
-                      ['Assigned Branch', s => s.branch || 'All Branches'],
+                      [
+                        'Assigned Branches',
+                        s => {
+                          if (s.role === 'owner') {
+                            return <Badge tone="green">All Branches</Badge>;
+                          }
+                          const names = Array.isArray(s.branch_names) && s.branch_names.length > 0
+                            ? s.branch_names
+                            : (s.branch ? [s.branch] : []);
+                          if (names.length === 0) {
+                            return <span style={{ color: '#94a3b8' }}>Unassigned</span>;
+                          }
+                          return (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                              {names.map((bn, idx) => (
+                                <Badge key={`${s.id}-br-${idx}`} tone={idx === 0 ? 'blue' : 'slate'}>
+                                  {bn}{names.length > 1 && idx === 0 ? ' (Primary)' : ''}
+                                </Badge>
+                              ))}
+                            </div>
+                          );
+                        },
+                      ],
                       [
                         'Activity Track',
                         s => (
@@ -360,6 +429,15 @@ export function StaffPage({ ctx }) {
 
                             {s.role !== 'owner' && (
                               <>
+                                <Button
+                                  icon={Building2}
+                                  aria-label={`Assign branches for ${s.name}`}
+                                  variant="outline"
+                                  onClick={() => openBranchAssignModal(s)}
+                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}
+                                >
+                                  Branches
+                                </Button>
                                 <Button
                                   icon={ShieldCheck}
                                   aria-label={`Manage permissions for ${s.name}`}
@@ -492,18 +570,132 @@ export function StaffPage({ ctx }) {
                       Close
                     </Button>
                     {profileModalMember.role !== 'owner' && (
-                      <Button 
-                        icon={Pencil} 
-                        variant="primary" 
-                        onClick={() => {
-                          const m = profileModalMember;
-                          setProfileModalMember(null);
-                          openStaffForm(m);
-                        }}
-                      >
-                        Edit Staff Account
-                      </Button>
+                      <>
+                        <Button
+                          icon={Building2}
+                          variant="outline"
+                          onClick={() => {
+                            const m = profileModalMember;
+                            setProfileModalMember(null);
+                            openBranchAssignModal(m);
+                          }}
+                        >
+                          Assign Branches
+                        </Button>
+                        <Button 
+                          icon={Pencil} 
+                          variant="primary" 
+                          onClick={() => {
+                            const m = profileModalMember;
+                            setProfileModalMember(null);
+                            openStaffForm(m);
+                          }}
+                        >
+                          Edit Staff Account
+                        </Button>
+                      </>
                     )}
+                  </div>
+                </div>
+              </Modal>
+            )}
+
+            {/* MULTI-BRANCH ASSIGNMENT MODAL */}
+            {branchModalMember && (
+              <Modal
+                title={`Assign Branches: ${branchModalMember.name}`}
+                description={`Select one or more shop branches ${branchModalMember.name} is allowed to operate in. The first selected branch is set as primary.`}
+                onClose={() => !assignBusy && setBranchModalMember(null)}
+              >
+                <div style={{ padding: '0.25rem 0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: '#475569' }}>
+                      {selectedBranchIds.length} of {ctx.branches.length} branches selected
+                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button
+                        variant="outline"
+                        disabled={assignBusy}
+                        onClick={() => setSelectedBranchIds(ctx.branches.map(b => Number(b.id)))}
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={assignBusy}
+                        onClick={() => setSelectedBranchIds([])}
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: '0.5rem', maxHeight: '280px', overflowY: 'auto', marginBottom: '1rem' }}>
+                    {ctx.branches.map(branch => {
+                      const bId = Number(branch.id);
+                      const checked = selectedBranchIds.includes(bId);
+                      const isPrimary = checked && selectedBranchIds[0] === bId;
+                      return (
+                        <label
+                          key={branch.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
+                            padding: '0.65rem 0.85rem',
+                            borderRadius: '8px',
+                            border: checked ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
+                            background: checked ? '#f0f9ff' : '#ffffff',
+                            cursor: assignBusy ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={assignBusy}
+                              onChange={() => toggleBranchSelection(bId)}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 600, color: '#0f172a' }}>{branch.name}</div>
+                              {branch.address && (
+                                <small style={{ color: '#64748b' }}>{branch.address}</small>
+                              )}
+                            </div>
+                          </div>
+                          {isPrimary && (
+                            <Badge tone="blue">Primary</Badge>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {assignError && (
+                    <div style={{ color: '#dc2626', fontSize: '0.85rem', marginBottom: '0.75rem', fontWeight: 500 }}>
+                      {assignError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                    <Button
+                      variant="outline"
+                      disabled={assignBusy}
+                      onClick={() => setBranchModalMember(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="primary"
+                      icon={CheckCircle2}
+                      disabled={assignBusy || selectedBranchIds.length === 0}
+                      onClick={handleSaveBranchAssignment}
+                    >
+                      {assignBusy ? 'Saving...' : 'Save Branch Assignment'}
+                    </Button>
                   </div>
                 </div>
               </Modal>

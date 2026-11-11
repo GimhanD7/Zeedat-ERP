@@ -4,9 +4,28 @@ declare(strict_types=1);
 namespace Zeedat\Repositories;
 
 class UserRepository extends BaseRepository {
+    public static function assignedBranchIds(int $userId, ?int $primaryBranchId = null): array {
+        $ids = [];
+        try {
+            $rows = self::rows('SELECT branch_id FROM user_branches WHERE user_id=? ORDER BY branch_id ASC', [$userId]);
+            foreach ($rows as $r) {
+                $bid = (int) ($r['branch_id'] ?? 0);
+                if ($bid > 0) {
+                    $ids[] = $bid;
+                }
+            }
+        } catch (\Throwable) {
+        }
+        if ($primaryBranchId && $primaryBranchId > 0 && !in_array($primaryBranchId, $ids, true)) {
+            array_unshift($ids, $primaryBranchId);
+        }
+        return array_values(array_unique($ids));
+    }
+
     public static function findActiveById(int $id): ?array {
         $user = self::one('SELECT id, branch_id, name, email, role FROM users WHERE id=? AND active=1', [$id]);
         if ($user) {
+            $user['branch_ids'] = self::assignedBranchIds((int) $user['id'], $user['branch_id'] ? (int) $user['branch_id'] : null);
             $user['permissions'] = PermissionRepository::getEffectivePermissionsForUser((int) $user['id'], $user['role']);
         }
         return $user;
@@ -17,7 +36,7 @@ class UserRepository extends BaseRepository {
     }
 
     public static function allStaff(): array {
-        return self::rows("SELECT 
+        $staff = self::rows("SELECT 
             u.id, 
             u.branch_id, 
             u.name, 
@@ -44,12 +63,51 @@ class UserRepository extends BaseRepository {
             FROM drawers GROUP BY user_id
         ) d ON d.user_id = u.id
         ORDER BY u.id");
+
+        $byUser = [];
+        try {
+            $links = self::rows(
+                'SELECT ub.user_id, ub.branch_id, br.name AS branch_name
+                 FROM user_branches ub
+                 JOIN branches br ON br.id = ub.branch_id
+                 ORDER BY br.id ASC'
+            );
+            foreach ($links as $lnk) {
+                $uid = (int) $lnk['user_id'];
+                $byUser[$uid]['ids'][] = (int) $lnk['branch_id'];
+                $byUser[$uid]['names'][] = (string) $lnk['branch_name'];
+            }
+        } catch (\Throwable) {
+        }
+
+        foreach ($staff as &$member) {
+            $uid = (int) $member['id'];
+            $primaryId = $member['branch_id'] ? (int) $member['branch_id'] : 0;
+            $ids = $byUser[$uid]['ids'] ?? ($primaryId > 0 ? [$primaryId] : []);
+            $names = $byUser[$uid]['names'] ?? (!empty($member['branch']) ? [(string) $member['branch']] : []);
+            if ($primaryId > 0 && !in_array($primaryId, $ids, true)) {
+                array_unshift($ids, $primaryId);
+                if (!empty($member['branch'])) {
+                    array_unshift($names, (string) $member['branch']);
+                }
+            }
+            $member['branch_ids'] = array_values(array_unique($ids));
+            $member['branch_names'] = array_values(array_unique($names));
+            if ($member['role'] !== 'owner' && !empty($member['branch_names'])) {
+                $member['branch'] = implode(', ', $member['branch_names']);
+            }
+        }
+        unset($member);
+
+        return $staff;
     }
 
     public static function technicians(int $branch): array {
-        $and = $branch ? ' AND branch_id=?' : '';
-        $params = $branch ? [$branch] : [];
-        return self::rows("SELECT id, name FROM users WHERE role='technician' AND active=1 {$and} ORDER BY name", $params);
+        $and = $branch
+            ? ' AND (u.branch_id=? OR EXISTS (SELECT 1 FROM user_branches ub WHERE ub.user_id=u.id AND ub.branch_id=?))'
+            : '';
+        $params = $branch ? [$branch, $branch] : [];
+        return self::rows("SELECT id, name FROM users u WHERE u.role='technician' AND u.active=1 {$and} ORDER BY u.name", $params);
     }
 
     public static function logAudit(int $userId, ?int $branchId, string $action, string|array $details): void {

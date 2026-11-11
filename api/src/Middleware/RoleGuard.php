@@ -29,10 +29,13 @@ class RoleGuard {
     public static function branchFor(array $user, mixed $requested, bool $required = true): int {
         $branch = Validator::integer($requested ?? 0, 'Branch', 0);
         if ($user['role'] !== 'owner') {
-            if ($branch && $branch !== (int) $user['branch_id']) {
+            $allowed = array_map('intval', $user['branch_ids'] ?? array_values(array_filter([(int) ($user['branch_id'] ?? 0)])));
+            if ($branch > 0 && !in_array($branch, $allowed, true)) {
                 throw new ApiError('Branch access denied.', 403);
             }
-            $branch = (int) $user['branch_id'];
+            if ($branch === 0) {
+                $branch = (int) ($user['branch_id'] ?: ($allowed[0] ?? 0));
+            }
         }
         if (!$branch && $required) {
             throw new ApiError('Select a branch to continue.');

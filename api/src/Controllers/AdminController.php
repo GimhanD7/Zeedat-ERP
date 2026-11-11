@@ -9,16 +9,20 @@ use Zeedat\Repositories\UserRepository;
 use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
 
-class AdminController {
-    public static function getStaff(): array {
+class AdminController
+{
+    public static function getStaff(): array
+    {
         return UserRepository::allStaff();
     }
 
-    public static function getPermissions(): array {
+    public static function getPermissions(): array
+    {
         return PermissionRepository::getPermissionsData();
     }
 
-    public static function savePermissions(array $user, array $body): array {
+    public static function savePermissions(array $user, array $body): array
+    {
         $matrix = $body['matrix'] ?? $body;
         if (!is_array($matrix)) {
             throw new ApiError('Invalid permissions payload.');
@@ -26,11 +30,13 @@ class AdminController {
         return PermissionRepository::savePermissions($matrix, (int) $user['id']);
     }
 
-    public static function resetPermissions(array $user): array {
+    public static function resetPermissions(array $user): array
+    {
         return PermissionRepository::resetToDefaults((int) $user['id']);
     }
 
-    public static function saveUserPermissions(array $user, array $body): array {
+    public static function saveUserPermissions(array $user, array $body): array
+    {
         $targetUserId = Validator::integer($body['user_id'] ?? null, 'Staff member');
         $overrides = $body['overrides'] ?? [];
         if (!is_array($overrides)) {
@@ -39,17 +45,85 @@ class AdminController {
         return PermissionRepository::saveUserPermissions($targetUserId, $overrides, (int) $user['id']);
     }
 
-    public static function getAudit(): array {
+    public static function getAudit(): array
+    {
         return UserRepository::getAuditLogs(100);
     }
 
-    public static function getSettings(): array {
+    public static function getSettings(): array
+    {
         return UserRepository::getSettings();
     }
 
-    public static function saveStaff(array $body): array {
+    private static function syncUserBranches(int $userId, array $branchIds): array
+    {
+        $clean = array_values(array_unique(array_filter(array_map('intval', $branchIds), static fn($v) => $v > 0)));
+        if (empty($clean)) {
+            throw new ApiError('Select at least one branch.');
+        }
+
+        $placeholders = implode(',', array_fill(0, count($clean), '?'));
+        $validRows = BaseRepository::rows("SELECT id, name FROM branches WHERE id IN ({$placeholders}) ORDER BY id ASC", $clean);
+        if (count($validRows) !== count($clean)) {
+            throw new ApiError('One or more selected branches do not exist.', 404);
+        }
+
+        $primaryId = $clean[0];
+        BaseRepository::transaction(function () use ($userId, $primaryId, $clean) {
+            BaseRepository::run('UPDATE users SET branch_id=? WHERE id=?', [$primaryId, $userId]);
+            BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$userId]);
+            foreach ($clean as $bid) {
+                BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$userId, $bid]);
+            }
+        });
+
+        return [
+            'branch_ids' => array_map(static fn($r) => (int) $r['id'], $validRows),
+            'branch_names' => array_map(static fn($r) => (string) $r['name'], $validRows),
+        ];
+    }
+
+    public static function assignUserBranches(array $admin, array $body): array
+    {
+        $targetId = Validator::integer($body['user_id'] ?? null, 'Staff member');
+        $target = BaseRepository::one('SELECT id, name, role FROM users WHERE id=?', [$targetId]);
+        if (!$target) {
+            throw new ApiError('Staff account not found.', 404);
+        }
+        if ($target['role'] === 'owner') {
+            throw new ApiError('Owner already has access to all branches.');
+        }
+
+        $rawIds = $body['branch_ids'] ?? [];
+        if (!is_array($rawIds)) {
+            throw new ApiError('Invalid branch_ids list.');
+        }
+
+        $synced = self::syncUserBranches($targetId, $rawIds);
+        UserRepository::logAudit((int) $admin['id'], null, 'staff.assign_branches', [
+            'user_id' => $targetId,
+            'name' => $target['name'],
+            'branch_ids' => $synced['branch_ids'],
+        ]);
+
+        return [
+            'user_id' => $targetId,
+            'branch_ids' => $synced['branch_ids'],
+            'branch_names' => $synced['branch_names'],
+            'branch' => implode(', ', $synced['branch_names']),
+        ];
+    }
+
+    public static function saveStaff(array $body): array
+    {
         $id = empty($body['id']) ? null : Validator::integer($body['id'], 'Staff member');
-        $branch = Validator::integer($body['branch_id'] ?? null, 'Assigned branch');
+        $branchIds = !empty($body['branch_ids']) && is_array($body['branch_ids'])
+            ? array_values(array_unique(array_filter(array_map('intval', $body['branch_ids']), static fn($v) => $v > 0)))
+            : [];
+        $branch = !empty($branchIds) ? $branchIds[0] : Validator::integer($body['branch_id'] ?? null, 'Assigned branch');
+        if (empty($branchIds)) {
+            $branchIds = [$branch];
+        }
         $name = Validator::str($body, 'name', 120);
         $email = strtolower(Validator::str($body, 'email', 150));
         $role = $body['role'] ?? '';
@@ -63,6 +137,12 @@ class AdminController {
             $user = BaseRepository::one('SELECT * FROM users WHERE id=?', [$id]);
             if (!$user || $user['role'] === 'owner') {
                 throw new ApiError('Staff account cannot be modified.', 403);
+            }
+            if ((int) ($user['branch_id'] ?? 0) === $branch && empty($body['branch_ids'])) {
+                $existingBranches = UserRepository::assignedBranchIds((int) $id);
+                if (!empty($existingBranches)) {
+                    $branchIds = $existingBranches;
+                }
             }
             $active = !empty($body['active']) ? 1 : 0;
             if ($password !== '') {
@@ -83,10 +163,13 @@ class AdminController {
             );
         }
 
-        return ['id' => $id, 'name' => $name, 'email' => $email, 'role' => $role];
+        $synced = self::syncUserBranches((int) $id, $branchIds);
+
+        return ['id' => $id, 'name' => $name, 'email' => $email, 'role' => $role, 'branch_ids' => $synced['branch_ids']];
     }
 
-    public static function deleteStaff(array $user, array $body): array {
+    public static function deleteStaff(array $user, array $body): array
+    {
         $id = Validator::integer($body['id'] ?? null, 'Staff member');
         $target = BaseRepository::one('SELECT * FROM users WHERE id=?', [$id]);
         if (!$target) {
@@ -131,7 +214,8 @@ class AdminController {
         ];
     }
 
-    public static function toggleStaffStatus(array $user, array $body): array {
+    public static function toggleStaffStatus(array $user, array $body): array
+    {
         $id = Validator::integer($body['id'] ?? null, 'Staff member');
         $target = BaseRepository::one('SELECT * FROM users WHERE id=?', [$id]);
         if (!$target) {
@@ -156,7 +240,8 @@ class AdminController {
         ];
     }
 
-    public static function saveSettings(array $body): array {
+    public static function saveSettings(array $body): array
+    {
         $shopName = Validator::str($body, 'shop_name', 100);
         $taxBps = Validator::integer($body['tax_bps'] ?? 0, 'Tax rate', 0, 10000);
         $paperWidth = (int) ($body['paper_width'] ?? 80);
@@ -199,7 +284,8 @@ class AdminController {
         ];
     }
 
-    public static function getBranchesSummary(): array {
+    public static function getBranchesSummary(): array
+    {
         return BaseRepository::rows("SELECT 
             b.id,
             b.name,
@@ -212,7 +298,8 @@ class AdminController {
             ORDER BY b.id");
     }
 
-    public static function saveBranch(array $user, array $body): array {
+    public static function saveBranch(array $user, array $body): array
+    {
         if ($user['role'] !== 'owner') {
             throw new ApiError('Only the Owner can create or modify store branches.', 403);
         }
@@ -239,7 +326,8 @@ class AdminController {
         return ['id' => $id, 'name' => $name, 'phone' => $phone, 'address' => $address];
     }
 
-    public static function changePassword(array $user, array $body): array {
+    public static function changePassword(array $user, array $body): array
+    {
         $current = (string) ($body['current_password'] ?? '');
         $next = (string) ($body['new_password'] ?? '');
 
@@ -264,7 +352,8 @@ class AdminController {
         return ['message' => 'Your password has been updated successfully.'];
     }
 
-    public static function saveDeletePin(array $user, array $body): array {
+    public static function saveDeletePin(array $user, array $body): array
+    {
         $newPin = trim((string) ($body['new_pin'] ?? ''));
         if (!preg_match('/^\d{4,8}$/', $newPin)) {
             throw new ApiError('Security PIN must be 4 to 8 digits (numbers only).');

@@ -131,7 +131,7 @@ try {
             }
         }
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
+        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -260,6 +260,10 @@ try {
                     RoleGuard::allowPermission($user, 'staff');
                     return AdminController::saveStaff($body);
                 })(),
+                'staff.assign_branches' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'staff');
+                    return AdminController::assignUserBranches($user, $body);
+                })(),
                 'permissions.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'staff');
                     return AdminController::savePermissions($user, $body);
@@ -337,10 +341,14 @@ try {
     }
 
     if ($action === 'branches') {
-        $branches = $user['role'] === 'owner'
-            ? BranchRepository::all()
-            : [BranchRepository::findById((int) $user['branch_id'])];
-        Response::json(array_filter($branches));
+        $all = BranchRepository::all();
+        if ($user['role'] === 'owner') {
+            $branches = $all;
+        } else {
+            $allowed = array_map('intval', $user['branch_ids'] ?? array_values(array_filter([(int) ($user['branch_id'] ?? 0)])));
+            $branches = array_values(array_filter($all, static fn($b) => in_array((int) $b['id'], $allowed, true)));
+        }
+        Response::json($branches);
     }
 
     $branch = RoleGuard::branchFor($user, $_GET['branch'] ?? 0, false);
