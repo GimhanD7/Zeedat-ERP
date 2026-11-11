@@ -9,6 +9,7 @@ use Throwable;
 class Database {
     private static ?PDO $connection = null;
     private static ?string $activeDriver = null;
+    private static ?array $localEnv = null;
 
     public static function getSqlitePath(): string {
         return self::env(
@@ -133,8 +134,54 @@ class Database {
         return self::$connection;
     }
 
+    private static function loadLocalEnv(): array {
+        if (self::$localEnv !== null) {
+            return self::$localEnv;
+        }
+        $loaded = [];
+        $envFile = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . '.env';
+        if (is_file($envFile) && is_readable($envFile)) {
+            $lines = @file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+            foreach ($lines as $line) {
+                $trimmed = trim($line);
+                if ($trimmed === '' || str_starts_with($trimmed, '#') || !str_contains($trimmed, '=')) {
+                    continue;
+                }
+                [$k, $v] = explode('=', $trimmed, 2);
+                $k = trim($k);
+                $v = trim($v);
+                if (strlen($v) >= 2 && (($v[0] === '"' && $v[-1] === '"') || ($v[0] === "'" && $v[-1] === "'"))) {
+                    $v = substr($v, 1, -1);
+                }
+                if ($k !== '') {
+                    $loaded[$k] = $v;
+                }
+            }
+        }
+        $cfgFile = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'config.php';
+        if (is_file($cfgFile) && is_readable($cfgFile)) {
+            $cfg = require $cfgFile;
+            if (is_array($cfg)) {
+                foreach ($cfg as $k => $v) {
+                    if (is_string($k) && $k !== '') {
+                        $loaded[$k] = (string) $v;
+                    }
+                }
+            }
+        }
+        self::$localEnv = $loaded;
+        return self::$localEnv;
+    }
+
     public static function env(string $key, string $fallback): string {
         $value = getenv($key);
-        return $value === false ? $fallback : $value;
+        if ($value !== false && $value !== '') {
+            return $value;
+        }
+        $local = self::loadLocalEnv();
+        if (array_key_exists($key, $local) && $local[$key] !== '') {
+            return $local[$key];
+        }
+        return $fallback;
     }
 }

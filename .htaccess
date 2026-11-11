@@ -1,6 +1,9 @@
 Options -Indexes -MultiViews
 RewriteEngine On
 
+# Allow Namecheap AutoSSL / Let's Encrypt certificate verification
+RewriteRule ^\.well-known/ - [L]
+
 # Allow the app entry point, built assets, and the JSON API.
 RewriteRule ^(?:index\.html)?$ dist/index.html [L]
 RewriteRule ^assets/([A-Za-z0-9_.-]+)$ dist/assets/$1 [L]

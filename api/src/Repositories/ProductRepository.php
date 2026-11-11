@@ -11,7 +11,8 @@ class ProductRepository extends BaseRepository {
         $params = $branch ? [$branch] : [];
         $costField = $includeCost ? ', p.cost' : '';
 
-        $products = self::rows("SELECT p.id, p.sku, p.barcode, p.name, p.brand, p.category, p.price, p.reorder_level, p.serialized
+        $products = self::rows("SELECT p.id, p.sku, p.barcode, p.name, p.brand, p.category, p.price, p.reorder_level, p.serialized,
+            COALESCE(p.commission_type, 'fixed') AS commission_type, COALESCE(p.commission_value, 0) AS commission_value
             {$costField}, CAST(COALESCE(s.qty, 0) AS UNSIGNED) qty FROM products p LEFT JOIN ({$qty}) s ON p.id=s.product_id WHERE COALESCE(p.active, 1)=1 ORDER BY p.id", $params);
 
         $branchStocks = self::rows(

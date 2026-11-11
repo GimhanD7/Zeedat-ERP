@@ -1,4 +1,4 @@
-import { AlertTriangle, ChartNoAxesCombined, CreditCard, Package, Store, Wrench } from 'lucide-react';
+import { AlertTriangle, Award, ChartNoAxesCombined, CreditCard, Package, Store, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { useData } from '../../hooks/useData';
 import { FilterTabs, Heading, Panel, Stats, Table } from '../../components/common';
@@ -95,6 +95,17 @@ export function ReportsPage({ ctx }) {
                     ['Branch', 'name'],
                     ['Gross sales', r => money(r.sales)],
                     ['Bills', 'bills'],
+                  ]}
+                />
+              </Panel>
+              <Panel title="Staff Commission Summary" icon={Award}>
+                <Table
+                  rows={d.commissions || []}
+                  columns={[
+                    ['Staff', 'name'],
+                    ['Items', 'total_qty'],
+                    ['Sales', r => money(r.sales_total)],
+                    ['Commission', r => <strong>{money(r.total_commission)}</strong>],
                   ]}
                 />
               </Panel>

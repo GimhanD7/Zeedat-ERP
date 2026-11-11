@@ -36,6 +36,7 @@ class AutoMigrator
 
             if (!$hasUsers) {
                 self::runFullSchemaAndSeed($db, $driver);
+                self::runIncrementalMigrations($db, $driver);
             } else {
                 self::runIncrementalMigrations($db, $driver);
             }
@@ -60,14 +61,22 @@ class AutoMigrator
         if (file_exists($schemaFile)) {
             $sql = file_get_contents($schemaFile);
 
-            // Execute schema
+            // Execute schema (strip CREATE DATABASE / USE statements on MySQL shared hosts like Namecheap)
             if ($driver === 'sqlite') {
                 $db->exec('PRAGMA foreign_keys = OFF;');
                 $db->exec($sql);
                 $db->exec('PRAGMA foreign_keys = ON;');
             } else {
+                $sql = preg_replace('/^\s*CREATE\s+DATABASE\b[^;]*;\s*/im', '', $sql);
+                $sql = preg_replace('/^\s*USE\s+[^;]+;\s*/im', '', $sql);
                 $db->exec('SET FOREIGN_KEY_CHECKS=0;');
-                $db->exec($sql);
+                $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql) ?: [];
+                foreach ($statements as $stmt) {
+                    $stmt = trim($stmt);
+                    if ($stmt !== '') {
+                        $db->exec($stmt);
+                    }
+                }
                 $db->exec('SET FOREIGN_KEY_CHECKS=1;');
             }
         }
@@ -94,8 +103,10 @@ class AutoMigrator
         // Seed Role Permissions
         PermissionRepository::seedDefaults();
 
-        // Seed Products and Customers from backup file if available
-        self::seedProductsAndCustomers($db, $driver);
+        // Seed Products and Customers from backup file if enabled & available
+        if (\Zeedat\Config\Database::env('SEED_DEMO', '1') === '1') {
+            self::seedProductsAndCustomers($db, $driver);
+        }
     }
 
     /**
@@ -254,6 +265,18 @@ class AutoMigrator
                 if (!in_array('active', $prodColNames, true)) {
                     $db->exec("ALTER TABLE products ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
                 }
+                if (!in_array('commission_type', $prodColNames, true)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN commission_type TEXT NOT NULL DEFAULT 'fixed'");
+                }
+                if (!in_array('commission_value', $prodColNames, true)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN commission_value INTEGER NOT NULL DEFAULT 0");
+                }
+
+                $siCols = $db->query("PRAGMA table_info(sale_items)")->fetchAll();
+                $siColNames = array_column($siCols, 'name');
+                if (!in_array('commission_amount', $siColNames, true)) {
+                    $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0");
+                }
 
                 $branchCols = $db->query("PRAGMA table_info(branches)")->fetchAll();
                 $branchColNames = array_column($branchCols, 'name');
@@ -303,6 +326,15 @@ class AutoMigrator
                 $prodCols = $db->query("SHOW COLUMNS FROM products LIKE 'active'")->fetchAll();
                 if (empty($prodCols)) {
                     $db->exec("ALTER TABLE products ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1");
+                }
+                $commCols = $db->query("SHOW COLUMNS FROM products LIKE 'commission_type'")->fetchAll();
+                if (empty($commCols)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN commission_type VARCHAR(16) NOT NULL DEFAULT 'fixed'");
+                    $db->exec("ALTER TABLE products ADD COLUMN commission_value INT UNSIGNED NOT NULL DEFAULT 0");
+                }
+                $siCommCols = $db->query("SHOW COLUMNS FROM sale_items LIKE 'commission_amount'")->fetchAll();
+                if (empty($siCommCols)) {
+                    $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount BIGINT UNSIGNED NOT NULL DEFAULT 0");
                 }
             }
         } catch (Throwable) {

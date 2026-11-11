@@ -56,6 +56,16 @@ const itemFilter = (item, q, fields) =>
 const stateTone = status =>
   ({ 'Low Stock': 'amber', 'Out of Stock': 'red', 'In Stock': 'green' })[status];
 
+const formatCommission = item => {
+  const val = Number(item?.commission_value || 0);
+  if (val <= 0) return null;
+  if (item?.commission_type === 'percent') {
+    const pct = val / 100;
+    return `${Number.isInteger(pct) ? pct : pct.toFixed(2)}%`;
+  }
+  return money(val);
+};
+
 export function Inventory({ ctx }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -114,9 +124,9 @@ export function Inventory({ ctx }) {
     const activeBranchName = ctx.branches.find(b => b.id === activeBranchId)?.name || 'Active Branch';
 
     ctx.setDialog({
-      title: item ? 'Edit product' : 'Add product',
+      title: item ? 'Edit product / service' : 'Add product / service',
       route: 'product.save',
-      submit: item ? 'Save product' : 'Create product',
+      submit: item ? 'Save changes' : 'Create item',
       wide: true,
       values: {
         ...item,
@@ -124,13 +134,20 @@ export function Inventory({ ctx }) {
         category: item?.category || 'Accessories',
         cost: rupees(item?.cost),
         price: rupees(item?.price),
+        commission_type: item?.commission_type || 'fixed',
+        commission_input:
+          item && Number(item.commission_value) > 0
+            ? String(rupees(item.commission_value))
+            : item?.category === 'Services'
+              ? ''
+              : '0',
         reorder_level: item?.reorder_level || 0,
         auto_barcode: false,
         initial_stock: 0,
       },
       fields: values => [
         branchField(ctx),
-        { name: 'name', label: 'Product name' },
+        { name: 'name', label: values.category === 'Services' ? 'Service name' : 'Product name' },
         { name: 'category', label: 'Category', choices: categories },
         ...(values.category !== 'Services'
           ? [
@@ -152,8 +169,37 @@ export function Inventory({ ctx }) {
             ]
           : []),
         { name: 'brand', label: 'Brand', optional: true },
-        { name: 'cost', label: 'Cost (LKR)', type: 'money' },
+        {
+          name: 'cost',
+          label: values.category === 'Services' ? 'Cost (LKR, Optional)' : 'Cost (LKR)',
+          type: 'money',
+          optional: values.category === 'Services',
+        },
         { name: 'price', label: 'Selling price (LKR)', type: 'money' },
+        {
+          name: 'commission_type',
+          label: 'Commission Type',
+          choices: [
+            ['fixed', 'Fixed Amount (LKR)'],
+            ['percent', 'Percentage (%)'],
+          ],
+        },
+        {
+          name: 'commission_input',
+          label:
+            values.category === 'Services'
+              ? values.commission_type === 'percent'
+                ? 'Service Commission (%) *'
+                : 'Service Commission (LKR) *'
+              : values.commission_type === 'percent'
+                ? 'Product Commission (%, Optional)'
+                : 'Product Commission (LKR, Optional)',
+          type: 'money',
+          min: 0,
+          max: values.commission_type === 'percent' ? 100 : undefined,
+          optional: values.category !== 'Services',
+          placeholder: values.commission_type === 'percent' ? 'e.g. 10' : 'e.g. 500.00',
+        },
         ...(values.category !== 'Services'
           ? [{ name: 'reorder_level', label: 'Reorder level', type: 'number', min: 0 }]
           : []),
@@ -187,10 +233,20 @@ export function Inventory({ ctx }) {
             );
           }
         }
+        const commType = v.commission_type === 'percent' ? 'percent' : 'fixed';
+        const commValue = cents(v.commission_input || 0);
+        if (v.category === 'Services' && commValue <= 0) {
+          throw new Error('Please enter a commission greater than 0 for Services.');
+        }
+        if (commType === 'percent' && commValue > 10000) {
+          throw new Error('Percentage commission cannot exceed 100%.');
+        }
         return {
           ...v,
-          cost: cents(v.cost),
+          cost: cents(v.cost || 0),
           price: cents(v.price),
+          commission_type: commType,
+          commission_value: commValue,
           initial_stock: parseInt(v.initial_stock, 10) || 0,
           barcode: v.category === 'Services' ? '' : barcodeVal,
         };
@@ -339,7 +395,7 @@ export function Inventory({ ctx }) {
                 Adjust stock
               </Button>
               <Button icon={Plus} variant="primary" onClick={() => form()}>
-                Add product
+                Add product / service
               </Button>
             </Heading>
 
@@ -614,6 +670,17 @@ export function Inventory({ ctx }) {
                       ['Reorder level', 'reorder_level'],
                       ['Buy price', r => money(r.cost)],
                       ['Sell price', r => money(r.price)],
+                      [
+                        'Commission',
+                        r => {
+                          const label = formatCommission(r);
+                          return label ? (
+                            <Badge tone={r.category === 'Services' ? 'mint' : 'blue'}>{label}</Badge>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>—</span>
+                          );
+                        },
+                      ],
                       [
                         'Status',
                         r => {

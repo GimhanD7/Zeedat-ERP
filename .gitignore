@@ -4,5 +4,7 @@ dist/
 !.env.example
 /.local/
 backups/*.sql
+api/config.php
+release/*.zip
  
 

@@ -11,9 +11,12 @@ class AuthMiddleware {
         date_default_timezone_set('Asia/Colombo');
         ini_set('session.use_strict_mode', '1');
         session_name('zeedat_session');
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+            || ((int) ($_SERVER['SERVER_PORT'] ?? 0) === 443);
         session_set_cookie_params([
             'httponly' => true,
-            'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+            'secure' => $isHttps,
             'samesite' => 'Strict',
         ]);
         if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE) {

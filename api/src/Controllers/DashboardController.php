@@ -76,9 +76,9 @@ class DashboardController {
         // Combined recent feed (Sales, Repairs, Returns)
         $recentSales = SaleRepository::recentSales($branch, 6);
         $recentRepairs = BaseRepository::rows(
-            "SELECT r.id, r.device, r.estimate total, r.status, c.name customer, r.created_at 
-             FROM repairs r JOIN customers c ON c.id=r.customer_id 
-             WHERE 1=1 {$scope} ORDER BY r.id DESC LIMIT 4",
+            "SELECT s.id, s.device, s.estimate total, s.status, c.name customer, s.created_at 
+             FROM repairs s JOIN customers c ON c.id=s.customer_id 
+             WHERE 1=1 {$scope} ORDER BY s.id DESC LIMIT 4",
             $params
         );
 
@@ -119,6 +119,18 @@ class DashboardController {
             [$today, $start, ...$params]
         );
 
+        $commissions = BaseRepository::rows(
+            "SELECT u.id, u.name, COUNT(si.id) AS items_sold, SUM(si.qty) AS total_qty,
+                    SUM(si.total) AS sales_total, COALESCE(SUM(si.commission_amount), 0) AS total_commission
+             FROM sales s
+             JOIN users u ON u.id=s.user_id
+             JOIN sale_items si ON si.sale_id=s.id
+             WHERE s.created_at>=? {$scope}
+             GROUP BY u.id, u.name
+             ORDER BY total_commission DESC, sales_total DESC",
+            [$start, ...$params]
+        );
+
         $totalSalesToday = array_sum(array_column($branchStats, 'sales'));
         $totalBillsToday = array_sum(array_column($branchStats, 'bills'));
 
@@ -140,6 +152,7 @@ class DashboardController {
             'branches' => $branchStats,
             'trend' => $trend,
             'collections' => $collections,
+            'commissions' => $commissions,
             'pending' => BaseRepository::rows(
                 "SELECT s.id, s.amount, s.reason, b.name branch FROM returns_log s JOIN branches b ON b.id=s.branch_id
                 WHERE s.status='Pending' {$scope} ORDER BY s.id DESC LIMIT 8",

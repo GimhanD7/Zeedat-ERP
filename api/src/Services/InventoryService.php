@@ -117,15 +117,24 @@ class InventoryService {
         $reorder = Validator::integer($body['reorder_level'] ?? 0, 'Reorder level', 0);
         $serialized = !empty($body['serialized']) ? 1 : 0;
 
+        $commType = strtolower(trim((string) ($body['commission_type'] ?? 'fixed')));
+        if (!in_array($commType, ['fixed', 'percent'], true)) {
+            throw new ApiError('Invalid commission type.');
+        }
+        $commValue = Validator::integer($body['commission_value'] ?? 0, 'Commission', 0, $commType === 'percent' ? 10000 : 100000000);
+        if ($category === 'Services' && $commValue <= 0) {
+            throw new ApiError('Please enter a commission greater than 0 for Services.');
+        }
+
         if ($id) {
             BaseRepository::run(
-                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=? WHERE id=?',
-                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $id]
+                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=? WHERE id=?',
+                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $commType, $commValue, $id]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized) VALUES (?,?,?,?,?,?,?,?,?)',
-                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $serialized]
+                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $serialized, $commType, $commValue]
             );
         }
 

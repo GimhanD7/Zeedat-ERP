@@ -113,13 +113,20 @@ class CheckoutService {
         foreach ($items as [$p, $qty, $unit, $extended]) {
             $processed += $extended;
             $cumulative = $subtotal ? (int) bcdiv(bcmul((string) $processed, (string) $total, 0), (string) $subtotal, 0) : 0;
+            $lineTotal = $cumulative - $allocated;
+            $commType = (string) ($p['commission_type'] ?? 'fixed');
+            $commVal = (int) ($p['commission_value'] ?? 0);
+            $lineCommission = $commType === 'percent'
+                ? Helpers::rate($lineTotal, $commVal)
+                : $commVal * $qty;
+
             if ($unit) BaseRepository::run("UPDATE units SET state='Sold' WHERE id=?", [$unit]);
             if ($p['category'] !== 'Services') {
                 ProductRepository::adjustStock($branch, $p['id'], -$qty, 'Sale', Helpers::ref('INV', $id), (int) $user['id']);
             }
             BaseRepository::run(
-                'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total) VALUES (?,?,?,?,?,?,?)',
-                [$id, $p['id'], $unit, $p['name'], $qty, $p['price'], $cumulative - $allocated]
+                'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total, commission_amount) VALUES (?,?,?,?,?,?,?,?)',
+                [$id, $p['id'], $unit, $p['name'], $qty, $p['price'], $lineTotal, $lineCommission]
             );
             $allocated = $cumulative;
         }
