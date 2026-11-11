@@ -4004,3 +4004,117 @@
   gap: 10px;
   margin-top: 4px;
 }
+
+/* =====================================================================
+   ONLINE-ONLY PRODUCT STOCK IMAGES (<= 10 KB COMPRESSED)
+   ===================================================================== */
+.product-art.has-photo {
+  overflow: hidden;
+  padding: 0;
+  background: #f8fafc;
+}
+
+.zk-product-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.zk-img-picker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.zk-img-preview-box {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zk-img-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.zk-img-placeholder {
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zk-img-picker-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.zk-img-picker-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zk-img-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #0d9488;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.zk-img-upload-btn:hover {
+  background: #0f766e;
+}
+
+.zk-img-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.zk-img-hint {
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.zk-img-offline-note {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+}

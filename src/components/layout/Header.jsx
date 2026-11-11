@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Bell, Building2, ChevronDown, LogOut, Menu, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Select } from '../common/Select';
-import { initials, roles, managers } from '../../utils';
+import { initials, roles, managers, setServerImageState } from '../../utils';
 import { syncManager } from '../../utils/syncManager';
 import { apiClient } from '../../api/client';
 
@@ -34,7 +34,13 @@ export function Header({
     const refreshDbStatus = () => {
       apiClient('sync.status')
         .then(st => {
-          if (active && st) setServerDbState(st);
+          if (active && st) {
+            setServerDbState(st);
+            setServerImageState({
+              driver: st.driver || null,
+              fallbackActive: Boolean(st.fallback_active),
+            });
+          }
         })
         .catch(() => {});
     };

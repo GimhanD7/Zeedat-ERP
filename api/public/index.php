@@ -90,6 +90,12 @@ try {
     // Authenticated endpoints
     $user = AuthMiddleware::requireAuth();
 
+    if ($method === 'GET' && $action === 'product.image') {
+        session_write_close();
+        RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
+        \Zeedat\Support\ProductImage::stream((int) ($_GET['id'] ?? 0));
+    }
+
     if ($method === 'POST') {
         AuthMiddleware::verifyCsrf();
 

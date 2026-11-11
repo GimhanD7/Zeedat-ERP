@@ -148,6 +148,8 @@ export function Inventory({ ctx }) {
         serialized: Boolean(defaults?.serialized ?? item?.serialized ?? false),
         auto_barcode: false,
         initial_stock: 0,
+        image_data: '',
+        remove_image: false,
       },
       fields: values => [
         branchField(ctx),
@@ -227,6 +229,13 @@ export function Inventory({ ctx }) {
         ...(isNew && values.category !== 'Services'
           ? [{ name: 'serialized', label: 'Track by individual serial number', type: 'checkbox' }]
           : []),
+        {
+          name: 'image_data',
+          label: 'Product Photo (Online Only · Max 10 KB)',
+          type: 'image',
+          optional: true,
+          full: true,
+        },
       ],
       transform: v => {
         const barcodeVal = (v.barcode || '').trim();
@@ -258,6 +267,8 @@ export function Inventory({ ctx }) {
           price: cents(v.price),
           commission_type: commType,
           commission_value: commValue,
+          image_data: v.image_data || undefined,
+          remove_image: Boolean(v.remove_image),
           initial_stock: parseInt(v.initial_stock, 10) || 0,
           barcode: v.category === 'Services' ? '' : barcodeVal,
         };

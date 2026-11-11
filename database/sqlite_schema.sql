@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS products (
   price INTEGER NOT NULL,
   reorder_level INTEGER NOT NULL DEFAULT 0,
   serialized INTEGER NOT NULL DEFAULT 0,
+  image_path TEXT NOT NULL DEFAULT '',
   synced INTEGER NOT NULL DEFAULT 0
 );
 

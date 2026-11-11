@@ -138,15 +138,24 @@ class InventoryService {
             throw new ApiError('Please enter a commission greater than 0 for Services.');
         }
 
+        $existingProduct = $id ? ProductRepository::findById($id) : null;
+        $imagePath = (string) ($existingProduct['image_path'] ?? '');
+        if (!empty($body['remove_image'])) {
+            \Zeedat\Support\ProductImage::delete($imagePath);
+            $imagePath = '';
+        } elseif (!empty($body['image_data']) && is_string($body['image_data'])) {
+            $imagePath = \Zeedat\Support\ProductImage::saveFromDataUri($body['image_data'], $imagePath);
+        }
+
         if ($id) {
             BaseRepository::run(
-                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=?, synced=0 WHERE id=?',
-                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $commType, $commValue, $id]
+                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=?, image_path=?, synced=0 WHERE id=?',
+                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $commType, $commValue, $imagePath, $id]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value, synced) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)',
-                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $serialized, $commType, $commValue]
+                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value, image_path, synced) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)',
+                [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $serialized, $commType, $commValue, $imagePath]
             );
         }
 
@@ -189,7 +198,14 @@ class InventoryService {
             }
         }
 
-        return ['id' => $id, 'sku' => $sku, 'name' => $name, 'barcode' => $barcode];
+        return [
+            'id' => $id,
+            'sku' => $sku,
+            'name' => $name,
+            'barcode' => $barcode,
+            'image_path' => $imagePath,
+            'image_url' => \Zeedat\Support\ProductImage::imageUrl((int) $id, $imagePath),
+        ];
     }
 
     public static function updateBarcode(array $user, array $body): array {
@@ -650,7 +666,10 @@ class InventoryService {
             BaseRepository::run('DELETE FROM stock WHERE product_id=?', [$id]);
 
             if ($hasHistory) {
-                BaseRepository::run('UPDATE products SET active=0, barcode=NULL, synced=0 WHERE id=?', [$id]);
+                if (!empty($product['image_path'])) {
+                    \Zeedat\Support\ProductImage::delete($product['image_path']);
+                }
+                BaseRepository::run("UPDATE products SET active=0, barcode=NULL, image_path='', synced=0 WHERE id=?", [$id]);
                 UserRepository::logAudit((int) $user['id'], null, 'product.archive', [
                     'id' => $id,
                     'sku' => $product['sku'],
@@ -664,6 +683,9 @@ class InventoryService {
                 ];
             }
 
+            if (!empty($product['image_path'])) {
+                \Zeedat\Support\ProductImage::delete($product['image_path']);
+            }
             BaseRepository::run('DELETE FROM stock_movements WHERE product_id=?', [$id]);
             BaseRepository::run('DELETE FROM barcode_print_logs WHERE product_id=?', [$id]);
             BaseRepository::run('DELETE FROM products WHERE id=?', [$id]);

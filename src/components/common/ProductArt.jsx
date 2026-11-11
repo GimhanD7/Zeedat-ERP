@@ -1,7 +1,30 @@
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { useProductImagesEnabled } from '../../utils';
 
 export function ProductArt({ item, small = false }) {
   const gradient = useId();
+  const imagesEnabled = useProductImagesEnabled();
+  const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [item?.image_url]);
+
+  if (imagesEnabled && item?.image_url && !imgFailed) {
+    return (
+      <span className={'product-art has-photo ' + (small ? 'small' : '')} aria-hidden="true">
+        <img
+          src={item.image_url}
+          alt={item.name || ''}
+          loading="lazy"
+          decoding="async"
+          className="zk-product-photo"
+          onError={() => setImgFailed(true)}
+        />
+      </span>
+    );
+  }
+
   const phone =
     item.category === 'Phones' ||
     item.category === 'Repair Parts' ||

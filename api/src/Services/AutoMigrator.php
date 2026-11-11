@@ -277,6 +277,9 @@ class AutoMigrator
                 if (!in_array('commission_value', $prodColNames, true)) {
                     $db->exec("ALTER TABLE products ADD COLUMN commission_value INTEGER NOT NULL DEFAULT 0");
                 }
+                if (!in_array('image_path', $prodColNames, true)) {
+                    $db->exec("ALTER TABLE products ADD COLUMN image_path TEXT NOT NULL DEFAULT ''");
+                }
 
                 $siCols = $db->query("PRAGMA table_info(sale_items)")->fetchAll();
                 $siColNames = array_column($siCols, 'name');
@@ -355,6 +358,9 @@ class AutoMigrator
                 if (empty($commCols)) {
                     $db->exec("ALTER TABLE products ADD COLUMN commission_type VARCHAR(16) NOT NULL DEFAULT 'fixed'");
                     $db->exec("ALTER TABLE products ADD COLUMN commission_value INT UNSIGNED NOT NULL DEFAULT 0");
+                }
+                if (empty($db->query("SHOW COLUMNS FROM products LIKE 'image_path'")->fetchAll())) {
+                    $db->exec("ALTER TABLE products ADD COLUMN image_path VARCHAR(120) NOT NULL DEFAULT ''");
                 }
                 $siCommCols = $db->query("SHOW COLUMNS FROM sale_items LIKE 'commission_amount'")->fetchAll();
                 if (empty($siCommCols)) {

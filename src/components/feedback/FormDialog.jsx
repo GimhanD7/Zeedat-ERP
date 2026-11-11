@@ -1,10 +1,96 @@
 import { useState } from 'react';
-import { Check, LoaderCircle } from 'lucide-react';
+import { Check, ImagePlus, LoaderCircle, Trash2 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Field } from '../common/Field';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
+import { compressProductImage, useProductImagesEnabled } from '../../utils';
 import { Alert } from './Alert';
+
+function ImageUploadField({ value, existingUrl, removed, onSelectDataUrl, onRemove }) {
+  const imagesEnabled = useProductImagesEnabled();
+  const [compressing, setCompressing] = useState(false);
+  const [byteInfo, setByteInfo] = useState(null);
+  const [localError, setLocalError] = useState('');
+
+  const previewSrc = value || (!removed && existingUrl ? existingUrl : '');
+
+  if (!imagesEnabled) {
+    return (
+      <div className="zk-img-offline-note">
+        Offline mode active — stock images are uploaded &amp; displayed in the online version only so offline mode runs fast and smoothly.
+      </div>
+    );
+  }
+
+  const handleFile = async e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setLocalError('');
+    setCompressing(true);
+    try {
+      const res = await compressProductImage(file);
+      setByteInfo(res.bytes);
+      onSelectDataUrl(res.dataUrl);
+    } catch (err) {
+      setLocalError(err?.message || 'Failed to compress image under 10 KB.');
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  return (
+    <div className="zk-img-picker">
+      <div className="zk-img-preview-box">
+        {previewSrc ? (
+          <img src={previewSrc} alt="Product thumbnail" className="zk-img-preview" />
+        ) : (
+          <span className="zk-img-placeholder">
+            <ImagePlus size={20} />
+          </span>
+        )}
+      </div>
+
+      <div className="zk-img-picker-meta">
+        <div className="zk-img-picker-actions">
+          <label className="zk-img-upload-btn">
+            <ImagePlus size={14} />
+            <span>{compressing ? 'Compressing…' : previewSrc ? 'Change Image' : 'Upload Image'}</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={compressing}
+              onChange={handleFile}
+              hidden
+            />
+          </label>
+          {previewSrc && (
+            <button
+              type="button"
+              className="zk-img-remove-btn"
+              onClick={() => {
+                setByteInfo(null);
+                setLocalError('');
+                onRemove();
+              }}
+            >
+              <Trash2 size={13} />
+              <span>Remove</span>
+            </button>
+          )}
+        </div>
+
+        <small className="zk-img-hint">
+          {byteInfo !== null
+            ? `Compressed to ${(byteInfo / 1024).toFixed(1)} KB (max 10 KB) · Shown in online version only`
+            : 'Auto-compressed to ≤ 10 KB when saved to server (hidden in offline mode)'}
+        </small>
+        {localError && <small className="text-red">{localError}</small>}
+      </div>
+    </div>
+  );
+}
 
 export function FormDialog({ spec, close, mutate }) {
   const [values, setValues] = useState(spec.values || {});
@@ -62,8 +148,20 @@ export function FormDialog({ spec, close, mutate }) {
                   placeholder,
                 };
                 return (
-                  <Field key={name} label={label} full={full || type === 'textarea' || type === 'checkbox'}>
-                    {choices ? (
+                  <Field key={name} label={label} full={full || type === 'textarea' || type === 'checkbox' || type === 'image'}>
+                    {type === 'image' ? (
+                      <ImageUploadField
+                        value={value}
+                        existingUrl={values.image_url}
+                        removed={Boolean(values.remove_image)}
+                        onSelectDataUrl={dataUrl => {
+                          setValues(v => ({ ...v, [name]: dataUrl, remove_image: false }));
+                        }}
+                        onRemove={() => {
+                          setValues(v => ({ ...v, [name]: '', remove_image: true }));
+                        }}
+                      />
+                    ) : choices ? (
                       <Select {...props} options={choices} blank="Select…" />
                     ) : type === 'textarea' ? (
                       <textarea {...props} rows={3} />
