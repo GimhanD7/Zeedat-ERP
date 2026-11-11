@@ -72,6 +72,18 @@ jobs:
             "$SSH_USER@$HOST" "bash -c $(printf '%q' "$(cat deploy/publish.sh)") publish '$WEB_ROOT' '$release_id'" < "$archive"
 
           url="${SITE_URL%/}"
-          curl --fail --silent --show-error --max-time 20 "$url/" --output /dev/null
+          curl --fail --silent --show-error --max-time 20 "$url/?release=$release_id" --output "$ssh_dir/live-index.html"
+          cmp dist/index.html "$ssh_dir/live-index.html"
           curl --fail --silent --show-error --max-time 20 "$url/api/index.php?route=session" |
             jq -e 'has("user") and has("csrf")' > /dev/null
+          expected_patch=$(jq -er '.patch_id' updates/patch-manifest.json)
+          for attempt in {1..8}; do
+            live_patch=$(curl --fail --silent --show-error --max-time 10 \
+              "$url/api/index.php?route=update.manifest&release=$release_id" | jq -er '.patch_id') || live_patch=
+            if [[ $live_patch == "$expected_patch" ]]; then break; fi
+            sleep 5
+          done
+          [[ $live_patch == "$expected_patch" ]]
+          patch_route=$(jq -er '.download_route' updates/patch-manifest.json)
+          curl --fail --silent --show-error --max-time 30 "$url/$patch_route" --output "$ssh_dir/desktop.zip"
+          printf '%s  %s\n' "$(jq -er '.zip_sha256' updates/patch-manifest.json)" "$ssh_dir/desktop.zip" | sha256sum --check -

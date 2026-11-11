@@ -173,8 +173,9 @@ const manifest = {
   zip_sha256: zipSha256,
   size_bytes: zipBuffer.length,
   files_count: zipEntries.length,
+  commit_sha: process.env.GITHUB_SHA || null,
   built_at: new Date().toISOString(),
-  download_route: 'api/index.php?route=update.download',
+  download_route: `assets/zeedat-patch-${patchId}.zip`,
 };
 
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');

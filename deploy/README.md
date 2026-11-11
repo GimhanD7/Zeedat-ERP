@@ -56,4 +56,8 @@ php -d auto_prepend_file="$HOME/.zeedat/current/deploy/hosted-config.php" \
 unset ZEEDAT_OWNER_EMAIL ZEEDAT_OWNER_PASSWORD
 ```
 
-Open the HTTPS subdomain and sign in. Releases and backups live under `$HOME/.zeedat`. The web root contains the built frontend and a small PHP entry point. Deployments publish code only. Apply schema changes separately. The hosted entry point disables automatic database seeding and the public branch-sync and backup-receive endpoints.
+Open the HTTPS subdomain and sign in. Releases and backups live under `$HOME/.zeedat`. The web root contains the built frontend and a small PHP entry point.
+
+Each successful deployment publishes the web app and a versioned desktop update from the same commit. GitHub Actions verifies the live homepage, PHP session API, update manifest, and archive checksum. Open web tabs offer a reload when a new frontend is available.
+
+The current Windows installer and portable EXE check the ZEEDAT site at startup and every 15 minutes. They download and verify newer React/PHP updates in the background and activate them on the next launch. The local database and backups live outside the update folders. Install or replace the desktop executable once to get the updater changes. Updates to the Windows launcher, Electron shell, or bundled PHP runtime require a new executable.

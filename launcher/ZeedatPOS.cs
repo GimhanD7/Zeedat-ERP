@@ -23,6 +23,7 @@ namespace ZeedatPOS
                     portableInstance = new Mutex(false, @"Local\ZeedatPOSPortable");
                     try { if (!portableInstance.WaitOne(0)) return; }
                     catch (AbandonedMutexException) {}
+                    portable.ActivateStagedUpdate();
                     appRoot = portable.Root;
                 }
                 string configFile = Path.Combine(appRoot, "config.json");
@@ -116,6 +117,7 @@ namespace ZeedatPOS
                 try
                 {
                     using (Process browser = Process.Start(psi))
+                    using (System.Threading.Timer updates = portable == null ? null : portable.StartUpdateChecks())
                     {
                         if (portable != null && backend != null)
                         {
@@ -190,7 +192,7 @@ namespace ZeedatPOS
                 return null;
             }
 
-            string phpExe = FindPhpExecutable(appRoot);
+            string phpExe = portable == null ? FindPhpExecutable(appRoot) : portable.PhpExecutable;
             if (string.IsNullOrEmpty(phpExe))
             {
                 return null;

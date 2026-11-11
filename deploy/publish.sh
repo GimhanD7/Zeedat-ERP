@@ -28,8 +28,38 @@ php -r '
 umask 022
 mkdir -p "$web_root/assets" "$web_root/api"
 cp -R --no-preserve=mode "$release/dist/assets/." "$web_root/assets/"
+patch_id=$(php -r '
+    $manifest = json_decode(file_get_contents($argv[1]), true, 32, JSON_THROW_ON_ERROR);
+    $id = $manifest["patch_id"] ?? "";
+    if (!preg_match("/^[A-Za-z0-9][A-Za-z0-9._-]{3,79}$/D", $id)
+        || !hash_equals($manifest["zip_sha256"] ?? "", hash_file("sha256", $argv[2]))) exit(1);
+    echo $id;
+' "$release/updates/patch-manifest.json" "$release/updates/zeedat-patch.zip")
+patch_file="$web_root/assets/zeedat-patch-$patch_id.zip"
+install -m 644 "$release/updates/zeedat-patch.zip" "$patch_file.$release_id.tmp"
+mv -f "$patch_file.$release_id.tmp" "$patch_file"
+
+# Keep cPanel directives and replace only the block managed by this deployer.
+cache_rules="$web_root/.htaccess.$release_id.tmp"
+if [[ -f "$web_root/.htaccess" ]]; then
+    awk '/^# BEGIN ZEEDAT CACHE$/{skip=1;next} /^# END ZEEDAT CACHE$/{skip=0;next} !skip' "$web_root/.htaccess" > "$cache_rules"
+else
+    touch "$cache_rules"
+fi
+cat >> "$cache_rules" <<'EOF'
+
+# BEGIN ZEEDAT CACHE
+<IfModule mod_headers.c>
+    <Files "index.html">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </Files>
+</IfModule>
+# END ZEEDAT CACHE
+EOF
+mv -f "$cache_rules" "$web_root/.htaccess"
+
 install -m 644 "$release/dist/index.html" "$web_root/index.html.$release_id.tmp"
-printf "<?php require '%s/.zeedat/current/deploy/hosted-api.php';\n" "$home" > "$web_root/api/index.php.$release_id.tmp"
+printf "<?php require '%s/deploy/hosted-api.php';\n" "$release" > "$web_root/api/index.php.$release_id.tmp"
 
 ln -s "$release" "$private_dir/current.$release_id"
 mv -Tf "$private_dir/current.$release_id" "$private_dir/current"

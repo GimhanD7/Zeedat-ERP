@@ -5,7 +5,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { getAppDataBase, getBundledPaths } = require('./phpServer.cjs');
 
-const SAFE_PATCH_ID = /^[A-Za-z0-9._-]{4,80}$/;
+const SAFE_PATCH_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{3,79}$/;
+const SHA256 = /^[a-f0-9]{64}$/i;
+const MAX_PATCH_BYTES = 50 * 1024 * 1024;
 
 function runtimeBaseDir() {
   return path.join(getAppDataBase(), 'runtime');
@@ -131,16 +133,20 @@ async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
 async function checkForPatch(serverUrl, currentRuntime) {
   const manifestUrl = normalizeApiEndpoint(serverUrl, 'update.manifest');
   const remote = await fetchJsonWithTimeout(manifestUrl);
-  if (!remote || !remote.patch_id || !SAFE_PATCH_ID.test(String(remote.patch_id))) {
+  if (!remote || remote.app_id !== 'com.zeedat.pos' || !SAFE_PATCH_ID.test(String(remote.patch_id))
+      || !SHA256.test(String(remote.zip_sha256)) || !Number.isSafeInteger(remote.size_bytes)
+      || remote.size_bytes <= 0 || remote.size_bytes > MAX_PATCH_BYTES || !parseIsoMs(remote.built_at)) {
     throw new Error('Server returned an invalid update manifest.');
   }
 
   const samePatch = remote.patch_id === currentRuntime.activePatchId;
   const pendingState = readJsonSafe(activeStatePath(), {});
-  const alreadyStaged = pendingState.stagedPatchId === remote.patch_id;
+  const alreadyStaged = !samePatch && pendingState.stagedPatchId === remote.patch_id
+    && isValidRuntimeRoot(path.join(patchesDir(), remote.patch_id));
+  const isNewer = parseIsoMs(remote.built_at) >= parseIsoMs(currentRuntime.builtAt);
 
   return {
-    updateAvailable: !samePatch && !alreadyStaged,
+    updateAvailable: isNewer && !samePatch && !alreadyStaged,
     alreadyStaged,
     currentPatchId: currentRuntime.activePatchId,
     latestPatch: remote,
@@ -195,13 +201,22 @@ async function downloadAndStagePatch(serverUrl, manifest, currentRuntime) {
     throw new Error('Patch manifest is missing zip_sha256 checksum.');
   }
 
-  const downloadUrl = normalizeApiEndpoint(serverUrl, 'update.download');
+  const legacyUrl = normalizeApiEndpoint(serverUrl, 'update.download');
+  const expectedRoute = `assets/zeedat-patch-${patchId}.zip`;
+  const downloadUrl = manifest.download_route === expectedRoute
+    ? new URL(`../${expectedRoute}`, legacyUrl).href
+    : legacyUrl;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 60000);
 
   let zipBuf;
   try {
-    const res = await net.fetch(downloadUrl, { method: 'GET', signal: ctrl.signal });
+    const request = { method: 'GET', signal: ctrl.signal };
+    let res = await net.fetch(downloadUrl, request);
+    if (res.status === 404 && downloadUrl !== legacyUrl) {
+      await res.body?.cancel();
+      res = await net.fetch(legacyUrl, request);
+    }
     if (!res.ok) {
       throw new Error(`Patch download failed with HTTP ${res.status}`);
     }
@@ -211,7 +226,7 @@ async function downloadAndStagePatch(serverUrl, manifest, currentRuntime) {
   }
 
   const actualSha = crypto.createHash('sha256').update(zipBuf).digest('hex');
-  if (actualSha.toLowerCase() !== String(manifest.zip_sha256).toLowerCase()) {
+  if (zipBuf.length !== manifest.size_bytes || actualSha.toLowerCase() !== String(manifest.zip_sha256).toLowerCase()) {
     throw new Error('Downloaded patch checksum verification failed.');
   }
 

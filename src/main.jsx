@@ -507,6 +507,7 @@ function App() {
   const [session, setSession] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
+  const [webUpdate, setWebUpdate] = useState(false);
 
   const logout = useCallback(() => {
     setSession(null);
@@ -520,9 +521,37 @@ function App() {
       .finally(() => setLoaded(true));
   }, []);
 
+  useEffect(() => {
+    if (location.protocol !== 'https:' || webUpdate) return;
+    const entry = document.querySelector('script[type="module"][src]')?.getAttribute('src');
+    if (!entry) return;
+    const abort = new AbortController();
+    const check = async () => {
+      if (document.hidden) return;
+      try {
+        const response = await fetch(location.pathname, { cache: 'no-store', signal: abort.signal });
+        if (!response.ok) return;
+        const latest = new DOMParser().parseFromString(await response.text(), 'text/html')
+          .querySelector('script[type="module"][src]')?.getAttribute('src');
+        if (latest && latest !== entry && !abort.signal.aborted) setWebUpdate(true);
+      } catch {
+        // Try again after the browser comes online or at the next scheduled check.
+      }
+    };
+    const timer = setInterval(check, 120000);
+    window.addEventListener('online', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      abort.abort();
+      clearInterval(timer);
+      window.removeEventListener('online', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [webUpdate]);
+
   if (!loaded) return <Spinner />;
 
-  return session ? (
+  const page = session ? (
     <Workspace session={session} onLogout={logout} />
   ) : (
     <Login
@@ -532,6 +561,17 @@ function App() {
       }}
       error={error}
     />
+  );
+  return (
+    <>
+      {page}
+      {webUpdate && (
+        <div className="toast" role="status">
+          <span>Update available. Finish your current work before reloading.</span>
+          <Button onClick={() => location.reload()}>Reload</Button>
+        </div>
+      )}
+    </>
   );
 }
 

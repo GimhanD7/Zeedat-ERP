@@ -2,18 +2,27 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Timer = System.Threading.Timer;
 
 namespace ZeedatPOS
 {
     sealed class PortableRuntime
     {
-        public readonly string Root;
+        public string Root { get; private set; }
+        public string PhpExecutable { get { return Path.Combine(phpDir, "php.exe"); } }
         readonly string dataDir;
         readonly string originalRoot;
         readonly string phpDir;
+        readonly string patchesDir;
+        const string Server = "https://zeedat.vortexdigitallabs.org/";
+        static readonly Regex PatchId = new Regex(@"\A[A-Za-z0-9][A-Za-z0-9._-]{3,79}\z");
 
         PortableRuntime(string root, string data, string original)
         {
@@ -21,6 +30,144 @@ namespace ZeedatPOS
             dataDir = data;
             originalRoot = original;
             phpDir = Path.Combine(root, "php");
+            patchesDir = Path.Combine(Path.GetDirectoryName(dataDir), "portable-patches");
+        }
+
+        sealed class Patch
+        {
+            public string app_id { get; set; }
+            public string patch_id { get; set; }
+            public string zip_sha256 { get; set; }
+            public int size_bytes { get; set; }
+            public string built_at { get; set; }
+            public string download_route { get; set; }
+        }
+
+        static Patch ReadPatch(string json)
+        {
+            Patch patch = new JavaScriptSerializer().Deserialize<Patch>(json);
+            DateTimeOffset builtAt;
+            if (patch == null || patch.app_id != "com.zeedat.pos" || !PatchId.IsMatch(patch.patch_id ?? "")
+                || !Regex.IsMatch(patch.zip_sha256 ?? "", @"\A[a-fA-F0-9]{64}\z")
+                || patch.size_bytes <= 0 || patch.size_bytes > 50 * 1024 * 1024
+                || !DateTimeOffset.TryParse(patch.built_at, out builtAt))
+                throw new InvalidDataException("Invalid desktop update manifest.");
+            return patch;
+        }
+
+        static string ManifestPath(string root)
+        {
+            return Path.Combine(root, "updates", "patch-manifest.json");
+        }
+
+        static bool CompletePatch(string root)
+        {
+            return File.Exists(Path.Combine(root, "router.php"))
+                && File.Exists(Path.Combine(root, "dist", "index.html"))
+                && File.Exists(Path.Combine(root, "api", "public", "index.php"))
+                && File.Exists(Path.Combine(root, "scripts", "setup_portable.php"));
+        }
+
+        public void ActivateStagedUpdate()
+        {
+            string pointer = Path.Combine(patchesDir, "active.txt");
+            if (!File.Exists(pointer)) return;
+            try
+            {
+                string id = File.ReadAllText(pointer).Trim();
+                if (!PatchId.IsMatch(id)) return;
+                string staged = Path.Combine(patchesDir, id);
+                if (!CompletePatch(staged)) return;
+                Patch update = ReadPatch(File.ReadAllText(ManifestPath(staged)));
+                Patch bundled = ReadPatch(File.ReadAllText(ManifestPath(Root)));
+                if (update.patch_id == id && DateTimeOffset.Parse(update.built_at) >= DateTimeOffset.Parse(bundled.built_at))
+                    Root = staged;
+            }
+            catch (IOException) {}
+            catch (ArgumentException) {}
+            catch (InvalidOperationException) {}
+        }
+
+        public Timer StartUpdateChecks()
+        {
+            return new Timer(delegate
+            {
+                try { StageLatestUpdate(); }
+                catch (Exception error) { Trace.WriteLine("Desktop update: " + error.Message); }
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(15));
+        }
+
+        static byte[] Download(string route, int limit)
+        {
+            HttpWebRequest request = (HttpWebRequest) WebRequest.Create(new Uri(new Uri(Server), route));
+            request.AllowAutoRedirect = false;
+            request.Timeout = 15000;
+            request.ReadWriteTimeout = 15000;
+            using (HttpWebResponse response = (HttpWebResponse) request.GetResponse())
+            using (Stream source = response.GetResponseStream())
+            using (MemoryStream output = new MemoryStream())
+            {
+                if (response.StatusCode != HttpStatusCode.OK || response.ContentLength > limit)
+                    throw new InvalidDataException("Unexpected desktop update response.");
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (output.Length + count > limit) throw new InvalidDataException("Desktop update is too large.");
+                    output.Write(buffer, 0, count);
+                }
+                return output.ToArray();
+            }
+        }
+
+        void StageLatestUpdate()
+        {
+            string json = Encoding.UTF8.GetString(Download("api/index.php?route=update.manifest", 16384));
+            Patch update = ReadPatch(json);
+            Patch active = ReadPatch(File.ReadAllText(ManifestPath(Root)));
+            if (update.patch_id == active.patch_id || DateTimeOffset.Parse(update.built_at) < DateTimeOffset.Parse(active.built_at)) return;
+
+            Directory.CreateDirectory(patchesDir);
+            string final = Path.Combine(patchesDir, update.patch_id);
+            if (!Directory.Exists(final))
+            {
+                string expectedRoute = "assets/zeedat-patch-" + update.patch_id + ".zip";
+                const string legacyRoute = "api/index.php?route=update.download";
+                string route = update.download_route == expectedRoute ? expectedRoute : legacyRoute;
+                byte[] bytes;
+                try { bytes = Download(route, update.size_bytes); }
+                catch (WebException error)
+                {
+                    using (HttpWebResponse response = error.Response as HttpWebResponse)
+                    {
+                        if (route == legacyRoute || response == null || response.StatusCode != HttpStatusCode.NotFound) throw;
+                    }
+                    bytes = Download(legacyRoute, update.size_bytes);
+                }
+                using (SHA256 sha = SHA256.Create())
+                {
+                    string hash = BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "");
+                    if (bytes.Length != update.size_bytes || !hash.Equals(update.zip_sha256, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("Desktop update checksum mismatch.");
+                }
+                string staging = Path.Combine(patchesDir, Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(staging);
+                try
+                {
+                    using (ZipArchive archive = new ZipArchive(new MemoryStream(bytes)))
+                        archive.ExtractToDirectory(staging);
+                    if (!CompletePatch(staging)) throw new InvalidDataException("Desktop update is incomplete.");
+                    Directory.CreateDirectory(Path.Combine(staging, "updates"));
+                    File.WriteAllText(ManifestPath(staging), json);
+                    Directory.Move(staging, final);
+                }
+                finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+            }
+            string pointer = Path.Combine(patchesDir, "active.txt");
+            string temporary = pointer + ".tmp";
+            File.WriteAllText(temporary, update.patch_id);
+            if (File.Exists(pointer)) File.Replace(temporary, pointer, null);
+            else File.Move(temporary, pointer);
         }
 
         public static PortableRuntime Prepare(string originalRoot)
