@@ -204,7 +204,49 @@ function Workspace({ session, onLogout }) {
   const [appError, setAppError] = useState('');
   const [mutationKeys] = useState(() => new Map());
 
-  const activeBranch = branch || (allBranchPages.includes(page) ? 0 : branches[0]?.id || 0);
+  const allowedBranches = useMemo(() => {
+    if (!branches.length || user.role === 'owner') return branches;
+    const assigned = new Set(
+      (Array.isArray(user.branch_ids) && user.branch_ids.length
+        ? user.branch_ids
+        : [user.branch_id]
+      )
+        .map(Number)
+        .filter(Boolean)
+    );
+    if (!assigned.size) return branches;
+    const filtered = branches.filter(b => assigned.has(Number(b.id)));
+    return filtered.length ? filtered : branches;
+  }, [branches, user]);
+
+  const activeBranch = useMemo(() => {
+    if (user.role === 'owner') {
+      if (branch && allowedBranches.some(b => Number(b.id) === Number(branch))) {
+        return Number(branch);
+      }
+      if (allBranchPages.includes(page)) return 0;
+      const loginId = Number(user.branch_id || 0);
+      if (loginId && allowedBranches.some(b => Number(b.id) === loginId)) return loginId;
+      return Number(allowedBranches[0]?.id || 0);
+    }
+
+    if (branch && allowedBranches.some(b => Number(b.id) === Number(branch))) {
+      return Number(branch);
+    }
+    const loginId = Number(user.branch_id || 0);
+    if (loginId && allowedBranches.some(b => Number(b.id) === loginId)) {
+      return loginId;
+    }
+    return Number(allowedBranches[0]?.id || 0);
+  }, [allowedBranches, branch, page, user]);
+
+  useEffect(() => {
+    if (!allowedBranches.length || user.role === 'owner') return;
+    const valid = allowedBranches.some(b => Number(b.id) === Number(branch));
+    if (!valid) {
+      setBranch(Number(allowedBranches[0].id));
+    }
+  }, [allowedBranches, branch, user.role]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -347,11 +389,23 @@ function Workspace({ session, onLogout }) {
 
         if (route === 'products') {
           const cached = await offlineStore.getProducts();
-          if (cached && cached.length > 0) return cached;
+          if (cached && cached.length > 0) {
+            return cached.map(p => {
+              if (activeBranch > 0 && Array.isArray(p.branch_stocks)) {
+                const hit = p.branch_stocks.find(bs => Number(bs.branch_id) === Number(activeBranch));
+                return { ...p, qty: hit ? Number(hit.qty || 0) : 0 };
+              }
+              return p;
+            });
+          }
         }
         if (route === 'customers') {
           const cached = await offlineStore.getCustomers();
-          if (cached && cached.length > 0) return cached;
+          if (cached && cached.length > 0) {
+            return activeBranch > 0
+              ? cached.filter(c => Number(c.branch_id) === Number(activeBranch))
+              : cached;
+          }
         }
 
         throw e;
@@ -423,7 +477,7 @@ function Workspace({ session, onLogout }) {
     setUser,
     hasPermission,
     refreshUser,
-    branches,
+    branches: allowedBranches,
     destinations,
     branch: activeBranch,
     get,
@@ -442,7 +496,7 @@ function Workspace({ session, onLogout }) {
     <>
       <WorkspaceLayout
         user={user}
-        branches={branches}
+        branches={allowedBranches}
         activeBranch={activeBranch}
         onBranchChange={setBranch}
         availablePages={available}

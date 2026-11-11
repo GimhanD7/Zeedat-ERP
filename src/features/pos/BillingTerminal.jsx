@@ -94,7 +94,26 @@ function BillingView({ ctx, data, onRefresh }) {
     }
   }, [ctx.intent]);
 
-  const branch = ctx.branches.find(b => b.id === ctx.branch);
+  const branch = ctx.branches.find(b => Number(b.id) === Number(ctx.branch));
+
+  const branchUnits = units.filter(
+    u =>
+      u.state === 'Available' &&
+      (!ctx.branch || Number(u.branch_id) === Number(ctx.branch))
+  );
+
+  const getBranchQty = p => {
+    if (p.category === 'Services') return 0;
+    if (p.serialized) {
+      const unitCount = branchUnits.filter(u => Number(u.product_id) === Number(p.id)).length;
+      if (units.length > 0) return unitCount;
+    }
+    if (ctx.branch > 0 && Array.isArray(p.branch_stocks)) {
+      const hit = p.branch_stocks.find(bs => Number(bs.branch_id) === Number(ctx.branch));
+      return hit ? Number(hit.qty || 0) : 0;
+    }
+    return Number(p.qty || 0);
+  };
 
   const lines = cart.flatMap(line => {
     const product = products.find(p => p.id === line.product_id);
@@ -122,6 +141,11 @@ function BillingView({ ctx, data, onRefresh }) {
   const add = (product, unit) => {
     setError('');
     const id = product.id;
+    const availQty = getBranchQty(product);
+    if (product.category !== 'Services' && availQty <= 0) {
+      setError(`"${product.name}" is out of stock in ${branch?.name || 'this branch'}.`);
+      return;
+    }
     if (product.serialized && !unit) {
       setChosenUnit('');
       setDevice(product);
@@ -130,7 +154,7 @@ function BillingView({ ctx, data, onRefresh }) {
     const existing = cart.find(r => r.product_id === id && r.unit_id === (unit?.id || null));
     if (
       existing &&
-      (unit || (product.category !== 'Services' && existing.qty >= product.qty))
+      (unit || (product.category !== 'Services' && existing.qty >= availQty))
     ) {
       setError('No more available stock for this item.');
       return;
@@ -158,16 +182,20 @@ function BillingView({ ctx, data, onRefresh }) {
     if (e.key !== 'Enter') return;
     const value = query.trim().toLowerCase();
     if (!value) return;
-    const unit = units.find(
-      u => u.state === 'Available' && [u.code, u.imei].some(s => s?.toLowerCase() === value)
+    const unit = branchUnits.find(
+      u => [u.code, u.imei].some(s => s?.toLowerCase() === value)
     );
     const product = products.find(p =>
       unit ? p.id === unit.product_id : [p.sku, p.barcode].some(s => s?.toLowerCase() === value)
     );
-    if (product && (product.qty || product.category === 'Services')) {
+    if (!product) return;
+    if (getBranchQty(product) > 0 || product.category === 'Services') {
       e.preventDefault();
       add(product, unit);
       setQuery('');
+    } else {
+      e.preventDefault();
+      setError(`"${product.name}" is out of stock in ${branch?.name || 'this branch'}.`);
     }
   };
 
@@ -237,11 +265,14 @@ function BillingView({ ctx, data, onRefresh }) {
 
   const q = query.trim().toLowerCase();
   const matched = new Set(
-    units
+    branchUnits
       .filter(u => [u.imei, u.code].some(v => v?.toLowerCase().includes(q)))
       .map(u => u.product_id)
   );
-  const filtered = products.filter(
+  const inStockCatalog = products
+    .map(p => ({ ...p, branchQty: getBranchQty(p) }))
+    .filter(p => p.category === 'Services' || p.branchQty > 0);
+  const filtered = inStockCatalog.filter(
     p =>
       (category === 'All Products' || p.category === category) &&
       (!q ||
@@ -344,14 +375,23 @@ function BillingView({ ctx, data, onRefresh }) {
       </section>
 
       <div className="pos-grid">
-        <Panel title="Product Catalog" icon={Barcode}>
+        <Panel
+          title="Product Catalog"
+          icon={Barcode}
+          action={
+            <Badge tone="green">
+              {branch?.name ? `${branch.name} · ` : ''}
+              {filtered.length} In Stock
+            </Badge>
+          }
+        >
           <div className="panel-tools">
             <SearchBox
               value={query}
               onChange={setQuery}
               onKeyDown={handleScan}
               inputRef={input}
-              placeholder="Search by product, SKU, barcode or IMEI…"
+              placeholder="Search in-stock product, SKU, barcode or IMEI…"
             />
             <FilterTabs
               choices={['All Products', ...categories]}
@@ -368,12 +408,10 @@ function BillingView({ ctx, data, onRefresh }) {
                     tone={
                       item.category === 'Services'
                         ? 'blue'
-                        : item.qty
-                          ? 'green'
-                          : 'red'
+                        : 'green'
                     }
                   >
-                    {item.category === 'Services' ? 'Service' : item.qty + ' in stock'}
+                    {item.category === 'Services' ? 'Service' : item.branchQty + ' in stock'}
                   </Badge>
                 </div>
                 <div className="product-info">
@@ -384,7 +422,6 @@ function BillingView({ ctx, data, onRefresh }) {
                 <Button
                   icon={Plus}
                   variant="soft"
-                  disabled={!item.qty && item.category !== 'Services'}
                   onClick={() => add(item)}
                 >
                   Add item
@@ -392,7 +429,11 @@ function BillingView({ ctx, data, onRefresh }) {
               </article>
             ))}
           </div>
-          {!filtered.length && <Empty>No products match your search.</Empty>}
+          {!filtered.length && (
+            <Empty>
+              No in-stock products found in {branch?.name || 'this branch'}.
+            </Empty>
+          )}
         </Panel>
 
         <div className="stack">
@@ -541,11 +582,10 @@ function BillingView({ ctx, data, onRefresh }) {
                 value={chosenUnit}
                 onChange={e => setChosenUnit(e.target.value)}
                 blank="Select a device"
-                options={units
+                options={branchUnits
                   .filter(
                     u =>
-                      u.product_id === device.id &&
-                      u.state === 'Available' &&
+                      Number(u.product_id) === Number(device.id) &&
                       !reserved.has(u.id)
                   )
                   .map(u => [
