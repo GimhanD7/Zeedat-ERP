@@ -24,7 +24,10 @@ CREATE TABLE IF NOT EXISTS products (
  barcode VARCHAR(60) NULL UNIQUE, name VARCHAR(150) NOT NULL, brand VARCHAR(80) NOT NULL DEFAULT '',
  category ENUM('Phones','Accessories','Repair Parts','Services') NOT NULL,
  cost BIGINT UNSIGNED NOT NULL, price BIGINT UNSIGNED NOT NULL, reorder_level INT UNSIGNED NOT NULL DEFAULT 0,
- serialized BOOLEAN NOT NULL DEFAULT FALSE
+ serialized BOOLEAN NOT NULL DEFAULT FALSE,
+ active TINYINT(1) NOT NULL DEFAULT 1,
+ commission_type VARCHAR(16) NOT NULL DEFAULT 'fixed',
+ commission_value INT UNSIGNED NOT NULL DEFAULT 0
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS stock (
  branch_id INT NOT NULL, product_id INT NOT NULL, qty INT UNSIGNED NOT NULL DEFAULT 0,
@@ -69,6 +72,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
  id INT AUTO_INCREMENT PRIMARY KEY, sale_id INT NOT NULL, product_id INT NOT NULL, unit_id INT NULL,
  name VARCHAR(150) NOT NULL, qty INT UNSIGNED NOT NULL, price BIGINT UNSIGNED NOT NULL,
  total BIGINT UNSIGNED NOT NULL, refunded_qty INT UNSIGNED NOT NULL DEFAULT 0,
+ commission_amount BIGINT UNSIGNED NOT NULL DEFAULT 0,
  FOREIGN KEY(sale_id) REFERENCES sales(id), FOREIGN KEY(product_id) REFERENCES products(id), FOREIGN KEY(unit_id) REFERENCES units(id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS payments (
@@ -143,6 +147,13 @@ CREATE TABLE IF NOT EXISTS settings (
  invoice_prefix VARCHAR(20) NOT NULL DEFAULT 'INV-',
  auto_print TINYINT(1) NOT NULL DEFAULT 0,
  show_tax_on_receipt TINYINT(1) NOT NULL DEFAULT 1,
+ label_printer_name VARCHAR(150) NOT NULL DEFAULT '',
+ label_width_mm INT NOT NULL DEFAULT 50,
+ label_height_mm INT NOT NULL DEFAULT 30,
+ label_across INT NOT NULL DEFAULT 2,
+ label_roll_mm INT NOT NULL DEFAULT 106,
+ label_show_digits TINYINT(1) NOT NULL DEFAULT 1,
+ delete_pin_hash VARCHAR(255) NOT NULL DEFAULT '',
  cloud_backup_url VARCHAR(255) NOT NULL DEFAULT '',
  cloud_api_key VARCHAR(255) NOT NULL DEFAULT '',
  auto_sync_enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -150,6 +161,12 @@ CREATE TABLE IF NOT EXISTS settings (
  last_synced_at TIMESTAMP NULL
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO settings (id) VALUES (1);
+CREATE TABLE IF NOT EXISTS barcode_print_logs (
+ id INT AUTO_INCREMENT PRIMARY KEY, branch_id INT NOT NULL DEFAULT 0,
+ product_id INT NOT NULL, user_id INT NOT NULL DEFAULT 1,
+ copies INT NOT NULL DEFAULT 1, price BIGINT NOT NULL DEFAULT 0,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(product_id, branch_id)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS backup_logs (
  id INT AUTO_INCREMENT PRIMARY KEY, branch_id INT NULL, filename VARCHAR(255) NOT NULL,
  file_size BIGINT UNSIGNED NOT NULL DEFAULT 0, status ENUM('local_saved','synced','failed') NOT NULL DEFAULT 'local_saved',
