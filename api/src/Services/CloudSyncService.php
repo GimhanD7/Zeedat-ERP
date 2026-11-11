@@ -58,7 +58,7 @@ class CloudSyncService {
                 $uuid = $row['uuid'] ?? ($prefix . '-' . ($row['id'] ?? 0) . '-' . substr(md5($seed), 0, 10));
                 $row['sync_uuid'] = $uuid;
                 try {
-                    BaseRepository::run("UPDATE {$table} SET sync_uuid=? WHERE id=?", [$uuid, $row['id']]);
+                    BaseRepository::run("UPDATE {$table} SET sync_uuid=?, synced=0 WHERE id=?", [$uuid, $row['id']]);
                 } catch (Throwable) {
                 }
             }
@@ -1080,7 +1080,6 @@ class CloudSyncService {
             foreach ($payload['stock_movements'] ?? [] as $mv) {
                 $pid = $resolveProduct($mv['product_sku'] ?? null, (int) ($mv['product_id'] ?? 0));
                 if ($pid <= 0) {
-                    $acked['synced_movements'][] = $mv['id'];
                     continue;
                 }
                 $syncUuid = (string) ($mv['sync_uuid'] ?? ('MV-' . ($mv['id'] ?? 0)));
@@ -1269,8 +1268,8 @@ class CloudSyncService {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 45);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'Authorization: Bearer ' . $token,
@@ -1286,8 +1285,8 @@ class CloudSyncService {
         }
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 45);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Accept: application/json',
             'Authorization: Bearer ' . $token,
