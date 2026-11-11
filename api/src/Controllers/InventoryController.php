@@ -64,6 +64,10 @@ class InventoryController {
         return InventoryService::saveCustomer($branch, $body);
     }
 
+    public static function topUpWallet(array $user, int $branch, array $body): array {
+        return InventoryService::topUpCustomerWallet($user, $branch, $body);
+    }
+
     public static function logBarcodePrint(array $user, int $branch, array $body): array {
         return InventoryService::logBarcodePrint($user, $branch, $body);
     }

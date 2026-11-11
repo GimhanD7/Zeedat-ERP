@@ -45,12 +45,16 @@ export function CheckoutModal({
   tax = 0,
   total = 0,
   customer = null,
+  customerObj = null,
   customerName = '',
   branchName = '',
   discountBps = 0,
   draftId = null,
   settings = {},
 }) {
+  const walletAvailable = Number(customerObj?.wallet_balance || 0);
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletInput, setWalletInput] = useState('');
   const [method, setMethod] = useState('Cash');
   const [tender, setTender] = useState({ Cash: String(rupees(total)) });
   const [refs, setRefs] = useState({});
@@ -62,6 +66,21 @@ export function CheckoutModal({
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const walletUsedCents = useMemo(() => {
+    if (!useWallet || !customerObj || walletAvailable <= 0) return 0;
+    return Math.min(walletAvailable, total, Math.max(0, cents(walletInput || 0)));
+  }, [useWallet, customerObj, walletAvailable, total, walletInput]);
+
+  const toggleWalletUse = checked => {
+    setUseWallet(checked);
+    const apply = checked ? Math.min(walletAvailable, total) : 0;
+    setWalletInput(checked ? String(rupees(apply)) : '');
+    const rem = Math.max(0, total - apply);
+    if (method !== 'Split' && method !== 'Credit') {
+      setTender({ [method]: rem > 0 ? String(rupees(rem)) : '' });
+    }
+  };
 
   // Generate dynamic invoice number & formatted current timestamp
   const invoiceNo = useMemo(() => {
@@ -90,21 +109,24 @@ export function CheckoutModal({
     ? ['Cash', 'Card', 'Bank Transfer', 'Koko'] 
     : [method];
 
-  const paid = activeMethods.reduce((sum, key) => sum + cents(tender[key] || 0), 0);
+  const tenderPaid = activeMethods.reduce((sum, key) => sum + cents(tender[key] || 0), 0);
+  const paid = tenderPaid + walletUsedCents;
   const balance = Math.max(total - paid, 0);
   const change = Math.max(paid - total, 0);
+  const pointsEarnedPreview = customer ? Math.floor(Math.max(0, total - (credit ? balance : 0)) / 100) : 0;
   const canCredit = managers.includes(ctx.user.role) && Boolean(customer);
 
   // Select method handler
   const selectMethod = value => {
+    const rem = Math.max(0, total - walletUsedCents);
     setMethod(value);
     if (value === 'Split') {
-      setTender({ Cash: String(rupees(total)), Card: '', 'Bank Transfer': '', Koko: '' });
+      setTender({ Cash: rem > 0 ? String(rupees(rem)) : '', Card: '', 'Bank Transfer': '', Koko: '' });
     } else if (value === 'Credit') {
       setTender({});
       setCredit(true);
     } else {
-      setTender({ [value]: String(rupees(total)) });
+      setTender({ [value]: rem > 0 ? String(rupees(rem)) : '' });
       setCredit(false);
     }
     setError('');
@@ -192,6 +214,7 @@ export function CheckoutModal({
         customer_id: customer,
         draft_id: draftId,
         expected_total: total,
+        wallet_amount: walletUsedCents,
         payments: activeMethods
           .filter(key => cents(tender[key] || 0) > 0)
           .map(key => ({
@@ -406,6 +429,42 @@ export function CheckoutModal({
                 })}
               </div>
 
+              {customerObj && walletAvailable > 0 && (
+                <div className="zk-wallet-checkout-card">
+                  <label className="zk-wallet-chk-row">
+                    <input
+                      type="checkbox"
+                      checked={useWallet}
+                      onChange={e => toggleWalletUse(e.target.checked)}
+                    />
+                    <Wallet size={16} style={{ color: '#0d9488' }} />
+                    <span>
+                      Use Customer Wallet (Available: <strong>{money(walletAvailable)}</strong>)
+                    </span>
+                  </label>
+                  {useWallet && (
+                    <div className="zk-wallet-chk-input">
+                      <span>Wallet Amount (LKR)</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={rupees(Math.min(walletAvailable, total))}
+                        value={walletInput}
+                        onChange={e => {
+                          setWalletInput(e.target.value);
+                          const apply = Math.min(walletAvailable, total, Math.max(0, cents(e.target.value || 0)));
+                          const rem = Math.max(0, total - apply);
+                          if (method !== 'Split' && method !== 'Credit') {
+                            setTender({ [method]: rem > 0 ? String(rupees(rem)) : '' });
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ACTIVE TENDER CARD */}
               <div className="zk-tender-box">
                 <div className="zk-tender-header">
@@ -614,6 +673,21 @@ export function CheckoutModal({
                   <span>Balance</span>
                   <strong style={{ color: balance > 0 ? '#dc2626' : '#0f172a' }}>{money(balance)}</strong>
                 </div>
+
+                {customerObj && (
+                  <>
+                    {walletUsedCents > 0 && (
+                      <div className="zk-summary-row">
+                        <span>Wallet Used</span>
+                        <strong style={{ color: '#0f766e' }}>− {money(walletUsedCents)}</strong>
+                      </div>
+                    )}
+                    <div className="zk-summary-row">
+                      <span>Loyalty Points Earned (1 LKR = 1 pt)</span>
+                      <strong style={{ color: '#b45309' }}>+{pointsEarnedPreview.toLocaleString()} pts</strong>
+                    </div>
+                  </>
+                )}
 
                 <div className="zk-summary-divider" />
 

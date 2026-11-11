@@ -162,8 +162,12 @@ try {
                     return ReturnController::resolve($user, $branch, $body);
                 })(),
                 'customer.save' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'customers');
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
                     return InventoryController::saveCustomer($branch, $body);
+                })(),
+                'customer.wallet.topup' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                    return InventoryController::topUpWallet($user, $branch, $body);
                 })(),
                 'product.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
@@ -368,10 +372,16 @@ try {
             RoleGuard::allowAnyPermission($user, 'customers', 'pos');
             $params = $branch ? [$branch] : [];
             return BaseRepository::rows(
-                "SELECT c.*, b.name branch, CAST(COALESCE(t.total,0) AS UNSIGNED) total, CAST(COALESCE(t.credit,0) AS UNSIGNED) credit
+                "SELECT c.*, b.name branch,
+                    CAST(COALESCE(c.loyalty_points,0) AS UNSIGNED) loyalty_points,
+                    CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) wallet_balance,
+                    CAST(COALESCE(t.total,0) AS UNSIGNED) total,
+                    CAST(COALESCE(t.credit,0) AS UNSIGNED) credit,
+                    CAST(COALESCE(t.sales_count,0) AS UNSIGNED) sales_count,
+                    t.last_sale_at
                 FROM customers c JOIN branches b ON b.id=c.branch_id
-                LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
-                " . ($branch ? 'WHERE c.branch_id=?' : '') . ' ORDER BY c.id DESC',
+                LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit, COUNT(*) sales_count, MAX(created_at) last_sale_at FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
+                " . ($branch ? 'WHERE c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
             );
         })(),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, DollarSign, Pencil, Plus, UserRound, Users, Wrench } from 'lucide-react';
+import { Award, CreditCard, DollarSign, Pencil, Plus, UserRound, Users, Wallet, Wrench } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
@@ -156,6 +156,22 @@ export function Customers({ ctx }) {
                     ['Phone', 'phone'],
                     ['Branch', 'branch'],
                     [
+                      'Points',
+                      c => (
+                        <Badge tone="amber">
+                          {Number(c.loyalty_points || 0).toLocaleString()} pts
+                        </Badge>
+                      ),
+                    ],
+                    [
+                      'Wallet',
+                      c => (
+                        <Badge tone={Number(c.wallet_balance || 0) > 0 ? 'green' : 'slate'}>
+                          {money(c.wallet_balance || 0)}
+                        </Badge>
+                      ),
+                    ],
+                    [
                       'Credit',
                       c => (
                         <Badge tone={c.credit > 0 ? 'red' : 'green'}>{money(c.credit)}</Badge>
@@ -189,18 +205,51 @@ export function Customers({ ctx }) {
                         <small>Branch</small>
                         <strong>{person.branch}</strong>
                       </div>
+                      <div>
+                        <small>Loyalty Points (1 LKR = 1 pt)</small>
+                        <strong>{Number(person.loyalty_points || 0).toLocaleString()} pts</strong>
+                      </div>
+                      <div>
+                        <small>Wallet Balance</small>
+                        <strong style={{ color: '#0f766e' }}>{money(person.wallet_balance || 0)}</strong>
+                      </div>
                     </div>
                     {person.notes && <p className="note-strip">{person.notes}</p>}
                     <div className="panel-tools toolbar">
                       <strong>Credit balance · {money(person.credit)}</strong>
-                      <Button
-                        icon={CreditCard}
-                        variant="primary"
-                        disabled={!Number(person.credit)}
-                        onClick={payment}
-                      >
-                        Record payment
-                      </Button>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Button
+                          icon={Wallet}
+                          variant="soft"
+                          onClick={() =>
+                            ctx.setDialog({
+                              title: `Top Up Wallet · ${person.name}`,
+                              description: `Current Wallet: ${money(person.wallet_balance || 0)}`,
+                              route: 'customer.wallet.topup',
+                              submit: 'Add Funds',
+                              values: { branch: person.branch_id, customer_id: person.id, amount: '', method: 'Cash', reference: '' },
+                              fields: v => [
+                                { name: 'amount', label: 'Top-Up Amount (LKR)', type: 'money', min: 1, full: true },
+                                { name: 'method', label: 'Method', choices: tenders },
+                                ...(v.method !== 'Cash'
+                                  ? [{ name: 'reference', label: 'Reference', optional: true }]
+                                  : []),
+                              ],
+                              transform: v => ({ ...v, amount: cents(v.amount || 0) }),
+                            })
+                          }
+                        >
+                          Top Up Wallet
+                        </Button>
+                        <Button
+                          icon={CreditCard}
+                          variant="primary"
+                          disabled={!Number(person.credit)}
+                          onClick={payment}
+                        >
+                          Record payment
+                        </Button>
+                      </div>
                     </div>
                   </Panel>
 

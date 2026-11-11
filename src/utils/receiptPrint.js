@@ -251,6 +251,11 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
       <span>TOTAL</span>
       <strong>${esc(money(invoice?.total || 0))}</strong>
     </div>
+    ${
+      Number(invoice?.wallet_used || 0) > 0
+        ? `<div class="sum-row"><span>Wallet Paid</span><strong>${esc(money(invoice.wallet_used))}</strong></div>`
+        : ''
+    }
     ${paymentRowsHtml}
     ${
       cashTendered > 0
@@ -260,6 +265,16 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
     ${
       changeAmount > 0
         ? `<div class="sum-row change"><span>CHANGE RETURN</span><strong>${esc(money(changeAmount))}</strong></div>`
+        : ''
+    }
+    ${
+      Number(invoice?.points_earned || 0) > 0 || invoice?.customer_id
+        ? `<div class="sum-row"><span>Loyalty Points (+${Number(invoice?.points_earned || 0).toLocaleString()} pts)</span><strong>${Number(invoice?.customer_points || 0).toLocaleString()} pts</strong></div>`
+        : ''
+    }
+    ${
+      invoice?.customer_id && Number(invoice?.customer_wallet || 0) > 0
+        ? `<div class="sum-row"><span>Wallet Balance</span><strong>${esc(money(invoice.customer_wallet))}</strong></div>`
         : ''
     }
     ${

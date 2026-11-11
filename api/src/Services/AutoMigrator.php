@@ -616,5 +616,70 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure customer loyalty_points & wallet_balance, sale wallet/points columns, and customer_wallet_logs table
+        try {
+            $custCols = [
+                'loyalty_points' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'wallet_balance' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+            ];
+            $saleLoyaltyCols = [
+                'wallet_used' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'points_earned' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'INT UNSIGNED NOT NULL DEFAULT 0',
+            ];
+            if ($driver === 'sqlite') {
+                $existingCust = array_column($db->query('PRAGMA table_info(customers)')->fetchAll(), 'name');
+                foreach ($custCols as $col => $def) {
+                    if (!in_array($col, $existingCust, true)) {
+                        $db->exec("ALTER TABLE customers ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $existingSales = array_column($db->query('PRAGMA table_info(sales)')->fetchAll(), 'name');
+                foreach ($saleLoyaltyCols as $col => $def) {
+                    if (!in_array($col, $existingSales, true)) {
+                        $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $db->exec("CREATE TABLE IF NOT EXISTS customer_wallet_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    branch_id INTEGER NOT NULL DEFAULT 0,
+                    customer_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL DEFAULT 1,
+                    sale_id INTEGER NULL,
+                    amount INTEGER NOT NULL DEFAULT 0,
+                    points_delta INTEGER NOT NULL DEFAULT 0,
+                    kind TEXT NOT NULL DEFAULT 'Adjustment',
+                    method TEXT NOT NULL DEFAULT '',
+                    reference TEXT NOT NULL DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )");
+            } else {
+                foreach ($custCols as $col => $def) {
+                    if (empty($db->query("SHOW COLUMNS FROM customers LIKE '{$col}'")->fetchAll())) {
+                        $db->exec("ALTER TABLE customers ADD COLUMN {$col} {$def}");
+                    }
+                }
+                foreach ($saleLoyaltyCols as $col => $def) {
+                    if (empty($db->query("SHOW COLUMNS FROM sales LIKE '{$col}'")->fetchAll())) {
+                        $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $db->exec("CREATE TABLE IF NOT EXISTS customer_wallet_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    branch_id INT NOT NULL DEFAULT 0,
+                    customer_id INT NOT NULL,
+                    user_id INT NOT NULL DEFAULT 1,
+                    sale_id INT NULL,
+                    amount BIGINT NOT NULL DEFAULT 0,
+                    points_delta INT NOT NULL DEFAULT 0,
+                    kind VARCHAR(40) NOT NULL DEFAULT 'Adjustment',
+                    method VARCHAR(40) NOT NULL DEFAULT '',
+                    reference VARCHAR(120) NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX(customer_id, created_at)
+                ) ENGINE=InnoDB");
+            }
+        } catch (Throwable) {
+        }
     }
 }

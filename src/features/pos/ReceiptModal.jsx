@@ -59,6 +59,13 @@ export function ReceiptModal({ invoice, settings, onClose }) {
             <small>Customer</small>
             <strong>{invoice.customer || 'Walk-in customer'}</strong>
             <span>{[invoice.customer_phone, invoice.customer_email].filter(Boolean).join(' · ') || 'No phone saved'}</span>
+            {invoice.customer_id && (
+              <span style={{ color: '#0f766e', fontWeight: 700, fontSize: '11.5px', marginTop: '2px' }}>
+                Points: {Number(invoice.customer_points || 0).toLocaleString()} pts
+                {Number(invoice.points_earned || 0) > 0 ? ` (+${Number(invoice.points_earned).toLocaleString()} pts)` : ''}
+                {' · '}Wallet: {money(invoice.customer_wallet || 0)}
+              </span>
+            )}
           </div>
           <div className="zk-inv-meta-box">
             <small>Cashier / Status</small>

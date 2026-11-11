@@ -35,7 +35,9 @@ class SaleRepository extends BaseRepository {
             COALESCE(u.name, 'Staff') AS cashier,
             COALESCE(c.name, 'Walk-in customer') AS customer,
             COALESCE(c.phone, '') AS customer_phone,
-            COALESCE(c.email, '') AS customer_email
+            COALESCE(c.email, '') AS customer_email,
+            CAST(COALESCE(c.loyalty_points, 0) AS UNSIGNED) AS customer_points,
+            CAST(COALESCE(c.wallet_balance, 0) AS UNSIGNED) AS customer_wallet
             FROM sales s
             JOIN branches b ON b.id=s.branch_id
             LEFT JOIN users u ON u.id=s.user_id

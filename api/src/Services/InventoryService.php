@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Zeedat\Services;
 
 use Zeedat\Repositories\BaseRepository;
+use Zeedat\Repositories\DrawerRepository;
 use Zeedat\Repositories\ProductRepository;
 use Zeedat\Repositories\UserRepository;
 use Zeedat\Support\ApiError;
@@ -501,18 +502,83 @@ class InventoryService {
         } elseif (\Zeedat\Config\Database::isSqlite()) {
             $uuid = 'CUS-' . bin2hex(random_bytes(8));
             $id = BaseRepository::insert(
-                'INSERT INTO customers(uuid, sync_uuid, synced, branch_id, name, phone, email, notes) VALUES (?,?,0,?,?,?,?,?)',
+                'INSERT INTO customers(uuid, sync_uuid, synced, branch_id, name, phone, email, notes, loyalty_points, wallet_balance) VALUES (?,?,0,?,?,?,?,?,0,0)',
                 [$uuid, $uuid, $branch, $name, $phone, $email ?: '', $notes ?: '']
             );
         } else {
             $uuid = 'CUS-' . bin2hex(random_bytes(8));
             $id = BaseRepository::insert(
-                'INSERT INTO customers(sync_uuid, synced, branch_id, name, phone, email, notes) VALUES (?,0,?,?,?,?,?)',
+                'INSERT INTO customers(sync_uuid, synced, branch_id, name, phone, email, notes, loyalty_points, wallet_balance) VALUES (?,0,?,?,?,?,?,0,0)',
                 [$uuid, $branch, $name, $phone, $email ?: '', $notes ?: '']
             );
         }
 
-        return ['id' => $id, 'name' => $name];
+        $saved = BaseRepository::one(
+            'SELECT id, branch_id, name, phone, email, notes, CAST(COALESCE(loyalty_points,0) AS UNSIGNED) AS loyalty_points, CAST(COALESCE(wallet_balance,0) AS UNSIGNED) AS wallet_balance FROM customers WHERE id=?',
+            [$id]
+        );
+        return $saved ?: [
+            'id' => $id,
+            'branch_id' => $branch,
+            'name' => $name,
+            'phone' => $phone,
+            'email' => $email ?: '',
+            'notes' => $notes ?: '',
+            'loyalty_points' => 0,
+            'wallet_balance' => 0,
+        ];
+    }
+
+    public static function topUpCustomerWallet(array $user, int $branch, array $body): array {
+        $cid = Validator::integer($body['customer_id'] ?? null, 'Customer');
+        $amount = Validator::money($body, 'amount');
+        if ($amount <= 0) {
+            throw new ApiError('Wallet top-up amount must be greater than zero.');
+        }
+        $method = (string) ($body['method'] ?? 'Cash');
+        if (!in_array($method, \Zeedat\Config\Constants::TENDERS, true)) {
+            throw new ApiError('Invalid payment method.');
+        }
+        $reference = Validator::str($body, 'reference', 100, false) ?: '';
+
+        return BaseRepository::transaction(function () use ($user, $branch, $cid, $amount, $method, $reference) {
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$cid, $branch]);
+            if (!$cust) {
+                throw new ApiError('Customer not found in this branch.', 404);
+            }
+
+            if ($method === 'Cash') {
+                $drawer = DrawerService::openDrawer($user, $branch);
+                DrawerRepository::addCashMovement(
+                    (int) $user['id'],
+                    $drawer,
+                    $amount,
+                    'Wallet Top-Up',
+                    $cust['name'] . ($cust['phone'] ? ' (' . $cust['phone'] . ')' : '')
+                );
+            }
+
+            BaseRepository::run(
+                'UPDATE customers SET wallet_balance = COALESCE(wallet_balance, 0) + ?, synced=0 WHERE id=?',
+                [$amount, $cid]
+            );
+            BaseRepository::run(
+                'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,?,0,?,?,?)',
+                [$branch, $cid, (int) ($user['id'] ?? 1), $amount, 'Top-Up', $method, $reference]
+            );
+
+            $updated = BaseRepository::one(
+                'SELECT CAST(COALESCE(wallet_balance,0) AS UNSIGNED) AS wallet_balance, CAST(COALESCE(loyalty_points,0) AS UNSIGNED) AS loyalty_points FROM customers WHERE id=?',
+                [$cid]
+            );
+            return [
+                'id' => $cid,
+                'amount' => $amount,
+                'method' => $method,
+                'wallet_balance' => (int) ($updated['wallet_balance'] ?? 0),
+                'loyalty_points' => (int) ($updated['loyalty_points'] ?? 0),
+            ];
+        });
     }
 
     public static function logBarcodePrint(array $user, int $branch, array $body): array {

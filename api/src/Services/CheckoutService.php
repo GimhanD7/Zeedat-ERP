@@ -21,9 +21,10 @@ class CheckoutService {
             throw new ApiError('Add between 1 and 100 lines to the bill.');
         }
 
-        $customer = !empty($body['customer_id'])
-            ? (int) BaseRepository::scalar('SELECT id FROM customers WHERE id=? AND branch_id=?', [$body['customer_id'], $branch])
+        $customerRow = !empty($body['customer_id'])
+            ? BaseRepository::one('SELECT id, name, phone, COALESCE(wallet_balance, 0) AS wallet_balance, COALESCE(loyalty_points, 0) AS loyalty_points FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$body['customer_id'], $branch])
             : null;
+        $customer = $customerRow ? (int) $customerRow['id'] : null;
 
         $draft = empty($body['draft_id']) ? null : Validator::integer($body['draft_id'], 'Draft');
         if ($draft && !BaseRepository::scalar('SELECT id FROM drafts WHERE id=? AND branch_id=? AND user_id=? FOR UPDATE', [$draft, $branch, $user['id']])) {
@@ -70,7 +71,20 @@ class CheckoutService {
         $tenders = $body['payments'] ?? [];
         if (!is_array($tenders) || count($tenders) > 4) throw new ApiError('Invalid payment details.');
 
-        $paid = 0;
+        $walletUsed = Validator::integer($body['wallet_amount'] ?? 0, 'Wallet amount', 0);
+        if ($walletUsed > 0) {
+            if (!$customer || !$customerRow) {
+                throw new ApiError('Select a registered customer to pay using wallet balance.');
+            }
+            if ($walletUsed > (int) $customerRow['wallet_balance']) {
+                throw new ApiError('Payment exceeds the customer wallet balance.');
+            }
+            if ($walletUsed > $total) {
+                throw new ApiError('Wallet payment cannot exceed the bill total.');
+            }
+        }
+
+        $paid = $walletUsed;
         $cashReceived = 0;
         $payments = [];
 
@@ -104,24 +118,42 @@ class CheckoutService {
         }
 
         $notes = Validator::str($body, 'notes', 500, false) ?: '';
-        $paymentMethods = !empty($payments) ? implode(' + ', array_keys($payments)) : ($credit ? 'Credit' : 'Cash');
+        $methodLabels = array_keys($payments);
+        if ($walletUsed > 0) {
+            array_unshift($methodLabels, 'Wallet');
+        }
+        $paymentMethods = !empty($methodLabels) ? implode(' + ', $methodLabels) : ($credit ? 'Credit' : 'Cash');
         $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
         $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
+
+        // 1 Rupee (100 cents) = 1 Loyalty Point earned on settled bill value
+        $pointsEarned = $customer ? intdiv(max(0, $total - $credit), 100) : 0;
 
         $syncUuid = 'SL-' . bin2hex(random_bytes(10));
         if (\Zeedat\Config\Database::isSqlite()) {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes]
+                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes]
+                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
             );
         }
         $invoiceNo = Helpers::ref($prefixCode, $id);
         BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [$invoiceNo, $id]);
+
+        if ($customer && ($walletUsed > 0 || $pointsEarned > 0)) {
+            BaseRepository::run(
+                'UPDATE customers SET wallet_balance = COALESCE(wallet_balance, 0) - ?, loyalty_points = COALESCE(loyalty_points, 0) + ?, synced=0 WHERE id=?',
+                [$walletUsed, $pointsEarned, $customer]
+            );
+            BaseRepository::run(
+                'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, sale_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,?,?,?,?,?,?)',
+                [$branch, $customer, (int) $user['id'], $id, -$walletUsed, $pointsEarned, $walletUsed > 0 ? 'POS Wallet + Points' : 'POS Points', $paymentMethods, $invoiceNo]
+            );
+        }
 
         $processed = 0;
         $allocated = 0;
@@ -163,7 +195,7 @@ class CheckoutService {
         $drawer = DrawerService::openDrawer($user, $branch);
         $invoiceNo = $body['invoice'] ?? '';
         $id = (int) preg_replace('/\D/', '', (string) $invoiceNo);
-        $sale = BaseRepository::one('SELECT id, credit FROM sales WHERE id=? AND branch_id=? FOR UPDATE', [$id, $branch]);
+        $sale = BaseRepository::one('SELECT id, credit, customer_id FROM sales WHERE id=? AND branch_id=? FOR UPDATE', [$id, $branch]);
         if (!$sale) throw new ApiError('Invoice not found.', 404);
 
         $amount = Validator::money($body, 'amount');
@@ -175,10 +207,17 @@ class CheckoutService {
 
         self::salePayment($user, $drawer, $sale['id'], $amount, $method, $ref, 'Credit');
         $cashAdd = $method === 'Cash' ? $amount : 0;
+        $creditPoints = !empty($sale['customer_id']) ? intdiv($amount, 100) : 0;
         BaseRepository::run(
-            "UPDATE sales SET credit=credit-?, paid_amount=COALESCE(paid_amount,0)+?, cash_tendered=COALESCE(cash_tendered,0)+?, payment_methods=CASE WHEN COALESCE(payment_methods,'') IN ('','Credit') THEN ? WHEN INSTR(payment_methods, ?) > 0 THEN payment_methods ELSE CONCAT(payment_methods, ' + ', ?) END, synced=0 WHERE id=?",
-            [$amount, $amount, $cashAdd, $method, $method, $method, $sale['id']]
+            "UPDATE sales SET credit=credit-?, paid_amount=COALESCE(paid_amount,0)+?, cash_tendered=COALESCE(cash_tendered,0)+?, points_earned=COALESCE(points_earned,0)+?, payment_methods=CASE WHEN COALESCE(payment_methods,'') IN ('','Credit') THEN ? WHEN INSTR(payment_methods, ?) > 0 THEN payment_methods ELSE CONCAT(payment_methods, ' + ', ?) END, synced=0 WHERE id=?",
+            [$amount, $amount, $cashAdd, $creditPoints, $method, $method, $method, $sale['id']]
         );
+        if (!empty($sale['customer_id']) && $creditPoints > 0) {
+            BaseRepository::run(
+                'UPDATE customers SET loyalty_points = COALESCE(loyalty_points, 0) + ?, synced=0 WHERE id=?',
+                [$creditPoints, (int) $sale['customer_id']]
+            );
+        }
 
         return SaleRepository::invoiceDetails($sale['id'], $branch);
     }

@@ -1,19 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Award,
   Banknote,
   Barcode,
   CalendarDays,
   History,
   LockKeyhole,
   Minus,
+  Phone,
   Plus,
   ShoppingCart,
   Trash2,
+  UserPlus,
+  UserRound,
   Wallet,
+  X,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
@@ -37,9 +42,9 @@ import {
   dateLabel,
   hasCashInPayments,
   money,
-  options,
   printThermalReceipt,
   ref,
+  tenders,
   today,
   triggerCashDrawerForSettlement,
 } from '../../utils';
@@ -73,6 +78,8 @@ function BillingView({ ctx, data, onRefresh }) {
   const [category, setCategory] = useState('All Products');
   const [cart, setCart] = useState([]);
   const [customer, setCustomer] = useState('');
+  const [custQuery, setCustQuery] = useState('');
+  const [custDropdownOpen, setCustDropdownOpen] = useState(false);
   const [discountPct, setDiscountPct] = useState('0');
   const [draftId, setDraftId] = useState(null);
   const [device, setDevice] = useState(null);
@@ -86,6 +93,101 @@ function BillingView({ ctx, data, onRefresh }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const input = useRef(null);
+  const custPickerRef = useRef(null);
+
+  const selectedCustomerObj = useMemo(
+    () => customers.find(c => String(c.id) === String(customer)) || null,
+    [customers, customer]
+  );
+
+  const popularCustomers = useMemo(() => {
+    return [...customers]
+      .sort(
+        (a, b) =>
+          Number(b.sales_count || 0) - Number(a.sales_count || 0) ||
+          Number(b.total || 0) - Number(a.total || 0) ||
+          Number(b.loyalty_points || 0) - Number(a.loyalty_points || 0)
+      )
+      .slice(0, 4);
+  }, [customers]);
+
+  const matchingCustomers = useMemo(() => {
+    const qCust = custQuery.trim().toLowerCase();
+    const list = qCust
+      ? customers.filter(
+          c =>
+            String(c.phone || '').toLowerCase().includes(qCust) ||
+            String(c.name || '').toLowerCase().includes(qCust)
+        )
+      : popularCustomers;
+    return list.slice(0, 8);
+  }, [customers, popularCustomers, custQuery]);
+
+  useEffect(() => {
+    const handleOutside = e => {
+      if (custPickerRef.current && !custPickerRef.current.contains(e.target)) {
+        setCustDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const openQuickAddCustomer = (prefillText = '') => {
+    const clean = prefillText.trim();
+    const looksPhone = /^[0-9+\-\s]{4,}$/.test(clean);
+    ctx.setDialog({
+      title: 'Add New Customer',
+      description: 'Register customer for loyalty points (1 LKR = 1 pt) & wallet.',
+      route: 'customer.save',
+      submit: 'Save Customer',
+      values: {
+        branch: ctx.branch,
+        name: looksPhone ? '' : clean,
+        phone: looksPhone ? clean : '',
+        email: '',
+        notes: '',
+      },
+      fields: [
+        { name: 'name', label: 'Customer Full Name' },
+        { name: 'phone', label: 'Mobile Phone Number', type: 'tel' },
+        { name: 'email', label: 'Email (Optional)', type: 'email', optional: true },
+        { name: 'notes', label: 'Notes (Optional)', type: 'textarea', optional: true },
+      ],
+      onSuccess: created => {
+        if (created?.id) {
+          setCustomer(String(created.id));
+          setCustQuery('');
+          setCustDropdownOpen(false);
+        }
+        onRefresh?.();
+        ctx.setNotice(`Customer "${created?.name || 'Saved'}" added & selected.`);
+      },
+    });
+  };
+
+  const openWalletTopupDialog = custObj => {
+    if (!custObj) return;
+    ctx.setDialog({
+      title: `Top Up Wallet · ${custObj.name}`,
+      description: `Current Balance: ${money(custObj.wallet_balance || 0)} · Points: ${Number(custObj.loyalty_points || 0).toLocaleString()} pts`,
+      route: 'customer.wallet.topup',
+      submit: 'Add to Wallet',
+      values: { customer_id: custObj.id, amount: '', method: 'Cash', reference: '' },
+      fields: v => [
+        { name: 'amount', label: 'Top-Up Amount (LKR)', type: 'money', min: 1, full: true },
+        { name: 'method', label: 'Payment Method', choices: tenders },
+        ...(v.method !== 'Cash'
+          ? [{ name: 'reference', label: 'Transaction Reference', optional: true }]
+          : []),
+      ],
+      transform: v => ({ ...v, amount: cents(v.amount || 0) }),
+      onSuccess: () => {
+        onRefresh?.();
+        ctx.setNotice('Customer wallet topped up successfully.');
+      },
+    });
+  };
 
   useEffect(() => {
     if (ctx.intent === 'cashbook') {
@@ -281,7 +383,7 @@ function BillingView({ ctx, data, onRefresh }) {
   );
 
   return (
-    <>
+    <div className="zk-pos-viewport">
       <Heading
         title="POS / Billing"
         description={'Create bills, sell products and record payments — ' + branch?.name}
@@ -374,8 +476,9 @@ function BillingView({ ctx, data, onRefresh }) {
         </div>
       </section>
 
-      <div className="pos-grid">
+      <div className="pos-grid zk-pos-framed-grid">
         <Panel
+          className="zk-pos-catalog-panel"
           title="Product Catalog"
           icon={Barcode}
           action={
@@ -399,7 +502,7 @@ function BillingView({ ctx, data, onRefresh }) {
               onChange={setCategory}
             />
           </div>
-          <div className="catalog">
+          <div className="catalog zk-pos-catalog-scroll">
             {filtered.map(item => (
               <article key={item.id} className="product-card">
                 <div className="product-image">
@@ -428,143 +531,291 @@ function BillingView({ ctx, data, onRefresh }) {
                 </Button>
               </article>
             ))}
+            {!filtered.length && (
+              <Empty>
+                No in-stock products found in {branch?.name || 'this branch'}.
+              </Empty>
+            )}
           </div>
-          {!filtered.length && (
-            <Empty>
-              No in-stock products found in {branch?.name || 'this branch'}.
-            </Empty>
-          )}
         </Panel>
 
-        <div className="stack">
+        <div className="zk-pos-bill-col">
           <Panel
+            className="zk-pos-bill-panel"
             title="Current Bill"
             icon={ShoppingCart}
-            action={<Badge tone="blue">{draftId ? ref('HLD', draftId) : 'New sale'}</Badge>}
+            action={
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Badge tone={selectedCustomerObj ? 'green' : 'slate'}>
+                  {selectedCustomerObj ? selectedCustomerObj.name : 'Walk-in Customer'}
+                </Badge>
+                <Badge tone="blue">{draftId ? ref('HLD', draftId) : 'New sale'}</Badge>
+              </div>
+            }
           >
-            <div className="panel-tools">
-              <Field label="Customer">
-                <Select
-                  options={options(customers)}
-                  value={customer}
-                  onChange={e => setCustomer(e.target.value)}
-                  blank="Walk-in customer"
-                />
-              </Field>
-            </div>
-            <Table
-              rows={lines}
-              empty="Add a product to start a bill."
-              columns={[
-                [
-                  'Item',
-                  r => (
-                    <>
-                      <strong>{r.product.name}</strong>
-                      <small className="subtext">
-                        {units.find(u => u.id === r.unit_id)?.code || r.product.sku}
-                      </small>
-                    </>
-                  ),
-                ],
-                [
-                  'Qty',
-                  r => (
-                    <span className="stepper">
-                      <Button
-                        icon={Minus}
-                        className="icon-only"
-                        aria-label={'Decrease ' + r.product.name}
-                        onClick={() => increment(r, -1)}
+            {/* CUSTOMER PHONE SEARCH / POPULAR CUSTOMERS / WALLET & POINTS */}
+            <div className="zk-pos-customer-box" ref={custPickerRef}>
+              {!selectedCustomerObj ? (
+                <>
+                  <div className="zk-pos-cust-search-row">
+                    <div className="search-box" style={{ flex: 1 }}>
+                      <Phone size={15} />
+                      <input
+                        type="text"
+                        value={custQuery}
+                        onFocus={() => setCustDropdownOpen(true)}
+                        onChange={e => {
+                          setCustQuery(e.target.value);
+                          setCustDropdownOpen(true);
+                        }}
+                        placeholder="Search customer phone # or name (Default: Walk-in)…"
+                        aria-label="Search customer by phone or name"
                       />
-                      <b>{r.qty}</b>
-                      <Button
-                        icon={Plus}
-                        className="icon-only"
-                        aria-label={'Increase ' + r.product.name}
-                        disabled={Boolean(r.unit_id)}
-                        onClick={() => increment(r, 1)}
-                      />
-                    </span>
-                  ),
-                ],
-                ['Amount', r => <strong>{money(r.product.price * r.qty)}</strong>],
-                [
-                  'Action',
-                  r => (
+                    </div>
                     <Button
-                      icon={Trash2}
-                      className="icon-only text-red"
-                      aria-label={'Remove ' + r.product.name}
-                      onClick={() =>
-                        setCart(cart.filter(x => lineKey(x.product_id, x.unit_id) !== r.id))
-                      }
-                    />
-                  ),
-                ],
-              ]}
-            />
-            <div className="bill-actions">
-              <Button
-                icon={Trash2}
-                variant="outline-red"
-                disabled={!cart.length || busy}
-                onClick={clear}
-              >
-                Clear cart
-              </Button>
-              <Button
-                icon={Archive}
-                disabled={!cart.length || busy}
-                onClick={hold}
-              >
-                Hold bill
-              </Button>
-              <Button
-                icon={History}
-                onClick={() => setHeld(true)}
-              >
-                Held ({drafts.length})
-              </Button>
+                      icon={UserPlus}
+                      variant="soft"
+                      onClick={() => openQuickAddCustomer(custQuery)}
+                      title="Add new customer to database"
+                    >
+                      New
+                    </Button>
+                  </div>
+
+                  {popularCustomers.length > 0 && !custDropdownOpen && (
+                    <div className="zk-pos-pop-strip">
+                      <span className="zk-pos-pop-label">Popular:</span>
+                      {popularCustomers.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="zk-pos-pop-chip"
+                          onClick={() => {
+                            setCustomer(String(c.id));
+                            setCustQuery('');
+                          }}
+                        >
+                          <UserRound size={11} />
+                          <span>{c.name}</span>
+                          <small>{c.phone}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {custDropdownOpen && (
+                    <div className="zk-pos-cust-dropdown">
+                      <div className="zk-pos-cust-dd-head">
+                        <span>{custQuery.trim() ? 'Matching Customers' : 'Popular Customers'}</span>
+                        <button
+                          type="button"
+                          className="zk-pos-dd-close"
+                          onClick={() => setCustDropdownOpen(false)}
+                        >
+                          Walk-in
+                        </button>
+                      </div>
+                      {matchingCustomers.length > 0 ? (
+                        matchingCustomers.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="zk-pos-cust-option"
+                            onClick={() => {
+                              setCustomer(String(c.id));
+                              setCustQuery('');
+                              setCustDropdownOpen(false);
+                            }}
+                          >
+                            <div>
+                              <strong>{c.name}</strong>
+                              <small>{c.phone}</small>
+                            </div>
+                            <div className="zk-pos-cust-opt-meta">
+                              <span className="zk-pts-pill">
+                                <Award size={11} /> {Number(c.loyalty_points || 0).toLocaleString()} pts
+                              </span>
+                              <span className="zk-wallet-pill">
+                                <Wallet size={11} /> {money(c.wallet_balance || 0)}
+                              </span>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="zk-pos-cust-empty">
+                          <span>No customer found for "{custQuery}"</span>
+                          <Button
+                            icon={UserPlus}
+                            variant="primary"
+                            onClick={() => openQuickAddCustomer(custQuery)}
+                          >
+                            Add "{custQuery.trim()}" to Database
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="zk-pos-selected-cust">
+                  <div className="zk-pos-sel-top">
+                    <div>
+                      <strong>{selectedCustomerObj.name}</strong>
+                      <small>{selectedCustomerObj.phone}</small>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="zk-pos-topup-btn"
+                        onClick={() => openWalletTopupDialog(selectedCustomerObj)}
+                      >
+                        + Wallet Top-Up
+                      </button>
+                      <button
+                        type="button"
+                        className="zk-pos-clear-cust"
+                        title="Switch back to Walk-in customer"
+                        onClick={() => setCustomer('')}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="zk-pos-sel-badges">
+                    <span className="zk-pts-pill">
+                      <Award size={12} />
+                      <span>{Number(selectedCustomerObj.loyalty_points || 0).toLocaleString()} pts</span>
+                      {total >= 100 && (
+                        <b style={{ color: '#047857' }}> (+{Math.floor(total / 100)} pts)</b>
+                      )}
+                    </span>
+                    <span className="zk-wallet-pill">
+                      <Wallet size={12} />
+                      <span>Wallet: {money(selectedCustomerObj.wallet_balance || 0)}</span>
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="totals bill-totals">
-              <div>
-                <span>Subtotal</span>
-                <strong>{money(subtotal)}</strong>
+
+            <div className="zk-pos-bill-items">
+              <Table
+                rows={lines}
+                empty="Add a product to start a bill."
+                columns={[
+                  [
+                    'Item',
+                    r => (
+                      <>
+                        <strong>{r.product.name}</strong>
+                        <small className="subtext">
+                          {units.find(u => u.id === r.unit_id)?.code || r.product.sku}
+                        </small>
+                      </>
+                    ),
+                  ],
+                  [
+                    'Qty',
+                    r => (
+                      <span className="stepper">
+                        <Button
+                          icon={Minus}
+                          className="icon-only"
+                          aria-label={'Decrease ' + r.product.name}
+                          onClick={() => increment(r, -1)}
+                        />
+                        <b>{r.qty}</b>
+                        <Button
+                          icon={Plus}
+                          className="icon-only"
+                          aria-label={'Increase ' + r.product.name}
+                          disabled={Boolean(r.unit_id)}
+                          onClick={() => increment(r, 1)}
+                        />
+                      </span>
+                    ),
+                  ],
+                  ['Amount', r => <strong>{money(r.product.price * r.qty)}</strong>],
+                  [
+                    'Action',
+                    r => (
+                      <Button
+                        icon={Trash2}
+                        className="icon-only text-red"
+                        aria-label={'Remove ' + r.product.name}
+                        onClick={() =>
+                          setCart(cart.filter(x => lineKey(x.product_id, x.unit_id) !== r.id))
+                        }
+                      />
+                    ),
+                  ],
+                ]}
+              />
+            </div>
+
+            <div className="zk-pos-bill-footer">
+              <div className="bill-actions">
+                <Button
+                  icon={Trash2}
+                  variant="outline-red"
+                  disabled={!cart.length || busy}
+                  onClick={clear}
+                >
+                  Clear cart
+                </Button>
+                <Button
+                  icon={Archive}
+                  disabled={!cart.length || busy}
+                  onClick={hold}
+                >
+                  Hold bill
+                </Button>
+                <Button
+                  icon={History}
+                  onClick={() => setHeld(true)}
+                >
+                  Held ({drafts.length})
+                </Button>
               </div>
-              <div>
-                <label className="inline-field">
-                  Discount (%){' '}
-                  <input
-                    aria-label="Discount percentage"
-                    type="number"
-                    min="0"
-                    max={ctx.user.role === 'cashier' ? 5 : 100}
-                    step=".01"
-                    value={discountPct}
-                    onChange={e => setDiscountPct(e.target.value)}
-                  />
-                </label>
-                <strong>− {money(discount)}</strong>
+              <div className="totals bill-totals">
+                <div>
+                  <span>Subtotal</span>
+                  <strong>{money(subtotal)}</strong>
+                </div>
+                <div>
+                  <label className="inline-field">
+                    Discount (%){' '}
+                    <input
+                      aria-label="Discount percentage"
+                      type="number"
+                      min="0"
+                      max={ctx.user.role === 'cashier' ? 5 : 100}
+                      step=".01"
+                      value={discountPct}
+                      onChange={e => setDiscountPct(e.target.value)}
+                    />
+                  </label>
+                  <strong>− {money(discount)}</strong>
+                </div>
+                <div>
+                  <span>Tax ({settings.tax_bps / 100}%)</span>
+                  <strong>{money(tax)}</strong>
+                </div>
+                <div className="total">
+                  <span>Total payable</span>
+                  <strong>{money(total)}</strong>
+                </div>
+                {!current && <Alert>Open today’s cash register before checkout.</Alert>}
+                <Button
+                  className="checkout-button"
+                  icon={Banknote}
+                  variant="primary"
+                  disabled={!lines.length || !current || busy}
+                  onClick={() => setCheckout(true)}
+                >
+                  Review & checkout <ArrowRight size={17} />
+                </Button>
               </div>
-              <div>
-                <span>Tax ({settings.tax_bps / 100}%)</span>
-                <strong>{money(tax)}</strong>
-              </div>
-              <div className="total">
-                <span>Total payable</span>
-                <strong>{money(total)}</strong>
-              </div>
-              {!current && <Alert>Open today’s cash register before checkout.</Alert>}
-              <Button
-                className="checkout-button"
-                icon={Banknote}
-                variant="primary"
-                disabled={!lines.length || !current || busy}
-                onClick={() => setCheckout(true)}
-              >
-                Review & checkout <ArrowRight size={17} />
-              </Button>
             </div>
           </Panel>
         </div>
@@ -705,8 +956,9 @@ function BillingView({ ctx, data, onRefresh }) {
           }}
           onUpdateQty={increment}
           customerName={
-            customers.find(c => String(c.id) === String(customer))?.name || 'Walk-in customer'
+            selectedCustomerObj?.name || 'Walk-in customer'
           }
+          customerObj={selectedCustomerObj}
           branchName={branch?.name || ''}
           settings={settings}
           {...{
@@ -758,6 +1010,6 @@ function BillingView({ ctx, data, onRefresh }) {
           onSuccess={onRefresh}
         />
       )}
-    </>
+    </div>
   );
 }

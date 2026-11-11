@@ -746,19 +746,19 @@ class CloudSyncService {
                 if ($existing) {
                     if ((int) ($existing['synced'] ?? 1) === 1) {
                         BaseRepository::run(
-                            'UPDATE customers SET name=?, email=?, notes=?, sync_uuid=?, synced=1 WHERE id=?',
-                            [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $existing['id']]
+                            'UPDATE customers SET name=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
+                            [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
                         );
                     }
                 } elseif ($isSqlite) {
                     BaseRepository::run(
-                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,1,?)',
-                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
+                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 } else {
                     BaseRepository::run(
-                        'INSERT INTO customers (branch_id, name, phone, email, notes, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,1,?)',
-                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)',
+                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 }
                 $stats['customers_synced']++;
@@ -1570,18 +1570,18 @@ class CloudSyncService {
                 );
                 if ($existing) {
                     BaseRepository::run(
-                        'UPDATE customers SET name=?, email=?, notes=?, sync_uuid=?, synced=1 WHERE id=?',
-                        [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $existing['id']]
+                        'UPDATE customers SET name=?, email=?, notes=?, loyalty_points=GREATEST(COALESCE(loyalty_points,0), ?), wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
+                        [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
                     );
                 } elseif ($isSqlite) {
                     BaseRepository::run(
-                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,1,?)',
-                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
+                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 } else {
                     BaseRepository::run(
-                        'INSERT INTO customers (branch_id, name, phone, email, notes, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,1,?)',
-                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)',
+                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 }
                 $acked['synced_customers'][] = $c['id'];
