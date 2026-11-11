@@ -6,4 +6,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   printReceipt: options => ipcRenderer.invoke('print-receipt', options),
+  getAppInfo: () => ipcRenderer.invoke('get-app-info'),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  checkForUpdate: (autoDownload = false) => ipcRenderer.invoke('check-for-update', Boolean(autoDownload)),
+  applyUpdate: () => ipcRenderer.invoke('apply-update'),
+  setAutoPatch: enabled => ipcRenderer.invoke('set-auto-patch', Boolean(enabled)),
+  getDatabaseConfig: () => ipcRenderer.invoke('get-database-config'),
+  testMysqlConnection: config => ipcRenderer.invoke('test-mysql-connection', config),
+  saveDatabaseConfig: config => ipcRenderer.invoke('save-database-config', config),
+  restartApp: () => ipcRenderer.invoke('restart-app'),
+  onUpdateStatus: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('update-status', listener);
+    return () => ipcRenderer.removeListener('update-status', listener);
+  },
 });

@@ -31,7 +31,7 @@ echo.
 echo [2/3] Compiling Native Windows Executable (Zeedat POS.exe)...
 if not exist "release" mkdir "release"
 
-"%CSC_EXE%" /target:winexe /out:"release\Zeedat POS.exe" /reference:System.Windows.Forms.dll launcher\ZeedatPOS.cs
+"%CSC_EXE%" /target:winexe /out:"release\Zeedat POS.exe" /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll launcher\ZeedatPOS.cs launcher\PortableRuntime.cs
 
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to compile Zeedat POS.exe.

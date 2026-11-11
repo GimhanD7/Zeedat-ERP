@@ -17,5 +17,6 @@ foreach (['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as $key) {
     putenv($key . '=' . $config[$key]);
 }
 putenv('DB_DRIVER=mysql');
-putenv('DB_AUTO_MIGRATE=0');
+putenv('DB_AUTO_MIGRATE=1');
+putenv('SEED_DEMO=0');
 putenv('ZEEDAT_SQLITE_PATH');

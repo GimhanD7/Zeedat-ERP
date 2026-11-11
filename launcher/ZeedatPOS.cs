@@ -12,22 +12,39 @@ namespace ZeedatPOS
         [STAThread]
         static void Main(string[] args)
         {
+            Mutex portableInstance = null;
             try
             {
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 string appRoot = ResolveAppRoot(baseDir);
+                PortableRuntime portable = PortableRuntime.Prepare(appRoot);
+                if (portable != null)
+                {
+                    portableInstance = new Mutex(false, @"Local\ZeedatPOSPortable");
+                    try { if (!portableInstance.WaitOne(0)) return; }
+                    catch (AbandonedMutexException) {}
+                    appRoot = portable.Root;
+                }
                 string configFile = Path.Combine(appRoot, "config.json");
                 if (!File.Exists(configFile))
                 {
                     configFile = Path.Combine(baseDir, "config.json");
                 }
 
-                string serverUrl = "http://127.0.0.1:8081";
+                string serverUrl = portable == null ? "http://127.0.0.1:8081" : "http://127.0.0.1:18081";
                 int width = 1280;
                 int height = 800;
                 bool kiosk = false;
 
-                if (!File.Exists(configFile))
+                if (portable != null)
+                {
+                    portable.PrepareDatabase();
+                    if (args.Length == 1 && args[0] == "--prepare-only")
+                    {
+                        return;
+                    }
+                }
+                else if (!File.Exists(configFile))
                 {
                     string defaultConfig = "{\n" +
                         "  \"server_url\": \"http://127.0.0.1:8081\",\n" +
@@ -53,8 +70,6 @@ namespace ZeedatPOS
                 }
 
                 // Auto-start local PHP backend (SQLite offline database) when pointing to localhost
-                EnsureLocalBackendRunning(appRoot, serverUrl);
-
                 string browserPath = FindBrowser();
                 if (string.IsNullOrEmpty(browserPath))
                 {
@@ -70,7 +85,7 @@ namespace ZeedatPOS
                 string dataDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "ZeedatPOS",
-                    "UserData"
+                    portable == null ? "UserData" : "PortableBrowser"
                 );
                 if (!Directory.Exists(dataDir))
                 {
@@ -78,7 +93,7 @@ namespace ZeedatPOS
                 }
 
                 string arguments = string.Format(
-                    "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size={2},{3} --disable-backgrounding-occluded-windows",
+                    "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size={2},{3} --disable-backgrounding-occluded-windows --disable-background-mode",
                     serverUrl,
                     dataDir,
                     width,
@@ -97,7 +112,25 @@ namespace ZeedatPOS
                     UseShellExecute = true
                 };
 
-                Process.Start(psi);
+                Process backend = EnsureLocalBackendRunning(appRoot, serverUrl, portable);
+                try
+                {
+                    using (Process browser = Process.Start(psi))
+                    {
+                        if (portable != null && backend != null)
+                        {
+                            browser.WaitForExit();
+                        }
+                    }
+                }
+                finally
+                {
+                    if (backend != null)
+                    {
+                        if (portable != null && !backend.HasExited) backend.Kill();
+                        backend.Dispose();
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -107,6 +140,10 @@ namespace ZeedatPOS
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
+            }
+            finally
+            {
+                if (portableInstance != null) portableInstance.Dispose();
             }
         }
 
@@ -124,12 +161,12 @@ namespace ZeedatPOS
             return baseDir;
         }
 
-        static void EnsureLocalBackendRunning(string appRoot, string serverUrl)
+        static Process EnsureLocalBackendRunning(string appRoot, string serverUrl, PortableRuntime portable)
         {
             Uri uri;
             if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out uri))
             {
-                return;
+                return null;
             }
 
             string host = uri.Host;
@@ -137,21 +174,26 @@ namespace ZeedatPOS
             bool isLocal = host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
                            host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
 
-            if (!isLocal || IsPortOpen(host, port))
+            if (!isLocal)
             {
-                return;
+                return null;
+            }
+            if (IsPortOpen(host, port))
+            {
+                if (portable != null) throw new InvalidOperationException("The local POS port is already in use.");
+                return null;
             }
 
             string routerFile = Path.Combine(appRoot, "router.php");
             if (!File.Exists(routerFile))
             {
-                return;
+                return null;
             }
 
             string phpExe = FindPhpExecutable(appRoot);
             if (string.IsNullOrEmpty(phpExe))
             {
-                return;
+                return null;
             }
 
             ProcessStartInfo phpPsi = new ProcessStartInfo
@@ -164,26 +206,33 @@ namespace ZeedatPOS
                 WindowStyle = ProcessWindowStyle.Hidden
             };
             phpPsi.EnvironmentVariables["DB_DRIVER"] = "sqlite";
+            if (portable != null) portable.ConfigurePhp(phpPsi);
 
+            Process backend = null;
             try
             {
-                using (Process backend = Process.Start(phpPsi))
+                backend = Process.Start(phpPsi);
+                Stopwatch startup = Stopwatch.StartNew();
+                while (!backend.HasExited && startup.ElapsedMilliseconds < 4000)
                 {
-                    Stopwatch startup = Stopwatch.StartNew();
-                    while (!backend.HasExited && startup.ElapsedMilliseconds < 4000)
+                    if (IsPortOpen(host, port))
                     {
-                        if (IsPortOpen(host, port))
-                        {
-                            break;
-                        }
-                        Thread.Sleep(50);
+                        return backend;
                     }
+                    Thread.Sleep(50);
                 }
             }
             catch
             {
-                // Ignore if PHP launch fails; browser error page or external server will inform user
+                if (portable != null) throw;
             }
+            if (backend != null)
+            {
+                if (portable != null && !backend.HasExited) backend.Kill();
+                backend.Dispose();
+            }
+            if (portable != null) throw new InvalidOperationException("The bundled PHP server could not start.");
+            return null;
         }
 
         static string FindPhpExecutable(string appRoot)

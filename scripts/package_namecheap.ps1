@@ -37,6 +37,23 @@ Copy-Item (Join-Path $root 'database\schema.sql') (Join-Path $dbDest 'schema.sql
 if (Test-Path (Join-Path $root 'database\sqlite_schema.sql')) {
     Copy-Item (Join-Path $root 'database\sqlite_schema.sql') (Join-Path $dbDest 'sqlite_schema.sql')
 }
+if (Test-Path (Join-Path $root 'database\setup.php')) {
+    Copy-Item (Join-Path $root 'database\setup.php') (Join-Path $dbDest 'setup.php')
+}
+
+# 5. Scripts, router & auto-update patch payload
+$scriptsDest = Join-Path $stagingDir 'scripts'
+New-Item -ItemType Directory -Force -Path $scriptsDest | Out-Null
+Copy-Item (Join-Path $root 'scripts\setup_portable.php') (Join-Path $scriptsDest 'setup_portable.php')
+Copy-Item (Join-Path $root 'scripts\auto_sync_sqlite.php') (Join-Path $scriptsDest 'auto_sync_sqlite.php')
+Copy-Item (Join-Path $root 'router.php') (Join-Path $stagingDir 'router.php')
+
+& node (Join-Path $root 'scripts\build_patch.mjs')
+if ($LASTEXITCODE -ne 0) { throw "Failed to build update patch archive." }
+$updatesDest = Join-Path $stagingDir 'updates'
+New-Item -ItemType Directory -Force -Path $updatesDest | Out-Null
+Copy-Item (Join-Path $root 'updates\patch-manifest.json') (Join-Path $updatesDest 'patch-manifest.json')
+Copy-Item (Join-Path $root 'updates\zeedat-patch.zip') (Join-Path $updatesDest 'zeedat-patch.zip')
 
 # Build ZIP using forward slashes so Linux/cPanel extracts clean folder structure
 Add-Type -AssemblyName System.IO.Compression

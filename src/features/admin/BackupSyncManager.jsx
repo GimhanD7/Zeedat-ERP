@@ -22,6 +22,20 @@ export function BackupSyncManager({ ctx }) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState(null);
+  const [desktopInfo, setDesktopInfo] = useState(null);
+  const [patchStatus, setPatchStatus] = useState(null);
+  const [checkingPatch, setCheckingPatch] = useState(false);
+  const [dbForm, setDbForm] = useState({
+    mode: 'sqlite',
+    db_host: '',
+    db_port: '3306',
+    db_name: '',
+    db_user: '',
+    db_password: '',
+    has_password: false,
+  });
+  const [dbBusy, setDbBusy] = useState(false);
+  const [dbMsg, setDbMsg] = useState(null);
 
   const [cloudForm, setCloudForm] = useState({
     cloud_backup_url: '',
@@ -60,6 +74,97 @@ export function BackupSyncManager({ ctx }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.isElectron) return;
+    api.getAppInfo?.().then(info => info && setDesktopInfo(info)).catch(() => {});
+    api.getUpdateStatus?.().then(st => st && setPatchStatus(st)).catch(() => {});
+    api.getDatabaseConfig?.().then(cfg => {
+      if (cfg) {
+        setDbForm(prev => ({
+          ...prev,
+          mode: cfg.mode || 'sqlite',
+          db_host: cfg.db_host || '',
+          db_port: cfg.db_port || '3306',
+          db_name: cfg.db_name || '',
+          db_user: cfg.db_user || '',
+          db_password: '',
+          has_password: Boolean(cfg.has_password),
+        }));
+      }
+    }).catch(() => {});
+    return api.onUpdateStatus?.(st => setPatchStatus(st));
+  }, []);
+
+  const handleTestMysql = async () => {
+    const api = window.electronAPI;
+    if (!api?.isElectron) return;
+    try {
+      setDbBusy(true);
+      setDbMsg(null);
+      const res = await api.testMysqlConnection(dbForm);
+      if (res?.ok) {
+        setDbMsg({ type: 'success', text: `Connected cleanly to MySQL (${res.serverVersion || 'verified'}).` });
+      } else {
+        setDbMsg({ type: 'error', text: res?.error || 'Could not reach MySQL server.' });
+      }
+    } catch (err) {
+      setDbMsg({ type: 'error', text: err?.message || 'MySQL connection test failed.' });
+    } finally {
+      setDbBusy(false);
+    }
+  };
+
+  const handleSaveDbConfig = async e => {
+    e?.preventDefault();
+    const api = window.electronAPI;
+    if (!api?.isElectron) return;
+    try {
+      setDbBusy(true);
+      setDbMsg(null);
+      const res = await api.saveDatabaseConfig(dbForm);
+      if (!res?.ok) {
+        setDbMsg({ type: 'error', text: res?.error || 'Could not save database configuration.' });
+        return;
+      }
+      setDbForm(prev => ({ ...prev, db_password: '', has_password: Boolean(res.config?.has_password) }));
+      setDbMsg({
+        type: 'restart',
+        text:
+          dbForm.mode === 'mysql'
+            ? `Server MySQL verified (${res.serverVersion || 'connected'}) and saved! Restart app to switch active database to Server MySQL.`
+            : 'Switched back to Local SQLite (Offline-First + HTTPS Sync). Restart app to apply.',
+      });
+    } catch (err) {
+      setDbMsg({ type: 'error', text: err?.message || 'Failed saving database mode.' });
+    } finally {
+      setDbBusy(false);
+    }
+  };
+
+  const handlePatchCheck = async (autoApply = false) => {
+    const api = window.electronAPI;
+    if (!api?.isElectron) return;
+    try {
+      setCheckingPatch(true);
+      const res = autoApply ? await api.applyUpdate() : await api.checkForUpdate(false);
+      setPatchStatus(res);
+      const info = await api.getAppInfo?.();
+      if (info) setDesktopInfo(info);
+    } catch (err) {
+      setPatchStatus(prev => ({ ...(prev || {}), state: 'error', error: err?.message || 'Update check failed.' }));
+    } finally {
+      setCheckingPatch(false);
+    }
+  };
+
+  const handleToggleAutoPatch = async enabled => {
+    const api = window.electronAPI;
+    if (!api?.isElectron) return;
+    const res = await api.setAutoPatch(enabled);
+    setDesktopInfo(prev => (prev ? { ...prev, autoPatchEnabled: res.autoPatchEnabled } : prev));
+  };
 
   const handleSaveCloudSettings = async e => {
     e?.preventDefault();
@@ -209,14 +314,14 @@ export function BackupSyncManager({ ctx }) {
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <Button
               icon={Settings2}
-              variant="outline"
+              variant="soft"
               onClick={openConfigDialog}
             >
               Cloud Settings
             </Button>
             <Button
               icon={RefreshCw}
-              variant="outline"
+              variant="soft"
               onClick={handleTwoWaySync}
               disabled={syncing || loading}
             >
@@ -426,6 +531,197 @@ export function BackupSyncManager({ ctx }) {
             </div>
           </div>
         </div>
+
+        {/* Standalone Desktop App Auto-Patch Updater */}
+        {desktopInfo && (
+          <div
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              padding: '14px',
+              marginBottom: '1.25rem',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <strong style={{ fontSize: '13.5px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <RefreshCw size={15} style={{ color: '#0d9488' }} />
+                  Standalone Desktop App &amp; Auto-Patch Updates
+                </strong>
+                <small style={{ color: '#475569' }}>
+                  Version {desktopInfo.version} · Patch <code>{desktopInfo.activePatchId}</code> · Source: {desktopInfo.runtimeSource}
+                </small>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={desktopInfo.autoPatchEnabled !== false}
+                    onChange={e => handleToggleAutoPatch(e.target.checked)}
+                  />
+                  Auto-Download Patches
+                </label>
+                {patchStatus?.state === 'ready' ? (
+                  <Button variant="primary" icon={RefreshCw} onClick={() => window.electronAPI?.restartApp?.()}>
+                    Restart &amp; Apply Patch
+                  </Button>
+                ) : patchStatus?.state === 'available' ? (
+                  <Button variant="primary" icon={Download} onClick={() => handlePatchCheck(true)} disabled={checkingPatch}>
+                    Download &amp; Stage Patch
+                  </Button>
+                ) : (
+                  <Button variant="soft" icon={RefreshCw} onClick={() => handlePatchCheck(true)} disabled={checkingPatch || patchStatus?.state === 'downloading'}>
+                    {checkingPatch || patchStatus?.state === 'checking'
+                      ? 'Checking...'
+                      : patchStatus?.state === 'downloading'
+                        ? 'Downloading Patch...'
+                        : 'Check for App Updates'}
+                  </Button>
+                )}
+              </div>
+            </div>
+            {patchStatus?.state && patchStatus.state !== 'idle' && (
+              <div style={{ marginTop: '8px', fontSize: '12.5px', color: patchStatus.state === 'error' ? '#b91c1c' : '#0f766e' }}>
+                {patchStatus.state === 'ready' &&
+                  `Patch ${patchStatus.latestPatch?.patch_id || ''} downloaded & verified. Click "Restart & Apply Patch" (or reopen app) to switch cleanly.`}
+                {patchStatus.state === 'up-to-date' &&
+                  `Standalone app is up to date (${desktopInfo.activePatchId}).`}
+                {patchStatus.state === 'available' &&
+                  `New patch ${patchStatus.latestPatch?.patch_id || ''} available (${Math.round((patchStatus.latestPatch?.size_bytes || 0) / 1024)} KB).`}
+                {patchStatus.state === 'error' && (patchStatus.error || 'Failed checking updates.')}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Direct Server MySQL Connection Settings (Desktop App) */}
+        {desktopInfo && (
+          <form
+            onSubmit={handleSaveDbConfig}
+            style={{
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              padding: '14px',
+              marginBottom: '1.25rem',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+              <div>
+                <strong style={{ fontSize: '13.5px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Database size={15} style={{ color: '#0d9488' }} />
+                  Desktop App Direct Server MySQL Connection
+                </strong>
+                <small style={{ color: '#475569' }}>
+                  Active engine: <strong>{summary?.driver === 'mysql' ? 'Direct Server MySQL' : 'Local SQLite (Offline + HTTPS Cloud Sync)'}</strong>
+                </small>
+              </div>
+              <select
+                value={dbForm.mode}
+                onChange={e => setDbForm(prev => ({ ...prev, mode: e.target.value }))}
+                style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12.5px', fontWeight: 600 }}
+              >
+                <option value="sqlite">Local SQLite + HTTPS Namecheap Sync (Recommended Offline-Safe)</option>
+                <option value="mysql">Direct Server MySQL (With Local SQLite Offline Fallback)</option>
+              </select>
+            </div>
+
+            {dbForm.mode === 'mysql' && (
+              <div className="zk-form-row-3" style={{ marginBottom: '10px' }}>
+                <div className="zk-field-wrap">
+                  <label className="zk-field-label">MySQL Server Host / IP</label>
+                  <div className="zk-input-box">
+                    <input
+                      type="text"
+                      value={dbForm.db_host}
+                      onChange={e => setDbForm(prev => ({ ...prev, db_host: e.target.value }))}
+                      placeholder="127.0.0.1 or server domain/IP"
+                    />
+                  </div>
+                </div>
+
+                <div className="zk-field-wrap">
+                  <label className="zk-field-label">MySQL Port</label>
+                  <div className="zk-input-box">
+                    <input
+                      type="text"
+                      value={dbForm.db_port}
+                      onChange={e => setDbForm(prev => ({ ...prev, db_port: e.target.value }))}
+                      placeholder="3306"
+                    />
+                  </div>
+                </div>
+
+                <div className="zk-field-wrap">
+                  <label className="zk-field-label">Database Name</label>
+                  <div className="zk-input-box">
+                    <input
+                      type="text"
+                      value={dbForm.db_name}
+                      onChange={e => setDbForm(prev => ({ ...prev, db_name: e.target.value }))}
+                      placeholder="zeedat_pos"
+                    />
+                  </div>
+                </div>
+
+                <div className="zk-field-wrap">
+                  <label className="zk-field-label">MySQL Username</label>
+                  <div className="zk-input-box">
+                    <input
+                      type="text"
+                      value={dbForm.db_user}
+                      onChange={e => setDbForm(prev => ({ ...prev, db_user: e.target.value }))}
+                      placeholder="cpaneluser_dbuser"
+                    />
+                  </div>
+                </div>
+
+                <div className="zk-field-wrap">
+                  <label className="zk-field-label">
+                    MySQL Password {dbForm.has_password ? '(Saved - leave blank to keep)' : ''}
+                  </label>
+                  <div className="zk-input-box">
+                    <input
+                      type="password"
+                      value={dbForm.db_password}
+                      onChange={e => setDbForm(prev => ({ ...prev, db_password: e.target.value }))}
+                      placeholder={dbForm.has_password ? '••••••••' : 'Enter MySQL password'}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {dbMsg && (
+              <div
+                style={{
+                  marginBottom: '10px',
+                  fontSize: '12.5px',
+                  color: dbMsg.type === 'error' ? '#b91c1c' : '#0f766e',
+                }}
+              >
+                {dbMsg.text}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
+              {dbForm.mode === 'mysql' && (
+                <Button type="button" variant="soft" onClick={handleTestMysql} disabled={dbBusy}>
+                  {dbBusy ? 'Testing...' : 'Test MySQL Connection'}
+                </Button>
+              )}
+              {dbMsg?.type === 'restart' && (
+                <Button type="button" variant="primary" icon={RefreshCw} onClick={() => window.electronAPI?.restartApp?.()}>
+                  Restart App Now
+                </Button>
+              )}
+              <Button type="submit" variant="primary" icon={Save} disabled={dbBusy}>
+                {dbBusy ? 'Saving...' : 'Save Database Connection'}
+              </Button>
+            </div>
+          </form>
+        )}
 
         {/* Recent Backups History Table */}
         <h4 style={{ margin: '1rem 0 0.5rem', fontSize: '0.95rem' }}>Local Backup Archive &amp; Cloud Status</h4>

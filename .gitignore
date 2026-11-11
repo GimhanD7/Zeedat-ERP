@@ -4,8 +4,19 @@ dist/
 !.env.example
 /.local/
 *.db.sync.lock
+*.db.setup.lock
+api/backups/*.sql
 backups/*.sql
 api/config.php
+database/*.db*
 release/*.zip
+release/*.exe
+release/*.blockmap
+release/*.yml
+release/desktop/
+release/installer/
+release/win-unpacked/
+electron-runtime/
+updates/
  
 

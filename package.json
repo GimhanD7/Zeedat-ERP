@@ -12,42 +12,57 @@
   "main": "electron/main.cjs",
   "name": "zeedat-pos",
   "version": "0.1.0",
+  "description": "Zeedat POS standalone retail and repair ERP desktop application",
+  "author": "Zeedat Systems",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "build:namecheap": "vite build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package_namecheap.ps1",
     "preview": "vite preview",
-    "desktop:build": "vite build",
-    "desktop:pack": "vite build && electron-builder --dir",
-    "desktop:dist": "vite build && electron-builder --win nsis",
-    "desktop:portable": "vite build && electron-builder --win portable",
+    "desktop:build": "vite build && node scripts/build_patch.mjs",
+    "desktop:prepare": "vite build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare_electron_runtime.ps1",
+    "desktop:pack": "npm run desktop:prepare && electron-builder --dir",
+    "desktop:dist": "npm run desktop:prepare && electron-builder --win nsis",
+    "desktop:portable": "npm run desktop:prepare && electron-builder --win portable",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "build": {
     "appId": "com.zeedat.pos",
     "productName": "Zeedat POS",
+    "asar": true,
     "directories": {
-      "output": "release"
+      "output": "release/desktop",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "public/favicon.ico",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "electron-runtime",
+        "to": "runtime"
+      }
+    ],
     "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ]
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Zeedat POS"
+      "shortcutName": "Zeedat POS",
+      "runAfterFinish": true
     }
   }
 }

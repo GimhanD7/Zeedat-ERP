@@ -45,6 +45,15 @@ try {
         Response::json(\Zeedat\Services\CloudSyncService::handleServerCatalog($branchId));
     }
 
+    // Public standalone desktop app patch manifest & zip download
+    if ($action === 'update.manifest' && $method === 'GET') {
+        Response::json(\Zeedat\Services\PatchService::manifest());
+    }
+
+    if ($action === 'update.download' && $method === 'GET') {
+        \Zeedat\Services\PatchService::streamDownload();
+    }
+
     if ($method === 'POST') {
         $contentType = strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0]));
         if ($contentType !== 'application/json') {

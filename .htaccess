@@ -1,6 +1,9 @@
 Options -Indexes -MultiViews
 RewriteEngine On
 
+# Forward Authorization header on CGI/FastCGI hosts like Namecheap
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # Allow Namecheap AutoSSL / Let's Encrypt certificate verification
 RewriteRule ^\.well-known/ - [L]
 

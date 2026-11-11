@@ -36,6 +36,14 @@ A branch-scoped retail and repair application with a React frontend, a PHP JSON 
 
    With XAMPP Apache and `mod_rewrite` enabled, the built app is also available under [http://localhost/Zeedat-ERP/](http://localhost/Zeedat-ERP/). Apache must allow the included `.htaccess` rules. For a deployment, serve the compiled frontend and `api/index.php` over HTTPS and keep the schema, local data and toccccccccccccccccccccccccccccccccccccccccccccccccccoling private.
 
+## Windows portable app
+
+Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package_desktop.ps1` to build `release/Zeedat POS Portable.exe` on a Windows build machine with XAMPP PHP. Cashier PCs need 64-bit Windows and Microsoft Edge or Chrome. The EXE carries the frontend and PHP SQLite runtime.
+
+The app keeps its database and backups in `%LOCALAPPDATA%\ZeedatPOS\data`. On first launch from the repository's `release` folder, it takes a consistent copy of the existing local SQLite database. On a fresh machine it creates a database and displays a generated local owner password. Use the portable app for subsequent local changes after migrating.
+
+Fresh installations prefill the Namecheap server URL. Save the matching server sync key in **Settings → Cloud Sync & Backup** on the desktop and the server to enable automatic sync over HTTPS. Verify that the hosted sync endpoints and the local and server record mappings are ready before syncing business data.
+
 ## Deploy to Namecheap
 
 See [Namecheap deployment setup](deploy/README.md) to connect GitHub Actions to a dedicated cPanel document root.

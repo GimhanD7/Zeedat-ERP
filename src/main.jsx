@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowLeftRight,
@@ -26,11 +26,6 @@ import {
   Toast,
 } from './components/feedback';
 import { WorkspaceLayout, Logo } from './components/layout';
-import { DashboardPage, ReportsPage } from './features/dashboard';
-import { BillingTerminal, SalesHistory } from './features/pos';
-import { Inventory, BarcodesPage, Repairs, Customers } from './features/operations';
-import { CashRegister, Returns, Purchases, StockTransfers } from './features/finance';
-import { StaffPage, SettingsPage } from './features/admin';
 import { apiClient, requestKey } from './api/client';
 import { offlineStore } from './utils/offlineStore';
 import { syncManager } from './utils/syncManager';
@@ -44,21 +39,29 @@ import {
 
 import './styles/style.css';
 
+const dashboard = () => import('./features/dashboard');
+const pos = () => import('./features/pos');
+const operations = () => import('./features/operations');
+const finance = () => import('./features/finance');
+const admin = () => import('./features/admin');
+const lazyPage = (load, name) => lazy(async () => ({ default: (await load())[name] }));
+const DashboardPage = lazyPage(dashboard, 'DashboardPage');
+
 const pages = [
   ['dashboard', 'Dashboard', LayoutDashboard, 'dashboard', DashboardPage],
-  ['pos', 'POS / Sales', ShoppingCart, 'pos', BillingTerminal],
-  ['repairs', 'Repairs', Wrench, 'repairs', Repairs],
-  ['inventory', 'Inventory', Package, 'inventory', Inventory],
-  ['barcodes', 'Barcode', Barcode, 'inventory', BarcodesPage],
-  ['drawer', 'Cashbook & Register', Wallet, 'drawer', CashRegister],
-  ['returns', 'Returns', ArrowLeftRight, 'returns', Returns],
-  ['purchases', 'Purchases', ClipboardList, 'purchases', Purchases],
-  ['transfers', 'Stock Transfers', Boxes, 'transfers', StockTransfers],
-  ['customers', 'Customers', Users, 'customers', Customers],
-  ['reports', 'Reports', ChartNoAxesCombined, 'reports', ReportsPage],
-  ['sales', 'Sales History', ChartNoAxesCombined, 'sales', SalesHistory],
-  ['staff', 'Staff & Permissions', ShieldCheck, 'staff', StaffPage],
-  ['settings', 'Settings', Settings, 'settings', SettingsPage],
+  ['pos', 'POS / Sales', ShoppingCart, 'pos', lazyPage(pos, 'BillingTerminal')],
+  ['repairs', 'Repairs', Wrench, 'repairs', lazyPage(operations, 'Repairs')],
+  ['inventory', 'Inventory', Package, 'inventory', lazyPage(operations, 'Inventory')],
+  ['barcodes', 'Barcode', Barcode, 'inventory', lazyPage(operations, 'BarcodesPage')],
+  ['drawer', 'Cashbook & Register', Wallet, 'drawer', lazyPage(finance, 'CashRegister')],
+  ['returns', 'Returns', ArrowLeftRight, 'returns', lazyPage(finance, 'Returns')],
+  ['purchases', 'Purchases', ClipboardList, 'purchases', lazyPage(finance, 'Purchases')],
+  ['transfers', 'Stock Transfers', Boxes, 'transfers', lazyPage(finance, 'StockTransfers')],
+  ['customers', 'Customers', Users, 'customers', lazyPage(operations, 'Customers')],
+  ['reports', 'Reports', ChartNoAxesCombined, 'reports', lazyPage(dashboard, 'ReportsPage')],
+  ['sales', 'Sales History', ChartNoAxesCombined, 'sales', lazyPage(pos, 'SalesHistory')],
+  ['staff', 'Staff & Permissions', ShieldCheck, 'staff', lazyPage(admin, 'StaffPage')],
+  ['settings', 'Settings', Settings, 'settings', lazyPage(admin, 'SettingsPage')],
 ];
 
 function Login({ onLogin, error: initialError }) {
@@ -424,7 +427,9 @@ function Workspace({ session, onLogout }) {
         branchError={branchError}
         appError={appError}
       >
-        <Page key={page + '-' + activeBranch} ctx={context} />
+        <Suspense fallback={<Spinner />}>
+          <Page key={page + '-' + activeBranch} ctx={context} />
+        </Suspense>
       </WorkspaceLayout>
 
       {dialog && (

@@ -10,7 +10,7 @@ use Zeedat\Repositories\BaseRepository;
 
 class BackupService {
     public static function getBackupDir(): string {
-        $dir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'backups';
+        $dir = Database::env('ZEEDAT_BACKUP_PATH', dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'backups');
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
@@ -46,10 +46,13 @@ class BackupService {
             return $url;
         }
         $path = $parts['path'] ?? '';
-        if ($path === '' || $path === '/') {
+        $trimmedPath = rtrim($path, '/');
+        if ($trimmedPath === '') {
             $path = '/api/index.php';
+        } elseif (str_ends_with($trimmedPath, '/api')) {
+            $path = $trimmedPath . '/index.php';
         } elseif (!str_ends_with($path, '.php')) {
-            $path = rtrim($path, '/') . '/api/index.php';
+            $path = $trimmedPath . '/api/index.php';
         }
         $query = [];
         if (!empty($parts['query'])) {
@@ -208,7 +211,9 @@ class BackupService {
             $uploadResult = self::uploadFileToCloud($filePath, $uploadEndpoint, $apiKey, $branchName);
             if ($uploadResult['success']) {
                 $status = 'synced';
-                BaseRepository::run('UPDATE settings SET last_synced_at=NOW() WHERE id=1');
+                BaseRepository::run(
+                    'UPDATE settings SET last_synced_at=' . (Database::isSqlite() ? "DATETIME('now','localtime')" : 'NOW()') . ' WHERE id=1'
+                );
             } else {
                 $errorMsg = $uploadResult['error'] ?? 'Upload failed.';
             }
@@ -218,10 +223,11 @@ class BackupService {
             $errorMsg = 'Local machine saved. (No cloud server URL configured).';
         }
 
-        // Record in backup_logs
+        // Record in backup_logs using Asia/Colombo local timestamp so interval math matches PHP time()
+        $now = date('Y-m-d H:i:s');
         $logId = BaseRepository::insert(
-            'INSERT INTO backup_logs (branch_id, filename, file_size, status, remote_url, error_message) VALUES (?,?,?,?,?,?)',
-            [$branchId, $filename, $fileSize, $status, $remoteUrl ?: null, $errorMsg]
+            'INSERT INTO backup_logs (branch_id, filename, file_size, status, remote_url, error_message, created_at) VALUES (?,?,?,?,?,?,?)',
+            [$branchId, $filename, $fileSize, $status, $remoteUrl ?: null, $errorMsg, $now]
         );
 
         return [
@@ -257,6 +263,7 @@ class BackupService {
 
         $headers = [
             'Authorization: Bearer ' . $apiKey,
+            'X-Zeedat-Key: ' . $apiKey,
             'User-Agent: Zeedat-POS-LocalSync/1.0',
         ];
 
@@ -267,7 +274,6 @@ class BackupService {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Allow self-signed or LAN setups
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -282,7 +288,24 @@ class BackupService {
             return ['success' => true, 'response' => $response];
         }
 
-        return ['success' => false, 'error' => "Server responded with HTTP {$httpCode}: {$response}"];
+        $hint = $httpCode === 404 ? ' (Update Namecheap server with latest release/zeedat-namecheap-upload.zip)' : '';
+        return ['success' => false, 'error' => "Server responded with HTTP {$httpCode}: {$response}{$hint}"];
+    }
+
+    public static function extractBearerToken(array $headers): string {
+        $candidates = [
+            $headers['authorization'] ?? null,
+            $headers['Authorization'] ?? null,
+            $_SERVER['HTTP_AUTHORIZATION'] ?? null,
+            $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null,
+        ];
+        foreach ($candidates as $authHeader) {
+            if (is_string($authHeader) && preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+                return trim($matches[1]);
+            }
+        }
+        $alt = $headers['x-zeedat-key'] ?? $headers['X-Zeedat-Key'] ?? $_SERVER['HTTP_X_ZEEDAT_KEY'] ?? '';
+        return is_string($alt) ? trim($alt) : '';
     }
 
     /**
@@ -291,13 +314,7 @@ class BackupService {
     public static function handleIncomingBackup(array $headers, array $post, array $files): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $expectedKey = trim($settings['cloud_api_key'] ?? '');
-
-        // Verify Bearer token
-        $authHeader = $headers['authorization'] ?? $headers['Authorization'] ?? '';
-        $token = '';
-        if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            $token = trim($matches[1]);
-        }
+        $token = self::extractBearerToken($headers);
 
         if (!empty($expectedKey) && ($token === '' || !hash_equals($expectedKey, $token))) {
             return ['success' => false, 'code' => 401, 'error' => 'Unauthorized: Invalid API Key.'];
@@ -408,8 +425,12 @@ class BackupService {
             $res = self::uploadFileToCloud($path, $uploadEndpoint, $apiKey, $branchSlug);
             if ($res['success']) {
                 BaseRepository::run("UPDATE backup_logs SET status='synced', error_message=NULL WHERE id=?", [$row['id']]);
-                BaseRepository::run('UPDATE settings SET last_synced_at=NOW() WHERE id=1');
+                BaseRepository::run(
+                    'UPDATE settings SET last_synced_at=' . (Database::isSqlite() ? "DATETIME('now','localtime')" : 'NOW()') . ' WHERE id=1'
+                );
                 $uploaded++;
+            } else {
+                BaseRepository::run('UPDATE backup_logs SET error_message=? WHERE id=?', [$res['error'] ?? 'Upload failed.', $row['id']]);
             }
         }
 

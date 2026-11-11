@@ -225,12 +225,7 @@ class CloudSyncService {
     public static function handleSyncReceive(array $headers, array $payload): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $expectedKey = trim($settings['cloud_api_key'] ?? '');
-
-        $authHeader = $headers['authorization'] ?? $headers['Authorization'] ?? '';
-        $token = '';
-        if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            $token = trim($matches[1]);
-        }
+        $token = BackupService::extractBearerToken($headers);
 
         if (!empty($expectedKey) && ($token === '' || !hash_equals($expectedKey, $token))) {
             return ['success' => false, 'code' => 401, 'error' => 'Unauthorized'];
@@ -465,13 +460,16 @@ class CloudSyncService {
         $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
         $autoSync = !empty($settings['auto_sync_enabled']);
         $interval = max(5, (int) ($settings['sync_interval_minutes'] ?? 15));
-        $lastSync = $settings['last_synced_at'] ?? null;
 
         if ($cloudUrl === '') {
             return ['ran' => false, 'reason' => 'not_configured'];
         }
         if (!$autoSync) {
             return ['ran' => false, 'reason' => 'disabled'];
+        }
+        if (Database::env('ZEEDAT_PORTABLE', '0') === '1'
+            && (parse_url($cloudUrl, PHP_URL_SCHEME) !== 'https' || trim($settings['cloud_api_key'] ?? '') === '')) {
+            return ['ran' => false, 'reason' => 'https_and_key_required'];
         }
         if (!self::isInternetAvailable()) {
             return ['ran' => false, 'is_online' => false, 'reason' => 'offline'];
@@ -481,7 +479,17 @@ class CloudSyncService {
         $pullRes = self::pullFromCloud();
         $pendingUpload = BackupService::uploadPendingBackups();
 
-        $dueForBackup = !$lastSync || ((time() - strtotime((string) $lastSync)) / 60 >= $interval);
+        $lastRow = BaseRepository::one('SELECT filename, created_at FROM backup_logs ORDER BY id DESC LIMIT 1');
+        $lastBackupTs = 0;
+        if ($lastRow) {
+            $filePath = BackupService::getBackupDir() . DIRECTORY_SEPARATOR . basename((string) $lastRow['filename']);
+            if (is_file($filePath)) {
+                $lastBackupTs = (int) @filemtime($filePath);
+            } elseif (!empty($lastRow['created_at'])) {
+                $lastBackupTs = (int) strtotime((string) $lastRow['created_at']);
+            }
+        }
+        $dueForBackup = !$lastBackupTs || ((time() - $lastBackupTs) / 60 >= $interval);
         $backupRes = null;
         if ($dueForBackup) {
             $backupRes = BackupService::createBackup($branchId, 'auto_sync');
@@ -509,10 +517,10 @@ class CloudSyncService {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'Authorization: Bearer ' . $token,
+            'X-Zeedat-Key: ' . $token,
             'User-Agent: Zeedat-POS-Client/1.0',
         ]);
 
@@ -530,7 +538,8 @@ class CloudSyncService {
             return ['success' => true, 'data' => $decoded];
         }
 
-        return ['success' => false, 'error' => "HTTP {$httpCode}: {$response}"];
+        $hint = $httpCode === 404 ? ' (Update Namecheap server with latest release/zeedat-namecheap-upload.zip)' : '';
+        return ['success' => false, 'error' => "HTTP {$httpCode}: {$response}{$hint}"];
     }
 
     private static function getJson(string $url, string $token): array {
@@ -542,10 +551,10 @@ class CloudSyncService {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Accept: application/json',
             'Authorization: Bearer ' . $token,
+            'X-Zeedat-Key: ' . $token,
             'User-Agent: Zeedat-POS-Client/1.0',
         ]);
 
@@ -563,6 +572,7 @@ class CloudSyncService {
             return ['success' => true, 'data' => $decoded];
         }
 
-        return ['success' => false, 'error' => "HTTP {$httpCode}: {$response}"];
+        $hint = $httpCode === 404 ? ' (Update Namecheap server with latest release/zeedat-namecheap-upload.zip)' : '';
+        return ['success' => false, 'error' => "HTTP {$httpCode}: {$response}{$hint}"];
     }
 }

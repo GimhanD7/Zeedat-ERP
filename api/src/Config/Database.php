@@ -28,14 +28,14 @@ class Database {
         }
 
         $driver = strtolower(self::env('DB_DRIVER', ''));
-        if ($driver === 'sqlite' || !empty(getenv('ZEEDAT_SQLITE_PATH'))) {
-            self::$activeDriver = 'sqlite';
-            return 'sqlite';
-        }
-
         if ($driver === 'mysql') {
             self::$activeDriver = 'mysql';
             return 'mysql';
+        }
+
+        if ($driver === 'sqlite' || !empty(getenv('ZEEDAT_SQLITE_PATH'))) {
+            self::$activeDriver = 'sqlite';
+            return 'sqlite';
         }
 
         // Auto-detection: If local SQLite file exists, ALWAYS default to SQLite!

@@ -30,6 +30,7 @@ jobs:
           cache: npm
       - run: npm ci --include=dev
       - run: npm run build
+      - run: node scripts/build_patch.mjs
       - name: Check PHP and publish script
         run: |
           find api deploy -name '*.php' -type f -print0 | xargs -0 -n 1 php -l
@@ -63,7 +64,7 @@ jobs:
           chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
           release_id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           archive="$ssh_dir/release.tar.gz"
-          tar -czf "$archive" dist api/src api/public/index.php database/setup.php deploy/hosted-api.php deploy/hosted-config.php
+          tar -czf "$archive" dist updates api/index.php api/composer.json api/src api/public/index.php database/schema.sql database/sqlite_schema.sql database/setup.php scripts/setup_portable.php scripts/auto_sync_sqlite.php router.php deploy/hosted-api.php deploy/hosted-config.php
 
           ssh -p "$PORT" -i "$ssh_dir/key" \
             -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
