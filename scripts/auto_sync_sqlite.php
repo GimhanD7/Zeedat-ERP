@@ -25,9 +25,11 @@ if (($argv[1] ?? '') === '--auto') {
     }
     try {
         $branch = (int) ($argv[2] ?? 0);
-        CloudSyncService::runAutoSyncAndBackup($branch ?: null);
+        $res = CloudSyncService::runAutoSyncAndBackup($branch ?: null);
+        echo json_encode($res) . "\n";
     } catch (Throwable $e) {
         error_log('Zeedat background sync: ' . $e->getMessage());
+        echo json_encode(['ran' => false, 'error' => $e->getMessage()]) . "\n";
         exit(1);
     } finally {
         fclose($lock);

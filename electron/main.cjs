@@ -1,6 +1,6 @@
 // Zeedat POS - Standalone Windows Desktop Shell (Electron + Local PHP/SQLite + Auto-Patch)
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
@@ -22,8 +22,10 @@ let mainWindow = null;
 let phpHandle = null;
 let runtimeInfo = null;
 let patchTimer = null;
+let syncTimer = null;
 let isShuttingDown = false;
 let patchBusy = false;
+let syncBusy = false;
 
 let updateStatus = {
   state: 'idle',
@@ -467,10 +469,69 @@ ipcMain.handle('save-database-config', (_event, config = {}) => {
   return { ok: true, config: saved, restartRequired: true };
 });
 
+function runBackgroundDataSync() {
+  if (syncBusy || isShuttingDown || !phpHandle || !runtimeInfo?.activeRoot) {
+    return Promise.resolve({ ran: false, busy: syncBusy });
+  }
+  const scriptPath = path.join(runtimeInfo.activeRoot, 'scripts', 'auto_sync_sqlite.php');
+  if (!fs.existsSync(scriptPath)) {
+    return Promise.resolve({ ran: false, reason: 'missing_script' });
+  }
+
+  syncBusy = true;
+  return new Promise(resolve => {
+    const child = spawn(phpHandle.phpExe, [scriptPath, '--auto', '0'], {
+      cwd: runtimeInfo.activeRoot,
+      env: phpHandle.env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    child.stdout?.on('data', chunk => {
+      stdout += chunk.toString();
+    });
+
+    const killTimer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+    }, 60000);
+
+    child.once('close', () => {
+      clearTimeout(killTimer);
+      syncBusy = false;
+      let parsed = { ran: false };
+      try {
+        const lastLine = stdout.trim().split(/\r?\n/).pop() || '';
+        if (lastLine.startsWith('{')) parsed = JSON.parse(lastLine);
+      } catch {
+        parsed = { ran: false };
+      }
+      if (parsed?.ran && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sync-completed', parsed);
+      }
+      resolve(parsed);
+    });
+
+    child.once('error', () => {
+      clearTimeout(killTimer);
+      syncBusy = false;
+      resolve({ ran: false });
+    });
+  });
+}
+
+ipcMain.handle('trigger-background-sync', () => runBackgroundDataSync());
+
 ipcMain.handle('restart-app', () => {
   if (patchTimer) {
     clearInterval(patchTimer);
     patchTimer = null;
+  }
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
   }
   isShuttingDown = true;
   stopPhpServer(phpHandle);
@@ -492,6 +553,15 @@ app.whenReady().then(async () => {
     } else {
       phpHandle = await startPhpServer(runtimeInfo.activeRoot);
       createWindow(phpHandle.url);
+
+      // Background two-way data & cashbook sync (5s after launch + every 20s)
+      setTimeout(() => {
+        if (!isShuttingDown) runBackgroundDataSync();
+      }, 5000);
+
+      syncTimer = setInterval(() => {
+        if (!isShuttingDown) runBackgroundDataSync();
+      }, 20 * 1000);
     }
 
     // Background auto-patch polling (8s after launch + every 15 minutes)
@@ -528,6 +598,10 @@ app.on('will-quit', () => {
   if (patchTimer) {
     clearInterval(patchTimer);
     patchTimer = null;
+  }
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
   }
   stopPhpServer(phpHandle);
   phpHandle = null;

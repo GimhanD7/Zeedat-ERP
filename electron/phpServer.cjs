@@ -191,6 +191,7 @@ function testMysqlConnection(candidate) {
 
 function buildPhpEnv(iniDir, dataDir, dbCfg) {
   const useMysql = dbCfg?.mode === 'mysql' && dbCfg.db_host && dbCfg.db_name && dbCfg.db_user;
+  const cloudUrl = String(process.env.ZEEDAT_CLOUD_URL || (app.isPackaged ? 'https://zeedat.vortexdigitallabs.org' : '')).trim();
   const env = {
     ...process.env,
     PHPRC: iniDir,
@@ -199,6 +200,7 @@ function buildPhpEnv(iniDir, dataDir, dbCfg) {
     ZEEDAT_SQLITE_PATH: path.join(dataDir, 'zeedat_local.db'),
     ZEEDAT_BACKUP_PATH: path.join(dataDir, 'backups'),
     ZEEDAT_PORTABLE: '1',
+    ...(cloudUrl ? { ZEEDAT_CLOUD_URL: cloudUrl } : {}),
   };
   if (useMysql) {
     env.DB_HOST = dbCfg.db_host;

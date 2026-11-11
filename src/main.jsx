@@ -227,40 +227,50 @@ function Workspace({ session, onLogout }) {
         .catch(e => setBranchError(e.message));
     }
 
+    const handleSyncOutcome = res => {
+      if (!res?.ran) return;
+      const pushedCount =
+        res?.push?.synced_count ??
+        ((res?.push?.synced_sales ?? 0) +
+          (res?.push?.synced_customers ?? 0) +
+          (res?.push?.synced_repairs ?? 0));
+      const pulledCount =
+        (res?.pull?.products_synced ?? 0) +
+        (res?.pull?.stock_synced ?? 0) +
+        (res?.pull?.customers_synced ?? 0) +
+        (res?.pull?.sales_synced ?? 0) +
+        (res?.pull?.drawers_synced ?? 0) +
+        (res?.pull?.cash_movements_synced ?? 0) +
+        (res?.pull?.returns_synced ?? 0) +
+        (res?.pull?.supplier_payments_synced ?? 0) +
+        (res?.pull?.barcode_logs_synced ?? 0) +
+        (res?.pull?.audit_logs_synced ?? 0);
+      const backedUp =
+        res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
+      if (pushedCount > 0 || pulledCount > 0 || backedUp) {
+        setNotice('Online: synced all offline & server data.');
+        window.dispatchEvent(new Event('zeedat-sync-complete'));
+      }
+    };
+
     let autoSyncPending = false;
     const runServerAutoSync = async () => {
-      if (!navigator.onLine || autoSyncPending) return;
+      if (autoSyncPending) return;
+      if (!navigator.onLine && !window.electronAPI?.triggerBackgroundSync) return;
       autoSyncPending = true;
       try {
-        const res = await apiClient('sync.auto', { data: {}, csrf, key: requestKey(), background: true });
-        const pushedCount =
-          res?.push?.synced_count ??
-          ((res?.push?.synced_sales ?? 0) +
-            (res?.push?.synced_customers ?? 0) +
-            (res?.push?.synced_repairs ?? 0));
-        const pulledCount =
-          (res?.pull?.products_synced ?? 0) +
-          (res?.pull?.stock_synced ?? 0) +
-          (res?.pull?.customers_synced ?? 0) +
-          (res?.pull?.sales_synced ?? 0) +
-          (res?.pull?.drawers_synced ?? 0) +
-          (res?.pull?.cash_movements_synced ?? 0) +
-          (res?.pull?.returns_synced ?? 0) +
-          (res?.pull?.supplier_payments_synced ?? 0) +
-          (res?.pull?.barcode_logs_synced ?? 0) +
-          (res?.pull?.audit_logs_synced ?? 0);
-        const backedUp =
-          res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
-        if (res?.ran && (pushedCount > 0 || pulledCount > 0 || backedUp)) {
-          setNotice('Online: synced all branch & cashbook data.');
-          window.dispatchEvent(new Event('zeedat-sync-complete'));
-        }
+        const res = window.electronAPI?.triggerBackgroundSync
+          ? await window.electronAPI.triggerBackgroundSync()
+          : await apiClient('sync.auto', { data: {}, csrf, key: requestKey(), background: true });
+        handleSyncOutcome(res);
       } catch {
         // Silent background retry when offline or cloud URL not configured
       } finally {
         autoSyncPending = false;
       }
     };
+
+    const unlistenElectronSync = window.electronAPI?.onSyncCompleted?.(handleSyncOutcome);
 
     const changed = () => {
       setPage(getPage());
@@ -269,6 +279,7 @@ function Workspace({ session, onLogout }) {
     const network = () => {
       setOnline(navigator.onLine);
       if (navigator.onLine) {
+        syncManager.triggerSync();
         runServerAutoSync();
       }
     };
@@ -280,13 +291,12 @@ function Workspace({ session, onLogout }) {
 
     let writeDebounceTimer = null;
     const onLocalWrite = () => {
-      if (!navigator.onLine) return;
       clearTimeout(writeDebounceTimer);
-      writeDebounceTimer = setTimeout(runServerAutoSync, 2500);
+      writeDebounceTimer = setTimeout(runServerAutoSync, 2000);
     };
 
     const initialSyncTimer = setTimeout(triggerAllSyncs, 3000);
-    const periodicSyncTimer = setInterval(triggerAllSyncs, 25000);
+    const periodicSyncTimer = setInterval(triggerAllSyncs, 20000);
 
     const onSyncComplete = () => {
       setRevision(v => v + 1);
@@ -304,6 +314,7 @@ function Workspace({ session, onLogout }) {
       clearTimeout(initialSyncTimer);
       clearTimeout(writeDebounceTimer);
       clearInterval(periodicSyncTimer);
+      unlistenElectronSync?.();
       window.removeEventListener('hashchange', changed);
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);

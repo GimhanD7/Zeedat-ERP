@@ -140,10 +140,21 @@ class ReturnService {
             $lineTax = Helpers::rate($lineSubtotal, $taxRate);
             $total = $lineSubtotal + $lineTax;
 
-            $replacementSaleId = BaseRepository::insert(
-                'INSERT INTO sales(branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, synced) VALUES (?,?,?,?,?,0,?,?,0,0)',
-                [$branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $total]
-            );
+            $repUuid = 'SL-' . bin2hex(random_bytes(10));
+            $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
+            $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
+            if (\Zeedat\Config\Database::isSqlite()) {
+                $replacementSaleId = BaseRepository::insert(
+                    'INSERT INTO sales(uuid, sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,?,0,0,?,?,?,?,?,0,\'Cash\',0,0)',
+                    [$repUuid, $repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $total]
+                );
+            } else {
+                $replacementSaleId = BaseRepository::insert(
+                    'INSERT INTO sales(sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,0,\'Cash\',0,0)',
+                    [$repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $total]
+                );
+            }
+            BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [Helpers::ref($prefixCode, $replacementSaleId), $replacementSaleId]);
 
             if ($row['replacement_unit_id']) {
                 BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$row['replacement_unit_id']]);

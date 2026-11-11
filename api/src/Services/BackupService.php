@@ -17,17 +17,33 @@ class BackupService {
         return $dir;
     }
 
+    public static function resolveEffectiveCloudUrl(?array $settings = null): string {
+        $row = $settings ?? (BaseRepository::one('SELECT cloud_backup_url FROM settings WHERE id=1') ?? []);
+        $url = trim((string) ($row['cloud_backup_url'] ?? ''));
+        if ($url !== '') {
+            return $url;
+        }
+        return trim((string) Database::env('ZEEDAT_CLOUD_URL', ''));
+    }
+
     /**
-     * Checks if internet connectivity is currently accessible (HTTP/HTTPS or DNS).
+     * Checks if internet or configured server connectivity is currently accessible.
      */
-    public static function isInternetAvailable(): bool {
-        $hosts = [
-            ['1.1.1.1', 443],
-            ['8.8.8.8', 443],
-            ['8.8.8.8', 53],
-        ];
+    public static function isInternetAvailable(?string $probeUrl = null): bool {
+        $hosts = [];
+        $target = trim((string) ($probeUrl ?? ''));
+        if ($target !== '') {
+            $parsed = @parse_url($target);
+            if (!empty($parsed['host'])) {
+                $port = (int) ($parsed['port'] ?? (($parsed['scheme'] ?? 'http') === 'https' ? 443 : 80));
+                $hosts[] = [$parsed['host'], $port];
+            }
+        }
+        $hosts[] = ['1.1.1.1', 443];
+        $hosts[] = ['8.8.8.8', 443];
+        $hosts[] = ['8.8.8.8', 53];
         foreach ($hosts as [$host, $port]) {
-            $connected = @fsockopen($host, $port, $errno, $errstr, 1);
+            $connected = @fsockopen($host, $port, $errno, $errstr, 1.5);
             if (is_resource($connected)) {
                 fclose($connected);
                 return true;
@@ -366,7 +382,8 @@ class BackupService {
      */
     public static function getSyncSummary(): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $isOnline = self::isInternetAvailable();
+        $effectiveUrl = self::resolveEffectiveCloudUrl($settings);
+        $isOnline = self::isInternetAvailable($effectiveUrl);
         $lastLog = BaseRepository::one('SELECT * FROM backup_logs ORDER BY id DESC LIMIT 1');
         $totalBackups = (int) BaseRepository::scalar('SELECT COUNT(*) FROM backup_logs');
 
@@ -380,7 +397,7 @@ class BackupService {
         return [
             'driver' => Database::getDriver(),
             'is_online' => $isOnline,
-            'cloud_backup_url' => $settings['cloud_backup_url'] ?? '',
+            'cloud_backup_url' => $effectiveUrl,
             'cloud_api_key' => $settings['cloud_api_key'] ?? '',
             'auto_sync_enabled' => (bool) ($settings['auto_sync_enabled'] ?? 1),
             'sync_interval_minutes' => (int) ($settings['sync_interval_minutes'] ?? 15),
@@ -399,9 +416,9 @@ class BackupService {
      */
     public static function uploadPendingBackups(int $maxFiles = 5): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $remoteUrl = trim($settings['cloud_backup_url'] ?? '');
+        $remoteUrl = self::resolveEffectiveCloudUrl($settings);
         $apiKey = trim($settings['cloud_api_key'] ?? '');
-        if ($remoteUrl === '' || !self::isInternetAvailable()) {
+        if ($remoteUrl === '' || !self::isInternetAvailable($remoteUrl)) {
             return ['uploaded' => 0];
         }
 

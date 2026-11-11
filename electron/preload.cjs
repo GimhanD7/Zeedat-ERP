@@ -16,7 +16,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDatabaseConfig: () => ipcRenderer.invoke('get-database-config'),
   testMysqlConnection: config => ipcRenderer.invoke('test-mysql-connection', config),
   saveDatabaseConfig: config => ipcRenderer.invoke('save-database-config', config),
+  triggerBackgroundSync: () => ipcRenderer.invoke('trigger-background-sync'),
   restartApp: () => ipcRenderer.invoke('restart-app'),
+  onSyncCompleted: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('sync-completed', listener);
+    return () => ipcRenderer.removeListener('sync-completed', listener);
+  },
   onUpdateStatus: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload);

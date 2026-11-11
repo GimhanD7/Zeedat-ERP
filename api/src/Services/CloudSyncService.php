@@ -9,12 +9,13 @@ use Zeedat\Repositories\BaseRepository;
 use Zeedat\Support\Response;
 
 class CloudSyncService {
-    public static function isInternetAvailable(): bool {
-        return BackupService::isInternetAvailable();
+    public static function isInternetAvailable(?string $probeUrl = null): bool {
+        return BackupService::isInternetAvailable($probeUrl);
     }
 
     public static function getStatus(): array {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $cloudUrl = BackupService::resolveEffectiveCloudUrl($settings);
         $driver = Database::getDriver();
         $configuredDriver = strtolower(Database::env('DB_DRIVER', $driver));
         $fallbackActive = Database::isFallbackActive();
@@ -47,8 +48,8 @@ class CloudSyncService {
             'configured_driver' => $configuredDriver,
             'fallback_active' => $fallbackActive,
             'is_sqlite' => $driver === 'sqlite',
-            'is_online' => self::isInternetAvailable(),
-            'cloud_url' => $settings['cloud_backup_url'] ?? '',
+            'is_online' => self::isInternetAvailable($cloudUrl),
+            'cloud_url' => $cloudUrl,
             'has_api_key' => !empty($settings['cloud_api_key']),
             'auto_sync_enabled' => (bool) ($settings['auto_sync_enabled'] ?? 1),
             'sync_interval_minutes' => (int) ($settings['sync_interval_minutes'] ?? 15),
@@ -434,13 +435,13 @@ class CloudSyncService {
         }
 
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
+        $cloudUrl = BackupService::resolveEffectiveCloudUrl($settings);
         $apiKey = trim((string) ($settings['cloud_api_key'] ?? ''));
 
         if ($cloudUrl === '') {
             return ['success' => false, 'error' => 'Central cloud URL is not configured in settings.'];
         }
-        if (!self::isInternetAvailable()) {
+        if (!self::isInternetAvailable($cloudUrl)) {
             return ['success' => false, 'error' => 'Device is offline. Saved locally in SQLite; will sync when reconnected.'];
         }
 
@@ -508,10 +509,10 @@ class CloudSyncService {
         }
 
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
+        $cloudUrl = BackupService::resolveEffectiveCloudUrl($settings);
         $apiKey = trim((string) ($settings['cloud_api_key'] ?? ''));
 
-        if ($cloudUrl === '' || !self::isInternetAvailable()) {
+        if ($cloudUrl === '' || !self::isInternetAvailable($cloudUrl)) {
             return ['success' => false, 'error' => 'Offline or no cloud URL.'];
         }
 
@@ -2175,21 +2176,17 @@ class CloudSyncService {
         }
 
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
-        $cloudUrl = trim((string) ($settings['cloud_backup_url'] ?? ''));
+        $cloudUrl = BackupService::resolveEffectiveCloudUrl($settings);
         $autoSync = !empty($settings['auto_sync_enabled']);
         $interval = max(5, (int) ($settings['sync_interval_minutes'] ?? 15));
 
-        if ($cloudUrl === '') {
+        if ($cloudUrl === '' || !filter_var($cloudUrl, FILTER_VALIDATE_URL)) {
             return ['ran' => false, 'reason' => 'not_configured'];
         }
         if (!$autoSync) {
             return ['ran' => false, 'reason' => 'disabled'];
         }
-        if (Database::env('ZEEDAT_PORTABLE', '0') === '1'
-            && (parse_url($cloudUrl, PHP_URL_SCHEME) !== 'https' || trim((string) ($settings['cloud_api_key'] ?? '')) === '')) {
-            return ['ran' => false, 'reason' => 'https_and_key_required'];
-        }
-        if (!self::isInternetAvailable()) {
+        if (!self::isInternetAvailable($cloudUrl)) {
             return ['ran' => false, 'is_online' => false, 'reason' => 'offline'];
         }
 

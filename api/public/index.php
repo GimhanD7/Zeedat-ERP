@@ -99,34 +99,14 @@ try {
 
         session_write_close();
 
-        if ($action === 'sync.auto' && PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
-            && (\Zeedat\Config\Database::isSqlite() || file_exists(\Zeedat\Config\Database::getSqlitePath()))
-            && ($_SERVER['HTTP_X_ZEEDAT_BACKGROUND'] ?? '') === '1') {
-            $settings = BaseRepository::one('SELECT cloud_backup_url, auto_sync_enabled FROM settings WHERE id=1');
-            $hasDirectMysql = strtolower(\Zeedat\Config\Database::env('DB_DRIVER', '')) === 'mysql';
-            if (empty($settings['auto_sync_enabled']) || (!$hasDirectMysql && trim($settings['cloud_backup_url'] ?? '') === '')) {
-                Response::json(['ran' => false]);
-            }
-            $script = dirname(__DIR__, 2) . '/scripts/auto_sync_sqlite.php';
-            $branchId = (int) ($user['branch_id'] ?? 0);
-            $command = 'start "Zeedat background sync" /B ' . escapeshellarg(PHP_BINARY)
-                . ' ' . escapeshellarg($script) . ' --auto ' . $branchId . ' <NUL >NUL 2>&1';
-            $process = popen($command, 'r');
-            if ($process === false) {
-                throw new ApiError('Could not start background sync.', 503);
-            }
-            $exitCode = pclose($process);
-            if ($exitCode !== 0) {
-                throw new ApiError('Could not start background sync.', 503);
-            }
-            Response::json(['ran' => false, 'queued' => true], 202);
-        }
-
         if (PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
             && in_array($action, ['sync.auto', 'sync.push', 'sync.pull', 'backup.create'], true)
             && \Zeedat\Config\Database::isSqlite()) {
             $syncLock = fopen(\Zeedat\Config\Database::getSqlitePath() . '.sync.lock', 'c');
             if (!$syncLock || !flock($syncLock, LOCK_EX | LOCK_NB)) {
+                if ($action === 'sync.auto') {
+                    Response::json(['ran' => false, 'busy' => true]);
+                }
                 throw new ApiError('A sync or backup is already running. Try again shortly.', 409);
             }
         }

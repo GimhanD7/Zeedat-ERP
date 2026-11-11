@@ -129,12 +129,13 @@ class PurchaseService {
         $fromBranch = (int) $transfer['from_branch'];
         $toBranch = (int) $transfer['to_branch'];
         $actingBranch = (int) ($body['branch'] ?? 0);
+        $allowedBranches = array_map('intval', $user['branch_ids'] ?? array_values(array_filter([(int) ($user['branch_id'] ?? 0)])));
 
         if ($next === 'Dispatched') {
             if ($transfer['status'] !== 'Requested') {
                 throw new ApiError('Only requested transfers can be dispatched.');
             }
-            if ($user['role'] !== 'owner' && (int) $user['branch_id'] !== $fromBranch) {
+            if ($user['role'] !== 'owner' && !in_array($fromBranch, $allowedBranches, true)) {
                 throw new ApiError('Only the source branch can dispatch.', 403);
             }
             if ($actingBranch !== $fromBranch) {
@@ -158,7 +159,7 @@ class PurchaseService {
             if ($transfer['status'] !== 'Dispatched') {
                 throw new ApiError('Only dispatched transfers can be received.');
             }
-            if ($user['role'] !== 'owner' && (int) $user['branch_id'] !== $toBranch) {
+            if ($user['role'] !== 'owner' && !in_array($toBranch, $allowedBranches, true)) {
                 throw new ApiError('Only the destination branch can receive.', 403);
             }
             if ($actingBranch !== $toBranch) {
@@ -179,7 +180,7 @@ class PurchaseService {
             if ($transfer['status'] !== 'Requested') {
                 throw new ApiError('Only requested transfers can be rejected.');
             }
-            if ($user['role'] !== 'owner' && (int) $user['branch_id'] !== $fromBranch) {
+            if ($user['role'] !== 'owner' && !in_array($fromBranch, $allowedBranches, true)) {
                 throw new ApiError('Only the source branch can reject.', 403);
             }
 
