@@ -14,7 +14,7 @@ release/*.exe
 release/*.blockmap
 release/*.yml
 release/desktop/
-release/installer/
+# release/installer/
 release/win-unpacked/
 electron-runtime/
 updates/
