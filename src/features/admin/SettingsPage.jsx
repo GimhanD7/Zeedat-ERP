@@ -1,12 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Building2,
-  Check,
   ClipboardList,
   Cloud,
   Database,
-  Globe,
-  HardDrive,
   KeyRound,
   Lock,
   Mail,
@@ -21,21 +18,18 @@ import {
   Settings,
   ShieldCheck,
   Store,
-  Users,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
   Button,
-  FilterTabs,
   Heading,
-  Panel,
   SearchBox,
   Select,
   Table,
 } from '../../components/common';
-import { Alert, DataView } from '../../components/feedback';
-import { cents, money, timeLabel } from '../../utils';
+import { DataView } from '../../components/feedback';
+import { cents, timeLabel } from '../../utils';
 import { BackupSyncManager } from './BackupSyncManager';
 
 export function SettingsPage({ ctx }) {
@@ -337,31 +331,27 @@ export function SettingsPage({ ctx }) {
               </div>
             </div>
 
-            {/* MAIN SETTINGS PANEL WITH TABS */}
-            <Panel
-              title={activeTab}
-              icon={
-                activeTab === 'Store & Receipt'
-                  ? Receipt
-                  : activeTab === 'Branches & Locations'
-                  ? Building2
-                  : activeTab === 'Cloud Sync & Backup'
-                  ? Cloud
-                  : ShieldCheck
-              }
-              action={
-                <FilterTabs
-                  choices={[
-                    'Store & Receipt',
-                    'Branches & Locations',
-                    'Cloud Sync & Backup',
-                    'Security, PIN & Audit',
-                  ]}
-                  value={activeTab}
-                  onChange={setActiveTab}
-                />
-              }
-            >
+            {/* SETTINGS NAVIGATION & CONTENT SHELL */}
+            <div className="zk-settings-shell">
+              <nav className="zk-settings-nav" aria-label="Settings sections">
+                {[
+                  ['Store & Receipt', Receipt],
+                  ['Branches & Locations', Building2],
+                  ['Cloud Sync & Backup', Cloud],
+                  ['Security, PIN & Audit', ShieldCheck],
+                ].map(([label, TabIcon]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`zk-settings-tab ${activeTab === label ? 'active' : ''}`}
+                    onClick={() => setActiveTab(label)}
+                  >
+                    <TabIcon size={16} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </nav>
+
               {/* TAB 1: STORE & RECEIPT SETTINGS + LIVE PREVIEW */}
               {activeTab === 'Store & Receipt' && (
                 <div className="zk-settings-grid">
@@ -372,172 +362,178 @@ export function SettingsPage({ ctx }) {
                         <Settings size={17} style={{ color: '#0d9488' }} />
                         <span>Business Profile & Thermal Receipt Rules</span>
                       </div>
+                      <Badge tone="blue">{form.paper_width}mm Format</Badge>
                     </div>
 
                     {storeMsg && (
-                      <Alert tone={storeMsg.type === 'error' ? 'red' : 'mint'} style={{ marginBottom: '14px' }}>
+                      <div className={`zk-notice-banner ${storeMsg.type === 'error' ? 'error' : 'success'}`}>
                         {storeMsg.text}
-                      </Alert>
+                      </div>
                     )}
 
-                    <div className="zk-form-row-2" style={{ marginBottom: '14px' }}>
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Shop / Receipt Title *</label>
-                        <div className="zk-input-box">
-                          <Store size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="text"
-                            value={form.shop_name}
-                            onChange={e => setForm({ ...form, shop_name: e.target.value })}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Shop Contact Phone</label>
-                        <div className="zk-input-box">
-                          <Phone size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="text"
-                            placeholder="e.g. 011 234 5678 / 077 123 4567"
-                            value={form.shop_phone}
-                            onChange={e => setForm({ ...form, shop_phone: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="zk-form-row-2" style={{ marginBottom: '14px' }}>
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Business Email / Website</label>
-                        <div className="zk-input-box">
-                          <Mail size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="text"
-                            placeholder="e.g. sales@zeedat.lk"
-                            value={form.shop_email}
-                            onChange={e => setForm({ ...form, shop_email: e.target.value })}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Store Address</label>
-                        <div className="zk-input-box">
-                          <MapPin size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="text"
-                            placeholder="e.g. No. 124, Main Street, Battaramulla"
-                            value={form.shop_address}
-                            onChange={e => setForm({ ...form, shop_address: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="zk-form-row-2" style={{ marginBottom: '14px' }}>
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Default VAT / Tax Rate (%)</label>
-                        <div className="zk-input-box">
-                          <Percent size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
-                            value={form.tax_pct}
-                            onChange={e => setForm({ ...form, tax_pct: e.target.value })}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Invoice Number Prefix</label>
-                        <div className="zk-input-box">
-                          <Receipt size={15} style={{ color: '#64748b' }} />
-                          <input
-                            type="text"
-                            maxLength={15}
-                            value={form.invoice_prefix}
-                            onChange={e => setForm({ ...form, invoice_prefix: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Thermal Paper Selector */}
-                    <div className="zk-field-wrap" style={{ marginBottom: '14px' }}>
-                      <label className="zk-field-label">Thermal Receipt Paper Width</label>
-                      <div className="zk-paper-selector">
-                        <button
-                          type="button"
-                          className={`zk-paper-option ${form.paper_width === '58' ? 'active' : ''}`}
-                          onClick={() => setForm({ ...form, paper_width: '58' })}
-                        >
-                          <Printer size={18} style={{ color: form.paper_width === '58' ? '#0d9488' : '#64748b' }} />
-                          <div>
-                            <strong style={{ display: 'block', fontSize: '13px' }}>58mm Compact</strong>
-                            <small style={{ color: '#64748b', fontSize: '11px' }}>Mini Bluetooth / Portable POS</small>
+                    <div className="zk-settings-section">
+                      <h4 className="zk-settings-subtitle">Business Identity</h4>
+                      <div className="zk-form-row-2" style={{ marginBottom: '16px' }}>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Shop / Receipt Title *</label>
+                          <div className="zk-input-box">
+                            <Store size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="text"
+                              value={form.shop_name}
+                              onChange={e => setForm({ ...form, shop_name: e.target.value })}
+                              required
+                            />
                           </div>
-                        </button>
+                        </div>
 
-                        <button
-                          type="button"
-                          className={`zk-paper-option ${form.paper_width === '80' ? 'active' : ''}`}
-                          onClick={() => setForm({ ...form, paper_width: '80' })}
-                        >
-                          <Printer size={18} style={{ color: form.paper_width === '80' ? '#0d9488' : '#64748b' }} />
-                          <div>
-                            <strong style={{ display: 'block', fontSize: '13px' }}>80mm Standard</strong>
-                            <small style={{ color: '#64748b', fontSize: '11px' }}>Desktop Auto-Cutter Printer</small>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Shop Contact Phone</label>
+                          <div className="zk-input-box">
+                            <Phone size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="text"
+                              placeholder="e.g. 011 234 5678 / 077 123 4567"
+                              value={form.shop_phone}
+                              onChange={e => setForm({ ...form, shop_phone: e.target.value })}
+                            />
                           </div>
-                        </button>
+                        </div>
+                      </div>
+
+                      <div className="zk-form-row-2">
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Business Email / Website</label>
+                          <div className="zk-input-box">
+                            <Mail size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="text"
+                              placeholder="e.g. sales@zeedat.lk"
+                              value={form.shop_email}
+                              onChange={e => setForm({ ...form, shop_email: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Store Address</label>
+                          <div className="zk-input-box">
+                            <MapPin size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="text"
+                              placeholder="e.g. No. 124, Main Street, Battaramulla"
+                              value={form.shop_address}
+                              onChange={e => setForm({ ...form, shop_address: e.target.value })}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Receipt Footer Terms */}
-                    <div className="zk-field-wrap" style={{ marginBottom: '14px' }}>
-                      <label className="zk-field-label">Receipt Footer / Warranty Message</label>
-                      <div className="zk-textarea-box">
-                        <textarea
-                          rows={2}
-                          maxLength={250}
-                          value={form.receipt_footer}
-                          onChange={e => setForm({ ...form, receipt_footer: e.target.value })}
-                          placeholder="Thank you! Goods sold are returnable within 7 days with tag & receipt."
-                        />
+                    <div className="zk-settings-section">
+                      <h4 className="zk-settings-subtitle">Tax &amp; Invoice Numbering</h4>
+                      <div className="zk-form-row-2">
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Default VAT / Tax Rate (%)</label>
+                          <div className="zk-input-box">
+                            <Percent size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={form.tax_pct}
+                              onChange={e => setForm({ ...form, tax_pct: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Invoice Number Prefix</label>
+                          <div className="zk-input-box">
+                            <Receipt size={15} style={{ color: '#64748b' }} />
+                            <input
+                              type="text"
+                              maxLength={15}
+                              value={form.invoice_prefix}
+                              onChange={e => setForm({ ...form, invoice_prefix: e.target.value })}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Toggles */}
-                    <div className="zk-form-row-2" style={{ marginBottom: '18px' }}>
-                      <label className="zk-toggle-row">
-                        <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-open print dialog after sale</span>
-                        <input
-                          type="checkbox"
-                          checked={form.auto_print}
-                          onChange={e => setForm({ ...form, auto_print: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
-                        />
-                      </label>
+                    <div className="zk-settings-section">
+                      <h4 className="zk-settings-subtitle">Thermal Printer &amp; Receipt Layout</h4>
+                      <div className="zk-field-wrap" style={{ marginBottom: '16px' }}>
+                        <label className="zk-field-label">Thermal Receipt Paper Width</label>
+                        <div className="zk-paper-selector">
+                          <button
+                            type="button"
+                            className={`zk-paper-option ${form.paper_width === '58' ? 'active' : ''}`}
+                            onClick={() => setForm({ ...form, paper_width: '58' })}
+                          >
+                            <Printer size={18} style={{ color: form.paper_width === '58' ? '#0d9488' : '#64748b' }} />
+                            <div>
+                              <strong style={{ display: 'block', fontSize: '13px' }}>58mm Compact</strong>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>Mini Bluetooth / Portable POS</small>
+                            </div>
+                          </button>
 
-                      <label className="zk-toggle-row">
-                        <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Show tax breakdown on receipt</span>
-                        <input
-                          type="checkbox"
-                          checked={form.show_tax_on_receipt}
-                          onChange={e => setForm({ ...form, show_tax_on_receipt: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
-                        />
-                      </label>
+                          <button
+                            type="button"
+                            className={`zk-paper-option ${form.paper_width === '80' ? 'active' : ''}`}
+                            onClick={() => setForm({ ...form, paper_width: '80' })}
+                          >
+                            <Printer size={18} style={{ color: form.paper_width === '80' ? '#0d9488' : '#64748b' }} />
+                            <div>
+                              <strong style={{ display: 'block', fontSize: '13px' }}>80mm Standard</strong>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>Desktop Auto-Cutter Printer</small>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="zk-field-wrap" style={{ marginBottom: '16px' }}>
+                        <label className="zk-field-label">Receipt Footer / Warranty Message</label>
+                        <div className="zk-textarea-box">
+                          <textarea
+                            rows={2}
+                            maxLength={250}
+                            value={form.receipt_footer}
+                            onChange={e => setForm({ ...form, receipt_footer: e.target.value })}
+                            placeholder="Thank you! Goods sold are returnable within 7 days with tag & receipt."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="zk-form-row-2">
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-open print dialog after sale</span>
+                          <input
+                            type="checkbox"
+                            checked={form.auto_print}
+                            onChange={e => setForm({ ...form, auto_print: e.target.checked })}
+                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                          />
+                        </label>
+
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Show tax breakdown on receipt</span>
+                          <input
+                            type="checkbox"
+                            checked={form.show_tax_on_receipt}
+                            onChange={e => setForm({ ...form, show_tax_on_receipt: e.target.checked })}
+                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                          />
+                        </label>
+                      </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <button type="submit" className="zk-btn-complete" disabled={savingStore}>
-                        <Save size={16} />
-                        <span>{savingStore ? 'Saving Settings...' : 'Save Store & Receipt Settings'}</span>
-                      </button>
+                    <div className="zk-form-footer">
+                      <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
+                        {savingStore ? 'Saving Settings...' : 'Save Store & Receipt Settings'}
+                      </Button>
                     </div>
                   </form>
 
@@ -621,20 +617,17 @@ export function SettingsPage({ ctx }) {
 
               {/* TAB 2: BRANCHES & LOCATIONS */}
               {activeTab === 'Branches & Locations' && (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '14px',
-                      flexWrap: 'wrap',
-                      gap: '10px',
-                    }}
-                  >
-                    <p style={{ margin: 0, color: '#64748b', fontSize: '13px' }}>
-                      Manage store branches, contact numbers, and physical addresses across your retail network.
-                    </p>
+                <div className="zk-settings-card">
+                  <div className="zk-card-header">
+                    <div>
+                      <div className="zk-card-title">
+                        <Building2 size={17} style={{ color: '#0d9488' }} />
+                        <span>Branches &amp; Retail Locations</span>
+                      </div>
+                      <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>
+                        Manage store branches, contact numbers, and physical addresses across your retail network.
+                      </p>
+                    </div>
                     {ctx.user.role === 'owner' && (
                       <Button icon={Plus} variant="primary" onClick={() => openBranchModal(null)}>
                         Add New Branch
@@ -646,13 +639,13 @@ export function SettingsPage({ ctx }) {
                     {branches.map(b => (
                       <div className="zk-branch-tile" key={b.id}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div className="zk-kpi-icon-square green" style={{ width: '38px', height: '38px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div className="zk-kpi-icon-square green" style={{ width: '40px', height: '40px' }}>
                               <Building2 size={18} />
                             </div>
                             <div>
-                              <strong style={{ fontSize: '14.5px', color: '#0f172a' }}>{b.name}</strong>
-                              <div style={{ fontSize: '11.5px', color: '#64748b' }}>Branch ID #{b.id}</div>
+                              <strong style={{ fontSize: '15px', color: '#0f172a' }}>{b.name}</strong>
+                              <div style={{ fontSize: '12px', color: '#64748b' }}>Branch ID #{b.id}</div>
                             </div>
                           </div>
 
@@ -668,39 +661,29 @@ export function SettingsPage({ ctx }) {
                           )}
                         </div>
 
-                        <div style={{ fontSize: '12px', color: '#475569', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Phone size={13} style={{ color: '#0d9488' }} />
+                        <div style={{ fontSize: '12.5px', color: '#475569', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Phone size={14} style={{ color: '#0d9488', flexShrink: 0 }} />
                             <span>{b.phone || 'No phone number set'}</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <MapPin size={13} style={{ color: '#0d9488' }} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <MapPin size={14} style={{ color: '#0d9488', flexShrink: 0 }} />
                             <span>{b.address || 'No street address set'}</span>
                           </div>
                         </div>
 
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gap: '8px',
-                            borderTop: '1px solid #f1f5f9',
-                            paddingTop: '10px',
-                            marginTop: '4px',
-                            textAlign: 'center',
-                          }}
-                        >
-                          <div>
+                        <div className="zk-branch-stats">
+                          <div className="zk-branch-stat-cell">
                             <small style={{ color: '#64748b', fontSize: '11px' }}>Staff</small>
-                            <div style={{ fontWeight: 700, fontSize: '14px' }}>{b.staff_count || 0}</div>
+                            <div style={{ fontWeight: 700, fontSize: '14.5px', color: '#0f172a' }}>{b.staff_count || 0}</div>
                           </div>
-                          <div>
+                          <div className="zk-branch-stat-cell">
                             <small style={{ color: '#64748b', fontSize: '11px' }}>Stock Units</small>
-                            <div style={{ fontWeight: 700, fontSize: '14px' }}>{b.stock_units || 0}</div>
+                            <div style={{ fontWeight: 700, fontSize: '14.5px', color: '#0f172a' }}>{b.stock_units || 0}</div>
                           </div>
-                          <div>
+                          <div className="zk-branch-stat-cell">
                             <small style={{ color: '#64748b', fontSize: '11px' }}>Sales</small>
-                            <div style={{ fontWeight: 700, fontSize: '14px' }}>{b.sales_count || 0}</div>
+                            <div style={{ fontWeight: 700, fontSize: '14.5px', color: '#0f172a' }}>{b.sales_count || 0}</div>
                           </div>
                         </div>
                       </div>
@@ -714,211 +697,222 @@ export function SettingsPage({ ctx }) {
 
               {/* TAB 4: SECURITY, PIN & AUDIT LOG */}
               {activeTab === 'Security, PIN & Audit' && (
-                <div className="stack">
-                  {/* Inventory Delete Security PIN Card */}
-                  <div className="zk-settings-card">
-                    <div className="zk-card-header">
-                      <div className="zk-card-title">
-                        <Lock size={17} style={{ color: '#0d9488' }} />
-                        <span>Inventory Delete Security PIN</span>
+                <div className="zk-settings-stack">
+                  <div className="zk-security-top-grid">
+                    {/* Inventory Delete Security PIN Card */}
+                    <div className="zk-settings-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <Lock size={17} style={{ color: '#0d9488' }} />
+                          <span>Inventory Delete Security PIN</span>
+                        </div>
+                        <Badge tone={settings.delete_pin_configured ? 'green' : 'amber'}>
+                          {settings.delete_pin_configured ? 'PIN Active' : 'PIN Not Set'}
+                        </Badge>
                       </div>
-                      <Badge tone={settings.delete_pin_configured ? 'green' : 'amber'}>
-                        {settings.delete_pin_configured ? 'PIN Active' : 'PIN Not Set'}
-                      </Badge>
-                    </div>
 
-                    <p style={{ margin: '0 0 12px', fontSize: '12.5px', color: '#64748b' }}>
-                      This numeric PIN (4–8 digits) is required before any staff member can delete an item in Inventory.
-                    </p>
+                      <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
+                        This numeric PIN (4–8 digits) is required before any staff member can delete an item in Inventory.
+                      </p>
 
-                    {pinMsg && (
-                      <Alert tone={pinMsg.type === 'error' ? 'red' : 'mint'} style={{ marginBottom: '12px' }}>
-                        {pinMsg.text}
-                      </Alert>
-                    )}
+                      {pinMsg && (
+                        <div className={`zk-notice-banner ${pinMsg.type === 'error' ? 'error' : 'success'}`}>
+                          {pinMsg.text}
+                        </div>
+                      )}
 
-                    <form onSubmit={e => handleSaveDeletePin(e, Boolean(settings.delete_pin_configured))}>
-                      <div className="zk-form-row-3" style={{ alignItems: 'end' }}>
-                        {settings.delete_pin_configured && (
-                          <div className="zk-field-wrap">
-                            <label className="zk-field-label">
-                              {pinForm.use_account_password ? 'Your Account Password' : 'Current Security PIN'}
-                            </label>
-                            <div className="zk-input-box">
-                              <KeyRound size={15} style={{ color: '#64748b' }} />
-                              {pinForm.use_account_password ? (
-                                <input
-                                  type="password"
-                                  value={pinForm.current_password}
-                                  onChange={e => setPinForm({ ...pinForm, current_password: e.target.value })}
-                                  placeholder="Enter account password"
-                                  required
-                                />
-                              ) : (
+                      <form
+                        onSubmit={e => handleSaveDeletePin(e, Boolean(settings.delete_pin_configured))}
+                        style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}
+                      >
+                        <div className="zk-settings-stack" style={{ gap: '14px' }}>
+                          {settings.delete_pin_configured && (
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">
+                                {pinForm.use_account_password ? 'Your Account Password' : 'Current Security PIN'}
+                              </label>
+                              <div className="zk-input-box">
+                                <KeyRound size={15} style={{ color: '#64748b' }} />
+                                {pinForm.use_account_password ? (
+                                  <input
+                                    type="password"
+                                    value={pinForm.current_password}
+                                    onChange={e => setPinForm({ ...pinForm, current_password: e.target.value })}
+                                    placeholder="Enter account password"
+                                    required
+                                  />
+                                ) : (
+                                  <input
+                                    type="password"
+                                    inputMode="numeric"
+                                    maxLength={8}
+                                    value={pinForm.current_pin}
+                                    onChange={e =>
+                                      setPinForm({
+                                        ...pinForm,
+                                        current_pin: e.target.value.replace(/\D/g, ''),
+                                      })
+                                    }
+                                    placeholder="Current 4–8 digit PIN"
+                                    required
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="zk-form-row-2">
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">New Security PIN (4–8 digits)</label>
+                              <div className="zk-input-box">
+                                <Lock size={15} style={{ color: '#64748b' }} />
                                 <input
                                   type="password"
                                   inputMode="numeric"
                                   maxLength={8}
-                                  value={pinForm.current_pin}
+                                  value={pinForm.new_pin}
                                   onChange={e =>
                                     setPinForm({
                                       ...pinForm,
-                                      current_pin: e.target.value.replace(/\D/g, ''),
+                                      new_pin: e.target.value.replace(/\D/g, ''),
                                     })
                                   }
-                                  placeholder="Current 4–8 digit PIN"
+                                  placeholder="e.g. 1234"
                                   required
                                 />
-                              )}
+                              </div>
+                            </div>
+
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">Confirm New PIN</label>
+                              <div className="zk-input-box">
+                                <Lock size={15} style={{ color: '#64748b' }} />
+                                <input
+                                  type="password"
+                                  inputMode="numeric"
+                                  maxLength={8}
+                                  value={pinForm.confirm_pin}
+                                  onChange={e =>
+                                    setPinForm({
+                                      ...pinForm,
+                                      confirm_pin: e.target.value.replace(/\D/g, ''),
+                                    })
+                                  }
+                                  placeholder="Re-enter PIN"
+                                  required
+                                />
+                              </div>
                             </div>
                           </div>
-                        )}
-
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">New Security PIN (4–8 digits)</label>
-                          <div className="zk-input-box">
-                            <Lock size={15} style={{ color: '#64748b' }} />
-                            <input
-                              type="password"
-                              inputMode="numeric"
-                              maxLength={8}
-                              value={pinForm.new_pin}
-                              onChange={e =>
-                                setPinForm({
-                                  ...pinForm,
-                                  new_pin: e.target.value.replace(/\D/g, ''),
-                                })
-                              }
-                              placeholder="e.g. 1234"
-                              required
-                            />
-                          </div>
                         </div>
 
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">Confirm New PIN</label>
-                          <div className="zk-input-box">
-                            <Lock size={15} style={{ color: '#64748b' }} />
-                            <input
-                              type="password"
-                              inputMode="numeric"
-                              maxLength={8}
-                              value={pinForm.confirm_pin}
-                              onChange={e =>
-                                setPinForm({
-                                  ...pinForm,
-                                  confirm_pin: e.target.value.replace(/\D/g, ''),
-                                })
+                        <div className={`zk-form-footer ${settings.delete_pin_configured ? 'between' : ''}`}>
+                          {settings.delete_pin_configured && (
+                            <button
+                              type="button"
+                              className="zk-edit-btn"
+                              onClick={() =>
+                                setPinForm(prev => ({
+                                  ...prev,
+                                  use_account_password: !prev.use_account_password,
+                                  current_pin: '',
+                                  current_password: '',
+                                }))
                               }
-                              placeholder="Re-enter PIN"
-                              required
-                            />
-                          </div>
+                            >
+                              {pinForm.use_account_password
+                                ? 'Use Current PIN Instead'
+                                : 'Forgot PIN? Use Account Password'}
+                            </button>
+                          )}
+                          <Button type="submit" icon={ShieldCheck} variant="primary" disabled={pinBusy}>
+                            {pinBusy
+                              ? 'Saving PIN...'
+                              : settings.delete_pin_configured
+                                ? 'Change Security PIN'
+                                : 'Set Security PIN'}
+                          </Button>
                         </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: settings.delete_pin_configured ? 'space-between' : 'flex-end',
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: '10px',
-                          marginTop: '14px',
-                        }}
-                      >
-                        {settings.delete_pin_configured && (
-                          <button
-                            type="button"
-                            className="zk-edit-btn"
-                            onClick={() =>
-                              setPinForm(prev => ({
-                                ...prev,
-                                use_account_password: !prev.use_account_password,
-                                current_pin: '',
-                                current_password: '',
-                              }))
-                            }
-                          >
-                            {pinForm.use_account_password
-                              ? 'Use Current PIN Instead'
-                              : 'Forgot Current PIN? Use Account Password'}
-                          </button>
-                        )}
-                        <Button type="submit" icon={ShieldCheck} variant="primary" disabled={pinBusy}>
-                          {pinBusy
-                            ? 'Saving PIN...'
-                            : settings.delete_pin_configured
-                              ? 'Change Security PIN'
-                              : 'Set Security PIN'}
-                        </Button>
-                      </div>
-                    </form>
-                  </div>
-
-                  {/* Change Own Password Card */}
-                  <div className="zk-settings-card">
-                    <div className="zk-card-header">
-                      <div className="zk-card-title">
-                        <KeyRound size={17} style={{ color: '#0d9488' }} />
-                        <span>Account Security · Change My Password ({ctx.user.name})</span>
-                      </div>
+                      </form>
                     </div>
 
-                    {pwdMsg && (
-                      <Alert tone={pwdMsg.type === 'error' ? 'red' : 'mint'} style={{ marginBottom: '12px' }}>
-                        {pwdMsg.text}
-                      </Alert>
-                    )}
-
-                    <form onSubmit={handleChangePassword}>
-                      <div className="zk-form-row-3" style={{ alignItems: 'end' }}>
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">Current Password</label>
-                          <div className="zk-input-box">
-                            <Lock size={15} style={{ color: '#64748b' }} />
-                            <input
-                              type="password"
-                              value={pwdForm.current_password}
-                              onChange={e => setPwdForm({ ...pwdForm, current_password: e.target.value })}
-                              required
-                            />
-                          </div>
+                    {/* Change Own Password Card */}
+                    <div className="zk-settings-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <KeyRound size={17} style={{ color: '#0d9488' }} />
+                          <span>Account Security · Change Password</span>
                         </div>
-
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">New Password (min 6 chars)</label>
-                          <div className="zk-input-box">
-                            <Lock size={15} style={{ color: '#64748b' }} />
-                            <input
-                              type="password"
-                              value={pwdForm.new_password}
-                              onChange={e => setPwdForm({ ...pwdForm, new_password: e.target.value })}
-                              required
-                            />
-                          </div>
-                        </div>
-
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">Confirm New Password</label>
-                          <div className="zk-input-box">
-                            <Lock size={15} style={{ color: '#64748b' }} />
-                            <input
-                              type="password"
-                              value={pwdForm.confirm_password}
-                              onChange={e => setPwdForm({ ...pwdForm, confirm_password: e.target.value })}
-                              required
-                            />
-                          </div>
-                        </div>
+                        <Badge tone="blue">{ctx.user.name}</Badge>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '14px' }}>
-                        <Button type="submit" icon={ShieldCheck} variant="primary" disabled={pwdBusy}>
-                          {pwdBusy ? 'Updating Password...' : 'Update My Password'}
-                        </Button>
-                      </div>
-                    </form>
+                      <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
+                        Update your sign-in password. Changes apply cleanly to your local session and sync permissions.
+                      </p>
+
+                      {pwdMsg && (
+                        <div className={`zk-notice-banner ${pwdMsg.type === 'error' ? 'error' : 'success'}`}>
+                          {pwdMsg.text}
+                        </div>
+                      )}
+
+                      <form
+                        onSubmit={handleChangePassword}
+                        style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}
+                      >
+                        <div className="zk-settings-stack" style={{ gap: '14px' }}>
+                          <div className="zk-field-wrap">
+                            <label className="zk-field-label">Current Password</label>
+                            <div className="zk-input-box">
+                              <Lock size={15} style={{ color: '#64748b' }} />
+                              <input
+                                type="password"
+                                value={pwdForm.current_password}
+                                onChange={e => setPwdForm({ ...pwdForm, current_password: e.target.value })}
+                                placeholder="Enter current password"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <div className="zk-form-row-2">
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">New Password (min 6 chars)</label>
+                              <div className="zk-input-box">
+                                <Lock size={15} style={{ color: '#64748b' }} />
+                                <input
+                                  type="password"
+                                  value={pwdForm.new_password}
+                                  onChange={e => setPwdForm({ ...pwdForm, new_password: e.target.value })}
+                                  placeholder="Min 6 characters"
+                                  required
+                                />
+                              </div>
+                            </div>
+
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">Confirm New Password</label>
+                              <div className="zk-input-box">
+                                <Lock size={15} style={{ color: '#64748b' }} />
+                                <input
+                                  type="password"
+                                  value={pwdForm.confirm_password}
+                                  onChange={e => setPwdForm({ ...pwdForm, confirm_password: e.target.value })}
+                                  placeholder="Re-enter password"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="zk-form-footer">
+                          <Button type="submit" icon={ShieldCheck} variant="primary" disabled={pwdBusy}>
+                            {pwdBusy ? 'Updating Password...' : 'Update My Password'}
+                          </Button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
 
                   {/* Filterable System Audit Trail */}
@@ -926,7 +920,7 @@ export function SettingsPage({ ctx }) {
                     <div className="zk-card-header">
                       <div className="zk-card-title">
                         <ClipboardList size={17} style={{ color: '#0d9488' }} />
-                        <span>System Security & Audit Trail</span>
+                        <span>System Security &amp; Audit Trail</span>
                       </div>
                       <Badge>{filteredAudit.length} events</Badge>
                     </div>
@@ -934,13 +928,13 @@ export function SettingsPage({ ctx }) {
                     <div
                       style={{
                         display: 'flex',
-                        gap: '10px',
+                        gap: '12px',
                         flexWrap: 'wrap',
                         alignItems: 'center',
-                        marginBottom: '12px',
+                        marginBottom: '16px',
                       }}
                     >
-                      <div style={{ flex: '1 1 240px' }}>
+                      <div style={{ flex: '1 1 260px' }}>
                         <SearchBox
                           value={auditQuery}
                           onChange={setAuditQuery}
@@ -948,7 +942,7 @@ export function SettingsPage({ ctx }) {
                         />
                       </div>
 
-                      <div style={{ minWidth: '180px' }}>
+                      <div style={{ minWidth: '200px' }}>
                         <Select
                           aria-label="Filter by Action"
                           value={auditActionFilter}
@@ -981,7 +975,7 @@ export function SettingsPage({ ctx }) {
                   </div>
                 </div>
               )}
-            </Panel>
+            </div>
           </div>
         );
       }}
