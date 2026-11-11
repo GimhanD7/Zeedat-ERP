@@ -258,6 +258,10 @@ class AdminController
         $showTax = !empty($body['show_tax_on_receipt']) ? 1 : 0;
         $receiptPrinterName = Validator::str($body, 'receipt_printer_name', 150, false) ?: '';
         $cashDrawerEnabled = array_key_exists('cash_drawer_enabled', $body) ? (!empty($body['cash_drawer_enabled']) ? 1 : 0) : 1;
+        $smsEnabled = !empty($body['sms_enabled']) ? 1 : 0;
+        $smsProviderUrl = Validator::str($body, 'sms_provider_url', 500, false) ?: '';
+        $smsApiKey = Validator::str($body, 'sms_api_key', 255, false) ?: '';
+        $smsSenderId = Validator::str($body, 'sms_sender_id', 40, false) ?: '';
 
         UserRepository::updateSettings(
             $shopName,
@@ -271,7 +275,11 @@ class AdminController
             $autoPrint,
             $showTax,
             $receiptPrinterName,
-            $cashDrawerEnabled
+            $cashDrawerEnabled,
+            $smsEnabled,
+            $smsProviderUrl,
+            $smsApiKey,
+            $smsSenderId
         );
 
         return [
@@ -287,6 +295,10 @@ class AdminController
             'show_tax_on_receipt' => $showTax,
             'receipt_printer_name' => $receiptPrinterName,
             'cash_drawer_enabled' => $cashDrawerEnabled,
+            'sms_enabled' => $smsEnabled,
+            'sms_provider_url' => $smsProviderUrl,
+            'sms_api_key' => $smsApiKey,
+            'sms_sender_id' => $smsSenderId,
         ];
     }
 

@@ -549,5 +549,72 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure repair payment/cashflow columns & SMS gateway settings + sms_logs table exist
+        try {
+            $repairColsSpec = [
+                'advance_paid' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'final_charge' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'paid_amount' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'payment_method' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(40) NOT NULL DEFAULT ''",
+                'paid_at' => $driver === 'sqlite' ? 'TEXT NULL' : 'TIMESTAMP NULL',
+                'sms_sent' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'TINYINT(1) NOT NULL DEFAULT 0',
+            ];
+            $smsSettingsSpec = [
+                'sms_enabled' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'TINYINT(1) NOT NULL DEFAULT 0',
+                'sms_provider_url' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(500) NOT NULL DEFAULT ''",
+                'sms_api_key' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(255) NOT NULL DEFAULT ''",
+                'sms_sender_id' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(40) NOT NULL DEFAULT ''",
+            ];
+            if ($driver === 'sqlite') {
+                $repCols = array_column($db->query('PRAGMA table_info(repairs)')->fetchAll(), 'name');
+                foreach ($repairColsSpec as $col => $def) {
+                    if (!in_array($col, $repCols, true)) {
+                        $db->exec("ALTER TABLE repairs ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $setCols = array_column($db->query('PRAGMA table_info(settings)')->fetchAll(), 'name');
+                foreach ($smsSettingsSpec as $col => $def) {
+                    if (!in_array($col, $setCols, true)) {
+                        $db->exec("ALTER TABLE settings ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $db->exec("CREATE TABLE IF NOT EXISTS sms_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    branch_id INTEGER NOT NULL DEFAULT 0,
+                    repair_id INTEGER NULL,
+                    phone TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'intake',
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    error_message TEXT NOT NULL DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )");
+            } else {
+                foreach ($repairColsSpec as $col => $def) {
+                    if (empty($db->query("SHOW COLUMNS FROM repairs LIKE '{$col}'")->fetchAll())) {
+                        $db->exec("ALTER TABLE repairs ADD COLUMN {$col} {$def}");
+                    }
+                }
+                foreach ($smsSettingsSpec as $col => $def) {
+                    if (empty($db->query("SHOW COLUMNS FROM settings LIKE '{$col}'")->fetchAll())) {
+                        $db->exec("ALTER TABLE settings ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $db->exec("CREATE TABLE IF NOT EXISTS sms_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    branch_id INT NOT NULL DEFAULT 0,
+                    repair_id INT NULL,
+                    phone VARCHAR(40) NOT NULL,
+                    message TEXT NOT NULL,
+                    kind VARCHAR(30) NOT NULL DEFAULT 'intake',
+                    status VARCHAR(30) NOT NULL DEFAULT 'queued',
+                    error_message VARCHAR(255) NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX(repair_id, created_at)
+                ) ENGINE=InnoDB");
+            }
+        } catch (Throwable) {
+        }
     }
 }

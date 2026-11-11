@@ -216,11 +216,19 @@ try {
                 })(),
                 'repair.create' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'repairs');
-                    return RepairController::create($branch, $body);
+                    return RepairController::create($branch, $body, $user);
                 })(),
                 'repair.status' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'repairs');
                     return RepairController::updateStatus($user, $branch, $body);
+                })(),
+                'repair.complete' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                    return RepairController::completeAndPay($user, $branch, $body);
+                })(),
+                'repair.sms' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'repairs');
+                    return RepairController::sendSms($branch, $body);
                 })(),
                 'supplier.create' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'purchases');

@@ -64,6 +64,10 @@ export function SettingsPage({ ctx }) {
     show_tax_on_receipt: true,
     receipt_printer_name: '',
     cash_drawer_enabled: true,
+    sms_enabled: false,
+    sms_provider_url: '',
+    sms_api_key: '',
+    sms_sender_id: '',
   });
   const [printers, setPrinters] = useState([]);
   const [drawerTesting, setDrawerTesting] = useState(false);
@@ -113,6 +117,10 @@ export function SettingsPage({ ctx }) {
         show_tax_on_receipt: s.show_tax_on_receipt !== 0 && s.show_tax_on_receipt !== '0',
         receipt_printer_name: s.receipt_printer_name || '',
         cash_drawer_enabled: s.cash_drawer_enabled !== 0 && s.cash_drawer_enabled !== '0',
+        sms_enabled: Boolean(Number(s.sms_enabled || 0)),
+        sms_provider_url: s.sms_provider_url || '',
+        sms_api_key: s.sms_api_key || '',
+        sms_sender_id: s.sms_sender_id || '',
       });
     }
   }, [state.data?.settings]);
@@ -168,6 +176,10 @@ export function SettingsPage({ ctx }) {
         show_tax_on_receipt: form.show_tax_on_receipt ? 1 : 0,
         receipt_printer_name: form.receipt_printer_name || '',
         cash_drawer_enabled: form.cash_drawer_enabled ? 1 : 0,
+        sms_enabled: form.sms_enabled ? 1 : 0,
+        sms_provider_url: form.sms_provider_url || '',
+        sms_api_key: form.sms_api_key || '',
+        sms_sender_id: form.sms_sender_id || '',
       });
       setStoreMsg({ type: 'success', text: 'Store & receipt settings saved successfully.' });
       ctx.setNotice('Store settings updated.');
@@ -611,6 +623,52 @@ export function SettingsPage({ ctx }) {
                           </Button>
                         </div>
                       )}
+                    </div>
+
+                    <div className="zk-settings-section">
+                      <div className="zk-settings-sec-title">Repair Intake &amp; Ready SMS Gateway</div>
+                      <label className="zk-toggle-row" style={{ marginBottom: '10px' }}>
+                        <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-send SMS when repair device is received</span>
+                        <input
+                          type="checkbox"
+                          checked={form.sms_enabled}
+                          onChange={e => setForm({ ...form, sms_enabled: e.target.checked })}
+                          style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                        />
+                      </label>
+                      <div className="zk-form-row-2">
+                        <div className="zk-field-wrap" style={{ gridColumn: '1 / -1' }}>
+                          <label className="zk-field-label">SMS Gateway URL (GET placeholders {'{phone}'}, {'{message}'}, {'{sender_id}'}, {'{api_key}'} or JSON POST URL)</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="https://app.notify.lk/api/v1/send?user_id=...&api_key={api_key}&sender_id={sender_id}&to={phone}&message={message}"
+                            value={form.sms_provider_url}
+                            onChange={e => setForm({ ...form, sms_provider_url: e.target.value })}
+                          />
+                        </div>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Sender ID</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="ZEEDAT"
+                            maxLength={40}
+                            value={form.sms_sender_id}
+                            onChange={e => setForm({ ...form, sms_sender_id: e.target.value })}
+                          />
+                        </div>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">API Key / Bearer Token</label>
+                          <input
+                            type="password"
+                            className="input"
+                            placeholder="Gateway API key"
+                            value={form.sms_api_key}
+                            onChange={e => setForm({ ...form, sms_api_key: e.target.value })}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="zk-form-footer">
