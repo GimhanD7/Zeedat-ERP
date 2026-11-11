@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
   CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileSpreadsheet,
   Layers,
@@ -12,6 +16,8 @@ import {
   Printer,
   RefreshCw,
   Tag,
+  TrendingDown,
+  TrendingUp,
   Wallet,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
@@ -516,11 +522,17 @@ export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
 export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = 'register' }) {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [shiftFilter, setShiftFilter] = useState('all');
+  const [shiftSearch, setShiftSearch] = useState('');
   const [ledgerFilter, setLedgerFilter] = useState('all');
   const [datePreset, setDatePreset] = useState('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageSize, setLedgerPageSize] = useState(25);
+  const [catFilter, setCatFilter] = useState('all');
+  const [shiftAuditFilter, setShiftAuditFilter] = useState('all');
+  const [shiftAuditSearch, setShiftAuditSearch] = useState('');
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [sessionModal, setSessionModal] = useState(null);
   const [closeModalDrawer, setCloseModalDrawer] = useState(null);
@@ -537,8 +549,13 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
 
   const inflow = useMemo(() => movements.reduce((s, r) => s + Math.max(0, r.amount), 0), [movements]);
   const outflow = useMemo(() => movements.reduce((s, r) => s + Math.min(0, r.amount), 0), [movements]);
+  const totalOutflowAbs = Math.abs(outflow);
   const current = drawer?.business_date === today();
   const currentBranchName = ctx.branches.find(b => b.id === ctx.branch)?.name || 'All Branches';
+  const totalTenderCollected = useMemo(
+    () => payment_breakdown.reduce((sum, p) => sum + Number(p.total || 0), 0),
+    [payment_breakdown]
+  );
 
   const movementsWithBalance = useMemo(() => {
     const asc = [...movements].reverse();
@@ -547,29 +564,52 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
       runBal += m.amount;
       return { ...m, running_balance: runBal };
     });
+    const q = shiftSearch.trim().toLowerCase();
     return mapped.reverse().filter(m => {
+      const kindLow = String(m.kind || '').toLowerCase();
       if (shiftFilter === 'in' && m.amount <= 0) return false;
       if (shiftFilter === 'out' && m.amount >= 0) return false;
-      if (shiftFilter === 'sales' && !m.kind?.toLowerCase().includes('sale')) return false;
+      if (shiftFilter === 'sales' && !kindLow.includes('sale')) return false;
+      if (shiftFilter === 'repairs' && !kindLow.includes('repair')) return false;
+      if (q) {
+        const hit =
+          kindLow.includes(q) ||
+          String(m.reference || '').toLowerCase().includes(q) ||
+          String(m.operator_name || '').toLowerCase().includes(q);
+        if (!hit) return false;
+      }
       return true;
     });
-  }, [movements, drawer?.opening, shiftFilter]);
+  }, [movements, drawer?.opening, shiftFilter, shiftSearch]);
 
   const filteredLedger = useMemo(() => {
-    return ledger.filter(item => {
+    const asc = [...ledger].reverse();
+    let runBal = 0;
+    const withBalance = asc.map(item => {
+      runBal += Number(item.amount || 0);
+      return { ...item, running_balance: runBal };
+    });
+    return withBalance.reverse().filter(item => {
+      const kindLow = String(item.kind || '').toLowerCase();
+      const refLow = String(item.reference || '').toLowerCase();
       if (ledgerFilter === 'in' && item.amount <= 0) return false;
       if (ledgerFilter === 'out' && item.amount >= 0) return false;
-      if (
-        ledgerFilter === 'sales' &&
-        !item.kind?.toLowerCase().includes('sale') &&
-        !item.reference?.toLowerCase().includes('inv-')
-      ) {
+      if (ledgerFilter === 'sales' && !kindLow.includes('sale') && !refLow.includes('inv-')) {
+        return false;
+      }
+      if (ledgerFilter === 'repairs' && !kindLow.includes('repair') && !refLow.includes('rj-')) {
         return false;
       }
       if (
         ledgerFilter === 'expenses' &&
-        (item.amount >= 0 || item.kind?.toLowerCase().includes('return'))
+        (item.amount >= 0 || kindLow.includes('return') || kindLow.includes('supplier'))
       ) {
+        return false;
+      }
+      if (ledgerFilter === 'suppliers' && !kindLow.includes('supplier')) {
+        return false;
+      }
+      if (ledgerFilter === 'refunds' && !kindLow.includes('refund') && !kindLow.includes('return')) {
         return false;
       }
       const itemDate = (item.created_at || '').substring(0, 10);
@@ -578,15 +618,25 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
       if (ledgerSearch) {
         const q = ledgerSearch.toLowerCase();
         const hit =
-          (item.kind || '').toLowerCase().includes(q) ||
-          (item.reference || '').toLowerCase().includes(q) ||
-          (item.operator_name || '').toLowerCase().includes(q) ||
-          (item.branch_name || '').toLowerCase().includes(q);
+          kindLow.includes(q) ||
+          refLow.includes(q) ||
+          String(item.operator_name || '').toLowerCase().includes(q) ||
+          String(item.branch_name || '').toLowerCase().includes(q);
         if (!hit) return false;
       }
       return true;
     });
   }, [ledger, ledgerFilter, fromDate, toDate, ledgerSearch]);
+
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [ledgerFilter, fromDate, toDate, ledgerSearch, ledgerPageSize]);
+
+  const ledgerTotalPages = Math.max(1, Math.ceil(filteredLedger.length / ledgerPageSize));
+  const pagedLedger = useMemo(() => {
+    const start = (ledgerPage - 1) * ledgerPageSize;
+    return filteredLedger.slice(start, start + ledgerPageSize);
+  }, [filteredLedger, ledgerPage, ledgerPageSize]);
 
   const ledgerIn = useMemo(
     () => filteredLedger.reduce((sum, item) => sum + (item.amount > 0 ? item.amount : 0), 0),
@@ -597,7 +647,53 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
     [filteredLedger]
   );
   const ledgerNet = ledgerIn - ledgerOut;
+
+  const totalCatInflow = useMemo(
+    () => categories.reduce((sum, c) => sum + (c.total > 0 ? c.total : 0), 0),
+    [categories]
+  );
+  const totalCatOutflow = useMemo(
+    () => categories.reduce((sum, c) => sum + (c.total < 0 ? Math.abs(c.total) : 0), 0),
+    [categories]
+  );
+  const filteredCategories = useMemo(() => {
+    const list = categories.filter(c => {
+      if (catFilter === 'in' && c.total <= 0) return false;
+      if (catFilter === 'out' && c.total >= 0) return false;
+      return true;
+    });
+    return [...list].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  }, [categories, catFilter]);
   const maxCatVal = Math.max(1, ...categories.map(c => Math.abs(c.total)));
+
+  const shiftAuditStats = useMemo(() => {
+    const total = history.length;
+    const balanced = history.filter(h => (h.counted || 0) - (h.expected || 0) === 0).length;
+    const totalCounted = history.reduce((sum, h) => sum + Number(h.counted || 0), 0);
+    const netVariance = history.reduce(
+      (sum, h) => sum + ((h.counted || 0) - (h.expected || 0)),
+      0
+    );
+    return { total, balanced, totalCounted, netVariance };
+  }, [history]);
+
+  const filteredHistory = useMemo(() => {
+    const q = shiftAuditSearch.trim().toLowerCase();
+    return history.filter(h => {
+      const diff = (h.counted || 0) - (h.expected || 0);
+      if (shiftAuditFilter === 'balanced' && diff !== 0) return false;
+      if (shiftAuditFilter === 'variance' && diff === 0) return false;
+      if (q) {
+        const hit =
+          String(h.operator || '').toLowerCase().includes(q) ||
+          String(h.branch_name || '').toLowerCase().includes(q) ||
+          String(h.notes || '').toLowerCase().includes(q) ||
+          String(h.business_date || '').toLowerCase().includes(q);
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [history, shiftAuditFilter, shiftAuditSearch]);
 
   const openDrawerModal = () => {
     if (!ctx.branch) {
@@ -792,84 +888,169 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
         </div>
       </div>
 
-      {/* TAB 1: TODAY'S REGISTER (CASHBOOK ONLY, NO QUICK CASH IN/OUT CARD) */}
+      {/* TAB 1: TODAY'S REGISTER (STANDARD CASHBOOK RECONCILIATION & DOUBLE-COLUMN JOURNAL) */}
       {activeTab === 'register' && (
         <div className="zk-cb-main-card">
+          {/* Standard Accounting Reconciliation Equation Strip */}
+          <div className="zk-cb-equation-bar">
+            <div className="zk-cb-eq-cell">
+              <small>Opening Float (B/F)</small>
+              <strong>{money(drawer?.opening || 0)}</strong>
+            </div>
+            <span className="zk-cb-eq-op">+</span>
+            <div className="zk-cb-eq-cell in">
+              <small>Receipts / Cash In (Dr)</small>
+              <strong>{money(inflow)}</strong>
+            </div>
+            <span className="zk-cb-eq-op">−</span>
+            <div className="zk-cb-eq-cell out">
+              <small>Payments / Cash Out (Cr)</small>
+              <strong>{money(totalOutflowAbs)}</strong>
+            </div>
+            <span className="zk-cb-eq-op">=</span>
+            <div className="zk-cb-eq-cell closing">
+              <small>Expected Drawer (C/F)</small>
+              <strong>{money(drawer ? drawer.expected : 0)}</strong>
+            </div>
+          </div>
+
+          {/* Payment Tender Summary Strip */}
           {drawer && (
             <div className="zk-pay-strip">
               {['Cash', 'Card', 'Bank Transfer', 'Koko'].map(method => {
                 const found = payment_breakdown.find(p => p.method === method);
+                const val = Number(found?.total || 0);
+                const pct = totalTenderCollected > 0 ? Math.round((val / totalTenderCollected) * 100) : 0;
                 return (
                   <div className="zk-pay-pill" key={method}>
-                    <small>{method}</small>
-                    <strong>{money(found?.total || 0)}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <small>{method}</small>
+                      <span className="zk-cb-pct-chip">{pct}%</span>
+                    </div>
+                    <strong>{money(val)}</strong>
                     <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
-                      {found?.count || 0} txns
+                      {found?.count || 0} transactions
                     </span>
                   </div>
                 );
               })}
+              <div className="zk-pay-pill total">
+                <small>Total Collections</small>
+                <strong>{money(totalTenderCollected)}</strong>
+                <span style={{ fontSize: '10.5px', color: '#0f766e' }}>
+                  All payment methods
+                </span>
+              </div>
             </div>
           )}
 
           <div className="zk-cb-section-head">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <strong style={{ fontSize: '14px' }}>Shift Cash Movements</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: '14.5px', color: '#0f172a' }}>Shift Cashbook Journal</strong>
               <Badge tone={drawer ? 'green' : 'amber'}>
-                {drawer ? `${movements.length} Entries` : 'Closed'}
+                {drawer ? `${movementsWithBalance.length} / ${movements.length} Entries` : 'Register Closed'}
               </Badge>
             </div>
-            <FilterTabs
-              choices={[
-                ['all', 'All'],
-                ['in', 'Cash In'],
-                ['out', 'Cash Out'],
-                ['sales', 'Sales'],
-              ]}
-              value={shiftFilter}
-              onChange={setShiftFilter}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: '210px' }}>
+                <SearchBox
+                  value={shiftSearch}
+                  onChange={setShiftSearch}
+                  placeholder="Search voucher, category, operator..."
+                />
+              </div>
+              <FilterTabs
+                choices={[
+                  ['all', 'All'],
+                  ['in', 'Cash In (Dr)'],
+                  ['out', 'Cash Out (Cr)'],
+                  ['sales', 'Sales'],
+                  ['repairs', 'Repairs'],
+                ]}
+                value={shiftFilter}
+                onChange={setShiftFilter}
+              />
+            </div>
           </div>
 
           <Table
             rows={movementsWithBalance}
             empty="No cash movements recorded in this shift yet."
             columns={[
+              ['Voucher #', r => <span className="mono subtext">#{String(r.id).padStart(4, '0')}</span>],
               ['Time', r => timeLabel(r.created_at)],
               [
-                'Category / Type',
+                'Account / Category',
                 r => (
                   <Badge tone={r.amount < 0 ? 'red' : 'green'}>
                     {r.kind || (r.amount < 0 ? 'Cash Out' : 'Cash In')}
                   </Badge>
                 ),
               ],
-              ['Operator', r => r.operator_name || 'Staff'],
-              ['Reference', r => r.reference || '—'],
+              ['Particulars / Ref', r => r.reference || '—'],
+              ['Cashier', r => r.operator_name || 'Staff'],
               [
-                'Amount',
-                r => (
-                  <strong className={r.amount < 0 ? 'text-red' : 'text-green'}>
-                    {r.amount < 0 ? `− ${money(Math.abs(r.amount))}` : `+ ${money(r.amount)}`}
-                  </strong>
-                ),
+                'Cash In (Dr)',
+                r =>
+                  r.amount > 0 ? (
+                    <strong className="text-green mono">+ {money(r.amount)}</strong>
+                  ) : (
+                    <span style={{ color: '#cbd5e1' }}>—</span>
+                  ),
               ],
               [
-                'Balance',
+                'Cash Out (Cr)',
+                r =>
+                  r.amount < 0 ? (
+                    <strong className="text-red mono">− {money(Math.abs(r.amount))}</strong>
+                  ) : (
+                    <span style={{ color: '#cbd5e1' }}>—</span>
+                  ),
+              ],
+              [
+                'Running Balance',
                 r => (
-                  <span style={{ fontWeight: 700, color: '#334155' }}>
+                  <strong className="mono" style={{ color: '#0f172a' }}>
                     {money(r.running_balance)}
-                  </span>
+                  </strong>
                 ),
               ],
             ]}
           />
+
+          {drawer && (
+            <div className="zk-cb-table-footer">
+              <span>Shift Closing Summary:</span>
+              <div className="zk-cb-footer-totals">
+                <span className="text-green">Total In (Dr): <strong>+ {money(inflow)}</strong></span>
+                <span className="text-red">Total Out (Cr): <strong>− {money(totalOutflowAbs)}</strong></span>
+                <span style={{ color: '#0f766e' }}>Closing Drawer: <strong>{money(drawer.expected)}</strong></span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB 2: CASHBOOK LEDGER */}
+      {/* TAB 2: STANDARD DOUBLE-COLUMN CASHBOOK LEDGER */}
       {activeTab === 'ledger' && (
         <div className="zk-cb-main-card">
+          <div className="zk-cb-section-head">
+            <div>
+              <strong style={{ fontSize: '15px', color: '#0f172a' }}>General Cashbook Ledger</strong>
+              <small className="subtext" style={{ display: 'block' }}>
+                Double-column cash receipts (Dr) &amp; payments (Cr) ledger across {currentBranchName}
+              </small>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Button icon={Download} variant="outline" onClick={() => exportCsv(filteredLedger)}>
+                Export CSV ({filteredLedger.length})
+              </Button>
+              <Button icon={Printer} variant="outline" onClick={() => setPrintModalOpen(true)}>
+                Print Statement
+              </Button>
+            </div>
+          </div>
+
           <div className="zk-cb-filter-bar">
             <FilterTabs
               choices={[
@@ -906,135 +1087,267 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
           </div>
 
           <div className="zk-cb-filter-bar" style={{ background: '#ffffff' }}>
-            <div style={{ flex: '1 1 240px' }}>
+            <div style={{ flex: '1 1 260px' }}>
               <SearchBox
                 value={ledgerSearch}
                 onChange={setLedgerSearch}
-                placeholder="Search category, invoice, branch, operator or reference..."
+                placeholder="Search account, voucher #, invoice, branch, operator or particulars..."
               />
             </div>
-            <div style={{ minWidth: '185px' }}>
+            <div style={{ minWidth: '210px' }}>
               <Select
                 aria-label="Filter Movement Type"
                 value={ledgerFilter}
                 options={[
-                  ['all', 'All Movements'],
-                  ['in', 'Inflows (Cash In)'],
-                  ['out', 'Outflows (Cash Out)'],
-                  ['sales', 'Sales Cash Only'],
-                  ['expenses', 'Expenses Only'],
+                  ['all', 'All Ledger Entries'],
+                  ['in', 'Receipts Only (Cash In / Dr)'],
+                  ['out', 'Payments Only (Cash Out / Cr)'],
+                  ['sales', 'POS Cash Sales'],
+                  ['repairs', 'Repair Cash Revenue'],
+                  ['expenses', 'Operating Expenses'],
+                  ['suppliers', 'Supplier Cash Payments'],
+                  ['refunds', 'Customer Refunds'],
                 ]}
                 onChange={e => setLedgerFilter(e.target.value)}
               />
             </div>
+            {(ledgerSearch || ledgerFilter !== 'all' || fromDate || toDate) && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setLedgerSearch('');
+                  setLedgerFilter('all');
+                  applyDatePreset('all');
+                }}
+              >
+                Reset
+              </Button>
+            )}
           </div>
 
-          <div className="zk-cb-ledger-metrics">
+          <div className="zk-cb-ledger-metrics four">
+            <div className="zk-cb-ledger-card">
+              <small>LEDGER ENTRIES</small>
+              <strong>{filteredLedger.length}</strong>
+            </div>
             <div className="zk-cb-ledger-card in">
               <small style={{ color: '#166534' }}>
-                TOTAL INFLOW ({filteredLedger.filter(x => x.amount > 0).length} entries)
+                TOTAL RECEIPTS / DR ({filteredLedger.filter(x => x.amount > 0).length})
               </small>
               <strong style={{ color: '#15803d' }}>+ {money(ledgerIn)}</strong>
             </div>
             <div className="zk-cb-ledger-card out">
               <small style={{ color: '#991b1b' }}>
-                TOTAL OUTFLOW ({filteredLedger.filter(x => x.amount < 0).length} entries)
+                TOTAL PAYMENTS / CR ({filteredLedger.filter(x => x.amount < 0).length})
               </small>
               <strong style={{ color: '#dc2626' }}>− {money(ledgerOut)}</strong>
             </div>
-            <div className="zk-cb-ledger-card">
-              <small>NET CASH FLOW</small>
-              <strong style={{ color: ledgerNet >= 0 ? '#15803d' : '#dc2626' }}>
+            <div className="zk-cb-ledger-card net">
+              <small>NET CASH FLOW (C/F)</small>
+              <strong style={{ color: ledgerNet >= 0 ? '#0f766e' : '#dc2626' }}>
                 {money(ledgerNet)}
               </strong>
             </div>
           </div>
 
           <Table
-            rows={filteredLedger}
+            rows={pagedLedger}
+            empty="No cashbook ledger entries match your current filters."
             columns={[
+              ['Voucher', r => <span className="mono subtext">#{String(r.id).padStart(4, '0')}</span>],
               ['Date & Time', r => timeLabel(r.created_at)],
               ['Branch', r => r.branch_name || currentBranchName],
               [
-                'Category / Kind',
+                'Account / Category',
                 r => <Badge tone={r.amount < 0 ? 'red' : 'green'}>{r.kind}</Badge>,
               ],
+              ['Particulars / Ref', r => r.reference || '—'],
               ['Operator', r => r.operator_name || 'Staff'],
-              ['Reference', r => r.reference || '—'],
               [
-                'Inflow',
+                'Receipts (Dr)',
                 r =>
                   r.amount > 0 ? (
-                    <strong className="text-green">+ {money(r.amount)}</strong>
+                    <strong className="text-green mono">+ {money(r.amount)}</strong>
                   ) : (
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   ),
               ],
               [
-                'Outflow',
+                'Payments (Cr)',
                 r =>
                   r.amount < 0 ? (
-                    <strong className="text-red">− {money(Math.abs(r.amount))}</strong>
+                    <strong className="text-red mono">− {money(Math.abs(r.amount))}</strong>
                   ) : (
                     <span style={{ color: '#cbd5e1' }}>—</span>
                   ),
+              ],
+              [
+                'Balance',
+                r => (
+                  <strong className="mono" style={{ color: '#334155' }}>
+                    {money(r.running_balance)}
+                  </strong>
+                ),
               ],
             ]}
           />
+
+          <div className="zk-pagination-bar">
+            <div className="zk-pagination-info">
+              <span>
+                Showing{' '}
+                <strong>
+                  {filteredLedger.length ? (ledgerPage - 1) * ledgerPageSize + 1 : 0}–
+                  {Math.min(ledgerPage * ledgerPageSize, filteredLedger.length)}
+                </strong>{' '}
+                of <strong>{filteredLedger.length}</strong> cashbook entries
+              </span>
+              <select
+                aria-label="Rows per page"
+                className="zk-page-size-select"
+                value={ledgerPageSize}
+                onChange={e => setLedgerPageSize(Number(e.target.value))}
+              >
+                {[25, 50, 100].map(sz => (
+                  <option key={sz} value={sz}>
+                    {sz} / page
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Button
+                variant="outline"
+                icon={ChevronLeft}
+                disabled={ledgerPage <= 1}
+                onClick={() => setLedgerPage(p => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+              <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#334155' }}>
+                Page {ledgerPage} of {ledgerTotalPages}
+              </span>
+              <Button
+                variant="outline"
+                icon={ChevronRight}
+                disabled={ledgerPage >= ledgerTotalPages}
+                onClick={() => setLedgerPage(p => Math.min(ledgerTotalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* TAB 3: EXPENSE CATEGORIES */}
+      {/* TAB 3: CASHBOOK CATEGORIES & CHART OF ACCOUNTS BREAKDOWN */}
       {activeTab === 'categories' && (
         <div className="zk-cb-main-card">
-          {categories.length === 0 ? (
+          <div className="zk-cb-section-head">
+            <div>
+              <strong style={{ fontSize: '15px', color: '#0f172a' }}>Cashbook Account Categories</strong>
+              <small className="subtext" style={{ display: 'block' }}>
+                Click any category card to filter its entries directly in Cashbook Ledger
+              </small>
+            </div>
+            <FilterTabs
+              choices={[
+                ['all', `All Accounts (${categories.length})`],
+                ['in', 'Income / Inflows'],
+                ['out', 'Expenses / Outflows'],
+              ]}
+              value={catFilter}
+              onChange={setCatFilter}
+            />
+          </div>
+
+          <div className="zk-cb-ledger-metrics">
+            <div className="zk-cb-ledger-card in">
+              <small style={{ color: '#166534' }}>CATEGORIZED INFLOWS (DR)</small>
+              <strong style={{ color: '#15803d' }}>+ {money(totalCatInflow)}</strong>
+            </div>
+            <div className="zk-cb-ledger-card out">
+              <small style={{ color: '#991b1b' }}>CATEGORIZED EXPENSES / OUTFLOWS (CR)</small>
+              <strong style={{ color: '#dc2626' }}>− {money(totalCatOutflow)}</strong>
+            </div>
+            <div className="zk-cb-ledger-card net">
+              <small>NET ACCOUNT BALANCE</small>
+              <strong style={{ color: totalCatInflow - totalCatOutflow >= 0 ? '#0f766e' : '#dc2626' }}>
+                {money(totalCatInflow - totalCatOutflow)}
+              </strong>
+            </div>
+          </div>
+
+          {filteredCategories.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '2.5rem', color: '#94a3b8' }}>
-              No categorized cashbook transactions found yet.
+              No categorized cashbook transactions match this filter.
             </div>
           ) : (
             <div className="zk-cb-cat-grid">
-              {categories.map((c, idx) => {
+              {filteredCategories.map((c, idx) => {
                 const isNeg = c.total < 0;
-                const pct = Math.min(100, Math.round((Math.abs(c.total) / maxCatVal) * 100));
+                const absVal = Math.abs(c.total);
+                const shareBase = isNeg ? Math.max(1, totalCatOutflow) : Math.max(1, totalCatInflow);
+                const sharePct = Math.round((absVal / shareBase) * 100);
+                const barPct = Math.min(100, Math.round((absVal / maxCatVal) * 100));
+                const avg = Math.round(absVal / Math.max(1, c.count));
+
                 return (
-                  <div
+                  <button
                     key={idx}
-                    className="zk-cb-cat-card"
-                    style={{ background: isNeg ? '#fffafa' : '#f8fdfb' }}
+                    type="button"
+                    className="zk-cb-cat-card clickable"
+                    style={{ background: isNeg ? '#fffafa' : '#f8fdfb', textAlign: 'left' }}
+                    onClick={() => {
+                      setLedgerSearch(c.name);
+                      setLedgerFilter('all');
+                      setActiveTab('ledger');
+                    }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{c.name}</strong>
-                      <Badge tone={isNeg ? 'red' : 'green'}>{c.count} entries</Badge>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>
+                        {isNeg ? <TrendingDown size={15} style={{ color: '#dc2626' }} /> : <TrendingUp size={15} style={{ color: '#15803d' }} />}
+                        {c.name}
+                      </span>
+                      <Badge tone={isNeg ? 'red' : 'green'}>{c.count} txns</Badge>
                     </div>
+
                     <div
+                      className="mono"
                       style={{
-                        fontSize: '18px',
+                        fontSize: '19px',
                         fontWeight: 800,
-                        marginTop: '8px',
+                        marginTop: '10px',
                         color: isNeg ? '#dc2626' : '#15803d',
                       }}
                     >
-                      {isNeg ? `− ${money(Math.abs(c.total))}` : `+ ${money(c.total)}`}
+                      {isNeg ? `− ${money(absVal)}` : `+ ${money(absVal)}`}
                     </div>
+
+                    <div className="zk-cb-cat-submeta">
+                      <span>Avg: {money(avg)}</span>
+                      <span>{sharePct}% of {isNeg ? 'outflows' : 'inflows'}</span>
+                    </div>
+
                     <div
                       style={{
                         height: '6px',
                         background: '#e2e8f0',
                         borderRadius: '4px',
-                        marginTop: '10px',
+                        marginTop: '8px',
                         overflow: 'hidden',
                       }}
                     >
                       <div
                         style={{
-                          width: `${pct}%`,
+                          width: `${barPct}%`,
                           height: '100%',
                           background: isNeg ? '#ef4444' : '#10b981',
                           borderRadius: '4px',
                         }}
                       />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1042,11 +1355,18 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
         </div>
       )}
 
-      {/* TAB 4: CLOSED SESSIONS */}
+      {/* TAB 4: CLOSED SHIFTS RECONCILIATION AUDIT */}
       {activeTab === 'sessions' && (
         <div className="zk-cb-main-card">
-          {canManage(ctx) && ctx.branch > 0 && (
-            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+          <div className="zk-cb-section-head">
+            <div>
+              <strong style={{ fontSize: '15px', color: '#0f172a' }}>Closed Shifts &amp; Variance Audit</strong>
+              <small className="subtext" style={{ display: 'block' }}>
+                Historical cash drawer closings, counted cash verification &amp; variance tracking
+              </small>
+            </div>
+
+            {canManage(ctx) && ctx.branch > 0 && (
               <Button
                 icon={LockKeyhole}
                 onClick={() =>
@@ -1066,40 +1386,107 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
               >
                 Close Business Day
               </Button>
+            )}
+          </div>
+
+          <div className="zk-cb-ledger-metrics four">
+            <div className="zk-cb-ledger-card">
+              <small>CLOSED SHIFTS</small>
+              <strong>{shiftAuditStats.total}</strong>
             </div>
-          )}
+            <div className="zk-cb-ledger-card in">
+              <small style={{ color: '#166534' }}>BALANCED SHIFTS (0.00 DIFF)</small>
+              <strong style={{ color: '#15803d' }}>
+                {shiftAuditStats.balanced} / {shiftAuditStats.total}{' '}
+                <span style={{ fontSize: '12px', fontWeight: 700 }}>
+                  ({shiftAuditStats.total ? Math.round((shiftAuditStats.balanced / shiftAuditStats.total) * 100) : 0}%)
+                </span>
+              </strong>
+            </div>
+            <div className="zk-cb-ledger-card net">
+              <small>TOTAL CASH COUNTED</small>
+              <strong style={{ color: '#0f766e' }}>{money(shiftAuditStats.totalCounted)}</strong>
+            </div>
+            <div className={`zk-cb-ledger-card ${shiftAuditStats.netVariance < 0 ? 'out' : shiftAuditStats.netVariance === 0 ? 'in' : ''}`}>
+              <small>NET CUMULATIVE VARIANCE</small>
+              <strong
+                style={{
+                  color:
+                    shiftAuditStats.netVariance === 0
+                      ? '#15803d'
+                      : shiftAuditStats.netVariance > 0
+                        ? '#1d4ed8'
+                        : '#dc2626',
+                }}
+              >
+                {shiftAuditStats.netVariance === 0
+                  ? 'Balanced (0.00)'
+                  : shiftAuditStats.netVariance > 0
+                    ? `+ ${money(shiftAuditStats.netVariance)}`
+                    : `− ${money(Math.abs(shiftAuditStats.netVariance))}`}
+              </strong>
+            </div>
+          </div>
+
+          <div className="zk-cb-filter-bar">
+            <div style={{ flex: '1 1 240px' }}>
+              <SearchBox
+                value={shiftAuditSearch}
+                onChange={setShiftAuditSearch}
+                placeholder="Search by cashier, branch, date or variance note..."
+              />
+            </div>
+            <FilterTabs
+              choices={[
+                ['all', `All Shifts (${history.length})`],
+                ['balanced', 'Balanced Only'],
+                ['variance', 'With Variance'],
+              ]}
+              value={shiftAuditFilter}
+              onChange={setShiftAuditFilter}
+            />
+          </div>
 
           <Table
-            rows={history}
+            rows={filteredHistory}
+            empty="No closed register shifts match your filter."
             columns={[
+              ['Shift', r => <span className="mono subtext">#{String(r.id).padStart(4, '0')}</span>],
               ['Business Date', r => dateLabel(r.business_date)],
               ['Branch', r => r.branch_name || currentBranchName],
-              ['Operator', 'operator'],
-              ['Opening Float', r => money(r.opening)],
-              ['Expected Cash', r => money(r.expected)],
-              ['Counted Cash', r => money(r.counted)],
+              ['Cashier', 'operator'],
+              ['Opening Float', r => <span className="mono">{money(r.opening)}</span>],
+              ['Expected', r => <span className="mono">{money(r.expected)}</span>],
+              ['Counted', r => <strong className="mono">{money(r.counted)}</strong>],
               [
                 'Variance',
                 r => {
                   const diff = (r.counted || 0) - (r.expected || 0);
-                  if (diff === 0) return <Badge tone="green">Balanced (0.00)</Badge>;
+                  if (diff === 0) {
+                    return (
+                      <Badge tone="green">
+                        <CheckCircle2 size={11} /> Balanced
+                      </Badge>
+                    );
+                  }
                   return (
-                    <strong className={diff > 0 ? 'text-green' : 'text-red'}>
+                    <Badge tone={diff > 0 ? 'blue' : 'red'}>
+                      <AlertTriangle size={11} />{' '}
                       {diff > 0 ? `+ ${money(diff)}` : `− ${money(Math.abs(diff))}`}
-                    </strong>
+                    </Badge>
                   );
                 },
               ],
               ['Notes', r => r.notes || '—'],
               [
-                'Inspect',
+                'Actions',
                 r => (
                   <Button
                     variant="outline"
                     onClick={() => setSessionModal(r)}
-                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.82rem' }}
+                    style={{ padding: '0.25rem 0.65rem', fontSize: '0.82rem' }}
                   >
-                    View Shift
+                    View Audit
                   </Button>
                 ),
               ],
@@ -1147,20 +1534,38 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
               empty="No individual movements linked to this shift."
               columns={[
                 ['Time', m => timeLabel(m.created_at)],
-                ['Category', 'kind'],
-                ['Reference', m => m.reference || '—'],
+                ['Account / Category', 'kind'],
+                ['Particulars / Ref', m => m.reference || '—'],
                 [
-                  'Amount',
-                  m => (
-                    <strong className={m.amount < 0 ? 'text-red' : 'text-green'}>
-                      {m.amount < 0 ? `− ${money(Math.abs(m.amount))}` : `+ ${money(m.amount)}`}
-                    </strong>
-                  ),
+                  'Cash In (Dr)',
+                  m => (m.amount > 0 ? <strong className="text-green">+ {money(m.amount)}</strong> : '—'),
+                ],
+                [
+                  'Cash Out (Cr)',
+                  m => (m.amount < 0 ? <strong className="text-red">− {money(Math.abs(m.amount))}</strong> : '—'),
                 ],
               ]}
             />
           </div>
           <div className="modal-footer">
+            <Button
+              variant="outline"
+              icon={Printer}
+              onClick={() => {
+                const shiftMovs = ledger.filter(m => Number(m.drawer_id) === Number(sessionModal.id));
+                const rowsHtml = shiftMovs.length
+                  ? shiftMovs
+                      .map(
+                        m => `<tr><td>${timeLabel(m.created_at)}</td><td>${m.kind || ''}</td><td>${m.reference || '—'}</td><td style="text-align:right;color:#15803d">${m.amount > 0 ? money(m.amount) : '—'}</td><td style="text-align:right;color:#dc2626">${m.amount < 0 ? money(Math.abs(m.amount)) : '—'}</td></tr>`
+                      )
+                      .join('')
+                  : '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:10px;">No movements</td></tr>';
+                const diff = (sessionModal.counted || 0) - (sessionModal.expected || 0);
+                printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Shift Audit #${sessionModal.id}</title><style>body{font-family:'Segoe UI',Arial,sans-serif;padding:18px;color:#0f172a}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{padding:6px;border-bottom:1px solid #e2e8f0;font-size:12px}th{background:#f8fafc;text-align:left}</style></head><body><h2 style="margin:0;">SHIFT AUDIT REPORT #${String(sessionModal.id).padStart(4, '0')}</h2><p style="margin:4px 0 12px;color:#475569;font-size:12.5px;">${sessionModal.branch_name || currentBranchName} · ${dateLabel(sessionModal.business_date)} · Cashier: ${sessionModal.operator || 'Staff'}</p><p style="font-size:13px;"><strong>Opening:</strong> ${money(sessionModal.opening)} &nbsp;|&nbsp; <strong>Expected:</strong> ${money(sessionModal.expected)} &nbsp;|&nbsp; <strong>Counted:</strong> ${money(sessionModal.counted)} &nbsp;|&nbsp; <strong>Variance:</strong> ${diff === 0 ? 'Balanced (0.00)' : money(diff)}</p><table><thead><tr><th>Time</th><th>Account / Category</th><th>Particulars / Ref</th><th style="text-align:right">Cash In (Dr)</th><th style="text-align:right">Cash Out (Cr)</th></tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`);
+              }}
+            >
+              Print Audit
+            </Button>
             <Button variant="outline" onClick={() => setSessionModal(null)}>
               Close
             </Button>
