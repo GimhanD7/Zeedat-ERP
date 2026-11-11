@@ -46,14 +46,14 @@ class RepairService {
         if (\Zeedat\Config\Database::isSqlite()) {
             $uuid = 'rep_' . bin2hex(random_bytes(10));
             $id = BaseRepository::insert(
-                "INSERT INTO repairs(uuid, branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                [$uuid, $branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate, $status]
+                "INSERT INTO repairs(uuid, sync_uuid, branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status, synced)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                [$uuid, $uuid, $branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate, $status]
             );
         } else {
             $id = BaseRepository::insert(
-                "INSERT INTO repairs(branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO repairs(branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, due_date, status, synced)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,0)",
                 [$branch, $customer, $technician, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $dueDate, $status]
             );
         }
@@ -88,7 +88,7 @@ class RepairService {
             throw new ApiError("Cannot transition repair from {$job['status']} to {$next}.");
         }
 
-        BaseRepository::run('UPDATE repairs SET status=? WHERE id=?', [$next, $id]);
+        BaseRepository::run('UPDATE repairs SET status=?, synced=0 WHERE id=?', [$next, $id]);
 
         return ['id' => $id, 'status' => $next, 'previous' => $job['status']];
     }

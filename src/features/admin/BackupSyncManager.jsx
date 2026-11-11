@@ -219,27 +219,26 @@ export function BackupSyncManager({ ctx }) {
       setMessage(null);
       const pushRes = await ctx.mutate('sync.push', {});
       const pullRes = await ctx.mutate('sync.pull', {});
-      const pendingRes = await ctx.mutate('sync.auto', {});
       if (pushRes?.success === false) {
         setMessage({
           type: 'error',
-          text: pushRes.error || 'Cloud sync failed.',
+          text: pushRes.error || 'Push sync failed.',
+        });
+      } else if (pullRes?.success === false) {
+        setMessage({
+          type: 'error',
+          text: pullRes.error || 'Pull sync from online server failed.',
         });
       } else {
-        const pushedTotal =
-          (pushRes?.synced_sales ?? 0) +
-          (pushRes?.synced_customers ?? 0) +
-          (pushRes?.synced_repairs ?? 0);
-        const backupText =
-          pendingRes?.backup?.status === 'synced'
-            ? ' Auto-backup uploaded to server.'
-            : pendingRes?.pending_backups?.uploaded > 0
-              ? ` Uploaded ${pendingRes.pending_backups.uploaded} offline backup(s).`
-              : '';
+        const pushedTotal = pushRes?.synced_count ??
+          ((pushRes?.synced_sales ?? 0) +
+            (pushRes?.synced_customers ?? 0) +
+            (pushRes?.synced_repairs ?? 0));
         setMessage({
           type: 'success',
-          text: `Sync Complete! Pushed ${pushedTotal} record(s). Pulled ${pullRes?.products_synced ?? 0} product(s).${backupText}`,
+          text: `Two-Way Sync Complete! Pushed ${pushedTotal} local record(s). Pulled ${pullRes?.branches_synced ?? 0} branch(es), ${pullRes?.products_synced ?? 0} product(s), ${pullRes?.stock_synced ?? 0} stock level(s), ${pullRes?.customers_synced ?? 0} customer(s), ${pullRes?.units_synced ?? 0} unit(s), and ${pullRes?.sales_synced ?? 0} online sale(s).`,
         });
+        window.dispatchEvent(new Event('zeedat-sync-complete'));
       }
       await loadData();
     } catch (err) {

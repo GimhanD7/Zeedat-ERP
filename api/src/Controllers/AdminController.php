@@ -224,13 +224,13 @@ class AdminController {
 
         if ($id) {
             BaseRepository::run(
-                'UPDATE branches SET name=?, phone=?, address=? WHERE id=?',
+                'UPDATE branches SET name=?, phone=?, address=?, synced=0 WHERE id=?',
                 [$name, $phone, $address, $id]
             );
             UserRepository::logAudit((int) $user['id'], $id, 'branch.update', ['id' => $id, 'name' => $name]);
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO branches(name, phone, address) VALUES (?,?,?)',
+                'INSERT INTO branches(name, phone, address, synced) VALUES (?,?,?,0)',
                 [$name, $phone, $address]
             );
             UserRepository::logAudit((int) $user['id'], $id, 'branch.create', ['id' => $id, 'name' => $name]);

@@ -121,7 +121,7 @@ class ReturnService {
         $reference = $row['method'] === 'Cash' ? null : Validator::str($body, 'reference', 100, true);
 
         if ($row['unit_id']) {
-            BaseRepository::run("UPDATE units SET state='Inspection' WHERE id=?", [$row['unit_id']]);
+            BaseRepository::run("UPDATE units SET state='Inspection', synced=0 WHERE id=?", [$row['unit_id']]);
         } elseif ($row['restock']) {
             ProductRepository::adjustStock($branch, (int) $row['product_id'], (int) $row['qty'], 'Return restock', Helpers::ref('RET', $id), (int) $user['id']);
         }
@@ -141,12 +141,12 @@ class ReturnService {
             $total = $lineSubtotal + $lineTax;
 
             $replacementSaleId = BaseRepository::insert(
-                'INSERT INTO sales(branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit) VALUES (?,?,?,?,?,0,?,?,0)',
+                'INSERT INTO sales(branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, synced) VALUES (?,?,?,?,?,0,?,?,0,0)',
                 [$branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $total]
             );
 
             if ($row['replacement_unit_id']) {
-                BaseRepository::run("UPDATE units SET state='Sold' WHERE id=?", [$row['replacement_unit_id']]);
+                BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$row['replacement_unit_id']]);
             }
             if ($p['category'] !== 'Services') {
                 ProductRepository::adjustStock($branch, $p['id'], -(int) $row['replacement_qty'], 'Exchange replacement', Helpers::ref('INV', $replacementSaleId), (int) $user['id']);

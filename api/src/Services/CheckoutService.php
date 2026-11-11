@@ -128,7 +128,7 @@ class CheckoutService {
                 ? Helpers::rate($lineTotal, $commVal)
                 : $commVal * $qty;
 
-            if ($unit) BaseRepository::run("UPDATE units SET state='Sold' WHERE id=?", [$unit]);
+            if ($unit) BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$unit]);
             if ($p['category'] !== 'Services') {
                 ProductRepository::adjustStock($branch, $p['id'], -$qty, 'Sale', Helpers::ref('INV', $id), (int) $user['id']);
             }

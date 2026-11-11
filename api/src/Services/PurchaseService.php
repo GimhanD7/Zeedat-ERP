@@ -14,7 +14,7 @@ class PurchaseService {
     public static function createSupplier(array $body): array {
         $name = Validator::str($body, 'name', 120);
         $phone = Validator::str($body, 'phone', 30, false);
-        $id = BaseRepository::insert('INSERT INTO suppliers(name, phone) VALUES (?,?)', [$name, $phone ?: '']);
+        $id = BaseRepository::insert('INSERT INTO suppliers(name, phone, synced) VALUES (?,?,0)', [$name, $phone ?: '']);
         return ['id' => $id, 'name' => $name];
     }
 
@@ -35,7 +35,7 @@ class PurchaseService {
         $qty = Validator::integer($body['qty'] ?? null, 'Quantity', 1, $p['serialized'] ? 1 : 10000);
 
         $purchaseId = BaseRepository::insert(
-            'INSERT INTO purchases(branch_id, supplier_id, product_id, invoice, qty, unit_cost, balance) VALUES (?,?,?,?,?,?,?)',
+            'INSERT INTO purchases(branch_id, supplier_id, product_id, invoice, qty, unit_cost, balance, synced) VALUES (?,?,?,?,?,?,?,0)',
             [$branch, $supplier, $product, $invoice, $qty, $unitCost, $qty * $unitCost]
         );
 
@@ -45,7 +45,7 @@ class PurchaseService {
             $grade = Validator::str($body, 'grade', 20);
 
             BaseRepository::insert(
-                "INSERT INTO units(branch_id, product_id, code, imei, grade, state) VALUES (?,?,?,?,?,'Available')",
+                "INSERT INTO units(branch_id, product_id, code, imei, grade, state, synced) VALUES (?,?,?,?,?,'Available',0)",
                 [$branch, $product, $code, $imei ?: null, $grade]
             );
         }
@@ -72,7 +72,7 @@ class PurchaseService {
             'INSERT INTO supplier_payments(purchase_id, drawer_id, user_id, amount) VALUES (?,?,?,?)',
             [$id, $drawer['id'], $user['id'], $amount]
         );
-        BaseRepository::run('UPDATE purchases SET balance=balance-? WHERE id=?', [$amount, $id]);
+        BaseRepository::run('UPDATE purchases SET balance=balance-?, synced=0 WHERE id=?', [$amount, $id]);
 
         DrawerRepository::addCashMovement(
             $user['id'],
@@ -107,7 +107,7 @@ class PurchaseService {
         }
 
         $id = BaseRepository::insert(
-            "INSERT INTO transfers(from_branch, to_branch, product_id, unit_id, qty, status) VALUES (?,?,?,?,?, 'Requested')",
+            "INSERT INTO transfers(from_branch, to_branch, product_id, unit_id, qty, status, synced) VALUES (?,?,?,?,?, 'Requested', 0)",
             [$branch, $to, $product, $unit, $qty]
         );
 
@@ -145,11 +145,11 @@ class PurchaseService {
                 if (!ProductRepository::findAvailableUnit((int) $transfer['unit_id'], $fromBranch, (int) $transfer['product_id'])) {
                     throw new ApiError('Device is unavailable at source branch.', 409);
                 }
-                BaseRepository::run("UPDATE units SET state='In Transit' WHERE id=?", [$transfer['unit_id']]);
+                BaseRepository::run("UPDATE units SET state='In Transit', synced=0 WHERE id=?", [$transfer['unit_id']]);
             }
 
             ProductRepository::adjustStock($fromBranch, (int) $transfer['product_id'], -(int) $transfer['qty'], 'Transfer dispatched', Helpers::ref('ST', $id), (int) $user['id']);
-            BaseRepository::run("UPDATE transfers SET status='Dispatched' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE transfers SET status='Dispatched', synced=0 WHERE id=?", [$id]);
 
             return ['id' => $id, 'status' => 'Dispatched'];
         }
@@ -166,11 +166,11 @@ class PurchaseService {
             }
 
             if ($transfer['unit_id']) {
-                BaseRepository::run("UPDATE units SET branch_id=?, state='Available' WHERE id=?", [$toBranch, $transfer['unit_id']]);
+                BaseRepository::run("UPDATE units SET branch_id=?, state='Available', synced=0 WHERE id=?", [$toBranch, $transfer['unit_id']]);
             }
 
             ProductRepository::adjustStock($toBranch, (int) $transfer['product_id'], (int) $transfer['qty'], 'Transfer received', Helpers::ref('ST', $id), (int) $user['id']);
-            BaseRepository::run("UPDATE transfers SET status='Received' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE transfers SET status='Received', synced=0 WHERE id=?", [$id]);
 
             return ['id' => $id, 'status' => 'Received'];
         }
@@ -183,7 +183,7 @@ class PurchaseService {
                 throw new ApiError('Only the source branch can reject.', 403);
             }
 
-            BaseRepository::run("UPDATE transfers SET status='Rejected' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE transfers SET status='Rejected', synced=0 WHERE id=?", [$id]);
 
             return ['id' => $id, 'status' => 'Rejected'];
         }

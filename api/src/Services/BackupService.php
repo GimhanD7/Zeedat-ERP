@@ -288,7 +288,9 @@ class BackupService {
             return ['success' => true, 'response' => $response];
         }
 
-        $hint = $httpCode === 404 ? ' (Update Namecheap server with latest release/zeedat-namecheap-upload.zip)' : '';
+        $hint = $httpCode === 404
+            ? ' (Update Namecheap server with latest release/zeedat-namecheap-upload.zip)'
+            : ($httpCode === 401 ? ' (Set matching Security API Key on BOTH online server and desktop app)' : '');
         return ['success' => false, 'error' => "Server responded with HTTP {$httpCode}: {$response}{$hint}"];
     }
 

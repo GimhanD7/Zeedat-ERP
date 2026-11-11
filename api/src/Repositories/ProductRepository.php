@@ -75,7 +75,7 @@ class ProductRepository extends BaseRepository {
             : 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)';
         self::run($stockSql, [$branch, $productId, $delta]);
         self::run(
-            'INSERT INTO stock_movements(branch_id, product_id, user_id, qty, kind, reference) VALUES (?,?,?,?,?,?)',
+            'INSERT INTO stock_movements(branch_id, product_id, user_id, qty, kind, reference, synced) VALUES (?,?,?,?,?,?,0)',
             [$branch, $productId, $userId, $delta, $kind, $reference ?? '']
         );
         if ((int) self::scalar('SELECT qty FROM stock WHERE branch_id=? AND product_id=?', [$branch, $productId]) < 0) {

@@ -63,7 +63,7 @@ class InventoryService {
             $pid = (int) $p['id'];
             $code = self::generateBarcode($batchGenerated, $pid)['barcode'];
             $batchGenerated[] = $code;
-            BaseRepository::run('UPDATE products SET barcode=? WHERE id=?', [$code, $pid]);
+            BaseRepository::run('UPDATE products SET barcode=?, synced=0 WHERE id=?', [$code, $pid]);
             $updated[] = ['id' => $pid, 'barcode' => $code];
             $count++;
         }
@@ -128,12 +128,12 @@ class InventoryService {
 
         if ($id) {
             BaseRepository::run(
-                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=? WHERE id=?',
+                'UPDATE products SET sku=?, barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=?, synced=0 WHERE id=?',
                 [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $commType, $commValue, $id]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value, synced) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)',
                 [$sku, $barcode ?: null, $name, $brand ?: '', $category, $cost, $price, $reorder, $serialized, $commType, $commValue]
             );
         }
@@ -205,7 +205,7 @@ class InventoryService {
             }
         }
 
-        BaseRepository::run('UPDATE products SET barcode=? WHERE id=?', [$barcode ?: null, $id]);
+        BaseRepository::run('UPDATE products SET barcode=?, synced=0 WHERE id=?', [$barcode ?: null, $id]);
 
         return ['id' => $id, 'barcode' => $barcode];
     }
@@ -376,7 +376,7 @@ class InventoryService {
 
         return BaseRepository::transaction(function () use ($user, $branch, $product, $code, $imei, $grade, $state) {
             $id = BaseRepository::insert(
-                'INSERT INTO units(branch_id, product_id, code, imei, grade, state) VALUES (?,?,?,?,?,?)',
+                'INSERT INTO units(branch_id, product_id, code, imei, grade, state, synced) VALUES (?,?,?,?,?,?,0)',
                 [$branch, $product, $code, $imei ?: null, $grade, $state]
             );
 
@@ -401,7 +401,7 @@ class InventoryService {
             }
 
             $targetBranch = (int) $unit['branch_id'];
-            BaseRepository::run("UPDATE units SET state='Available' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE units SET state='Available', synced=0 WHERE id=?", [$id]);
             ProductRepository::adjustStock($targetBranch, (int) $unit['product_id'], 1, 'Inspection released to stock: ' . $reason, $unit['code'], (int) $user['id']);
 
             return ['id' => $id, 'state' => 'Available', 'code' => $unit['code']];
@@ -421,7 +421,7 @@ class InventoryService {
             }
 
             $targetBranch = (int) $unit['branch_id'];
-            BaseRepository::run("UPDATE units SET state='Inspection' WHERE id=?", [$id]);
+            BaseRepository::run("UPDATE units SET state='Inspection', synced=0 WHERE id=?", [$id]);
             ProductRepository::adjustStock($targetBranch, (int) $unit['product_id'], -1, 'Moved to inspection: ' . $reason, $unit['code'], (int) $user['id']);
 
             return ['id' => $id, 'state' => 'Inspection', 'code' => $unit['code']];
@@ -448,7 +448,7 @@ class InventoryService {
             throw new ApiError('Invalid unit condition grade.');
         }
 
-        BaseRepository::run('UPDATE units SET imei=?, grade=? WHERE id=?', [$imei ?: null, $grade, $id]);
+        BaseRepository::run('UPDATE units SET imei=?, grade=?, synced=0 WHERE id=?', [$imei ?: null, $grade, $id]);
         UserRepository::logAudit((int) $user['id'], (int) $unit['branch_id'], 'unit.update', [
             'id' => $id,
             'code' => $unit['code'],
@@ -638,7 +638,7 @@ class InventoryService {
             BaseRepository::run('DELETE FROM stock WHERE product_id=?', [$id]);
 
             if ($hasHistory) {
-                BaseRepository::run('UPDATE products SET active=0, barcode=NULL WHERE id=?', [$id]);
+                BaseRepository::run('UPDATE products SET active=0, barcode=NULL, synced=0 WHERE id=?', [$id]);
                 UserRepository::logAudit((int) $user['id'], null, 'product.archive', [
                     'id' => $id,
                     'sku' => $product['sku'],

@@ -234,13 +234,20 @@ function Workspace({ session, onLogout }) {
       try {
         const res = await apiClient('sync.auto', { data: {}, csrf, key: requestKey(), background: true });
         const pushedCount =
-          (res?.push?.synced_sales ?? 0) +
-          (res?.push?.synced_customers ?? 0) +
-          (res?.push?.synced_repairs ?? 0);
+          res?.push?.synced_count ??
+          ((res?.push?.synced_sales ?? 0) +
+            (res?.push?.synced_customers ?? 0) +
+            (res?.push?.synced_repairs ?? 0));
+        const pulledCount =
+          (res?.pull?.products_synced ?? 0) +
+          (res?.pull?.stock_synced ?? 0) +
+          (res?.pull?.customers_synced ?? 0) +
+          (res?.pull?.sales_synced ?? 0);
         const backedUp =
           res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
-        if (res?.ran && (pushedCount > 0 || backedUp)) {
-          setNotice('Online: synced offline records & server backup.');
+        if (res?.ran && (pushedCount > 0 || pulledCount > 0 || backedUp)) {
+          setNotice('Online: synced local & server branch data.');
+          window.dispatchEvent(new Event('zeedat-sync-complete'));
         }
       } catch {
         // Silent background retry when offline or cloud URL not configured
