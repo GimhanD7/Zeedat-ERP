@@ -373,9 +373,8 @@ class BackupService {
         // Check local disk space in MB
         $dir = self::getBackupDir();
         $freeSpaceMb = round(disk_free_space($dir) / (1024 * 1024), 2);
-        $unsyncedCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE synced=0')
-            + (int) BaseRepository::scalar('SELECT COUNT(*) FROM customers WHERE synced=0')
-            + (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE synced=0');
+        $syncStatus = CloudSyncService::getStatus();
+        $unsyncedCount = (int) ($syncStatus['total_pending'] ?? 0);
         $pendingBackups = (int) BaseRepository::scalar("SELECT COUNT(*) FROM backup_logs WHERE status='local_saved'");
 
         return [

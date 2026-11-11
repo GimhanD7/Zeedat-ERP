@@ -22,7 +22,7 @@ class CloudSyncService {
         $totalPending = 0;
         foreach ($tables as $tbl) {
             try {
-                $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0");
+                $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0 OR sync_uuid IS NULL OR sync_uuid = ''");
             } catch (Throwable) {
                 $cnt = 0;
             }
@@ -100,17 +100,21 @@ class CloudSyncService {
             return ['success' => false, 'error' => 'Device is offline. Saved locally in SQLite; will sync when reconnected.'];
         }
 
+        $pendingWhere = static fn(string $alias = ''): string => $alias !== ''
+            ? "({$alias}.synced = 0 OR {$alias}.sync_uuid IS NULL OR {$alias}.sync_uuid = '')"
+            : "(synced = 0 OR sync_uuid IS NULL OR sync_uuid = '')";
+
         $branches = self::ensureSyncUuids(
             'branches',
             'BR',
-            self::safeRows('SELECT * FROM branches WHERE synced = 0 ORDER BY id ASC LIMIT 50'),
+            self::safeRows('SELECT * FROM branches WHERE ' . $pendingWhere() . ' ORDER BY id ASC LIMIT 50'),
             static fn($r) => (string) ($r['name'] ?? '')
         );
 
         $products = self::ensureSyncUuids(
             'products',
             'PRD',
-            self::safeRows('SELECT * FROM products WHERE synced = 0 ORDER BY id ASC LIMIT 200'),
+            self::safeRows('SELECT * FROM products WHERE ' . $pendingWhere() . ' ORDER BY id ASC LIMIT 200'),
             static fn($r) => (string) ($r['sku'] ?? $r['name'] ?? '')
         );
 
@@ -120,7 +124,7 @@ class CloudSyncService {
             self::safeRows(
                 'SELECT c.*, COALESCE(b.name, "") AS branch_name
                  FROM customers c LEFT JOIN branches b ON b.id=c.branch_id
-                 WHERE c.synced = 0 ORDER BY c.id ASC LIMIT 150'
+                 WHERE ' . $pendingWhere('c') . ' ORDER BY c.id ASC LIMIT 150'
             ),
             static fn($r) => ($r['phone'] ?? '') . '|' . ($r['name'] ?? '')
         );
@@ -133,7 +137,7 @@ class CloudSyncService {
                  FROM units u
                  JOIN products p ON p.id=u.product_id
                  LEFT JOIN branches b ON b.id=u.branch_id
-                 WHERE u.synced = 0 ORDER BY u.id ASC LIMIT 200'
+                 WHERE ' . $pendingWhere('u') . ' ORDER BY u.id ASC LIMIT 200'
             ),
             static fn($r) => (string) ($r['code'] ?? '')
         );
@@ -141,7 +145,7 @@ class CloudSyncService {
         $suppliers = self::ensureSyncUuids(
             'suppliers',
             'SUP',
-            self::safeRows('SELECT * FROM suppliers WHERE synced = 0 ORDER BY id ASC LIMIT 100'),
+            self::safeRows('SELECT * FROM suppliers WHERE ' . $pendingWhere() . ' ORDER BY id ASC LIMIT 100'),
             static fn($r) => (string) ($r['name'] ?? '')
         );
 
@@ -154,7 +158,7 @@ class CloudSyncService {
                  LEFT JOIN branches b ON b.id=pu.branch_id
                  JOIN suppliers s ON s.id=pu.supplier_id
                  JOIN products p ON p.id=pu.product_id
-                 WHERE pu.synced = 0 ORDER BY pu.id ASC LIMIT 150'
+                 WHERE ' . $pendingWhere('pu') . ' ORDER BY pu.id ASC LIMIT 150'
             ),
             static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['supplier_name'] ?? '') . '|' . ($r['invoice'] ?? '') . '|' . ($r['product_sku'] ?? '')
         );
@@ -170,7 +174,7 @@ class CloudSyncService {
                  LEFT JOIN branches tb ON tb.id=t.to_branch
                  JOIN products p ON p.id=t.product_id
                  LEFT JOIN units u ON u.id=t.unit_id
-                 WHERE t.synced = 0 ORDER BY t.id ASC LIMIT 150'
+                 WHERE ' . $pendingWhere('t') . ' ORDER BY t.id ASC LIMIT 150'
             ),
             static fn($r) => ($r['from_branch'] ?? '') . '|' . ($r['to_branch'] ?? '') . '|' . ($r['product_sku'] ?? '') . '|' . ($r['created_at'] ?? '')
         );
@@ -187,7 +191,7 @@ class CloudSyncService {
                  LEFT JOIN branches b ON b.id=r.branch_id
                  LEFT JOIN customers c ON c.id=r.customer_id
                  LEFT JOIN users t ON t.id=r.technician_id
-                 WHERE r.synced = 0 ORDER BY r.id ASC LIMIT 100'
+                 WHERE ' . $pendingWhere('r') . ' ORDER BY r.id ASC LIMIT 100'
             ),
             static fn($r) => ($r['device'] ?? '') . '|' . ($r['created_at'] ?? '')
         );
@@ -202,7 +206,7 @@ class CloudSyncService {
                  LEFT JOIN branches b ON b.id=s.branch_id
                  LEFT JOIN users u ON u.id=s.user_id
                  LEFT JOIN customers c ON c.id=s.customer_id
-                 WHERE s.synced = 0 ORDER BY s.id ASC LIMIT 100'
+                 WHERE ' . $pendingWhere('s') . ' ORDER BY s.id ASC LIMIT 100'
             ),
             static fn($r) => ($r['created_at'] ?? '') . '|' . ($r['total'] ?? 0) . '|' . ($r['branch_id'] ?? 1)
         );
@@ -230,7 +234,7 @@ class CloudSyncService {
                  LEFT JOIN branches b ON b.id=m.branch_id
                  JOIN products p ON p.id=m.product_id
                  LEFT JOIN users u ON u.id=m.user_id
-                 WHERE m.synced = 0 ORDER BY m.id ASC LIMIT 200'
+                 WHERE ' . $pendingWhere('m') . ' ORDER BY m.id ASC LIMIT 200'
             ),
             static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['product_sku'] ?? '') . '|' . ($r['kind'] ?? '') . '|' . ($r['reference'] ?? '') . '|' . ($r['created_at'] ?? '')
         );
