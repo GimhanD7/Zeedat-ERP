@@ -48,8 +48,21 @@ class ProductRepository extends BaseRepository {
         return self::one('SELECT * FROM products WHERE id=?', [$id]);
     }
 
-    public static function units(int $branch): array {
-        return self::rows('SELECT id, product_id, code, imei, grade, state FROM units WHERE branch_id=? ORDER BY id', [$branch]);
+    public static function units(int $branch = 0): array {
+        $where = $branch > 0 ? 'WHERE u.branch_id=? AND COALESCE(p.active, 1)=1' : 'WHERE COALESCE(p.active, 1)=1';
+        $params = $branch > 0 ? [$branch] : [];
+
+        return self::rows(
+            "SELECT u.id, u.branch_id, b.name AS branch_name, u.product_id,
+                    p.name AS product_name, p.sku, p.category, p.cost, p.price,
+                    u.code, COALESCE(u.imei, '') AS imei, u.grade, u.state
+             FROM units u
+             JOIN products p ON p.id=u.product_id
+             JOIN branches b ON b.id=u.branch_id
+             {$where}
+             ORDER BY u.id DESC",
+            $params
+        );
     }
 
     public static function findAvailableUnit(int $unitId, int $branch, int $productId): ?array {
@@ -70,14 +83,27 @@ class ProductRepository extends BaseRepository {
         }
     }
 
-    public static function stockMovements(int $branch, int $limit = 200): array {
-        $where = $branch > 0 ? 'WHERE m.branch_id=?' : '';
-        $params = $branch > 0 ? [$branch] : [];
+    public static function stockMovements(int $branch, int $limit = 300, string $from = '', string $to = ''): array {
+        $clauses = [];
+        $params = [];
+        if ($branch > 0) {
+            $clauses[] = 'm.branch_id=?';
+            $params[] = $branch;
+        }
+        if ($from !== '') {
+            $clauses[] = 'DATE(m.created_at)>=?';
+            $params[] = $from;
+        }
+        if ($to !== '') {
+            $clauses[] = 'DATE(m.created_at)<=?';
+            $params[] = $to;
+        }
+        $where = empty($clauses) ? '' : 'WHERE ' . implode(' AND ', $clauses);
         $safeLimit = max(1, min(500, $limit));
 
         return self::rows(
             "SELECT m.id, m.branch_id, b.name AS branch_name, m.product_id,
-                    p.name AS product_name, p.sku, COALESCE(p.barcode, '') AS barcode,
+                    p.name AS product_name, p.sku, p.category, COALESCE(p.barcode, '') AS barcode,
                     COALESCE(u.name, 'System') AS user_name,
                     m.qty, m.kind, m.reference, m.created_at
              FROM stock_movements m

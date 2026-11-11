@@ -224,22 +224,56 @@ function Workspace({ session, onLogout }) {
         .catch(e => setBranchError(e.message));
     }
 
+    let autoSyncPending = false;
+    const runServerAutoSync = async () => {
+      if (!navigator.onLine || autoSyncPending) return;
+      autoSyncPending = true;
+      try {
+        const res = await apiClient('sync.auto', { data: {}, csrf, key: requestKey(), background: true });
+        const pushedCount =
+          (res?.push?.synced_sales ?? 0) +
+          (res?.push?.synced_customers ?? 0) +
+          (res?.push?.synced_repairs ?? 0);
+        const backedUp =
+          res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
+        if (res?.ran && (pushedCount > 0 || backedUp)) {
+          setNotice('Online: synced offline records & server backup.');
+        }
+      } catch {
+        // Silent background retry when offline or cloud URL not configured
+      } finally {
+        autoSyncPending = false;
+      }
+    };
+
     const changed = () => {
       setPage(getPage());
       setMenu(false);
     };
-    const network = () => setOnline(navigator.onLine);
+    const network = () => {
+      setOnline(navigator.onLine);
+      if (navigator.onLine) {
+        runServerAutoSync();
+      }
+    };
+
+    const initialSyncTimer = setTimeout(runServerAutoSync, 4000);
+    const periodicSyncTimer = setInterval(runServerAutoSync, 60000);
 
     window.addEventListener('hashchange', changed);
     window.addEventListener('online', network);
     window.addEventListener('offline', network);
+    window.addEventListener('zeedat-sync-now', runServerAutoSync);
 
     return () => {
+      clearTimeout(initialSyncTimer);
+      clearInterval(periodicSyncTimer);
       window.removeEventListener('hashchange', changed);
       window.removeEventListener('online', network);
       window.removeEventListener('offline', network);
+      window.removeEventListener('zeedat-sync-now', runServerAutoSync);
     };
-  }, [getPage, hasPermission]);
+  }, [getPage, hasPermission, csrf]);
 
   const navigate = (target, mode = '') => {
     setIntent(mode);

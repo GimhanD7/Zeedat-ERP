@@ -103,10 +103,18 @@ class CheckoutService {
             $due = Validator::date($body, 'due_date', true);
         }
 
-        $id = BaseRepository::insert(
-            'INSERT INTO sales(branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date) VALUES (?,?,?,?,?,?,?,?,?,?)',
-            [$branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $tax, $total, $credit, $due]
-        );
+        $syncUuid = 'SL-' . bin2hex(random_bytes(10));
+        if (\Zeedat\Config\Database::isSqlite()) {
+            $id = BaseRepository::insert(
+                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $tax, $total, $credit, $due]
+            );
+        } else {
+            $id = BaseRepository::insert(
+                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date) VALUES (?,0,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $tax, $total, $credit, $due]
+            );
+        }
 
         $processed = 0;
         $allocated = 0;

@@ -10,6 +10,28 @@ require_once __DIR__ . '/../api/src/Autoloader.php';
 \Zeedat\Autoloader::register();
 
 use Zeedat\Services\CloudSyncService;
+use Zeedat\Config\Database;
+
+if (($argv[1] ?? '') === '--auto') {
+    date_default_timezone_set('Asia/Colombo');
+    $lock = fopen(Database::getSqlitePath() . '.sync.lock', 'c');
+    if (!$lock) {
+        exit(1);
+    }
+    if (!flock($lock, LOCK_EX | LOCK_NB)) {
+        exit(0);
+    }
+    try {
+        $branch = (int) ($argv[2] ?? 0);
+        CloudSyncService::runAutoSyncAndBackup($branch ?: null);
+    } catch (Throwable $e) {
+        error_log('Zeedat background sync: ' . $e->getMessage());
+        exit(1);
+    } finally {
+        fclose($lock);
+    }
+    exit(0);
+}
 
 $quiet = in_array('--quiet', $argv, true);
 

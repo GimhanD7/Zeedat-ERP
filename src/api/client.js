@@ -6,7 +6,7 @@ export function requestKey() {
     .join('');
 }
 
-export async function apiClient(route, { query = {}, data, csrf, key } = {}) {
+export async function apiClient(route, { query = {}, data, csrf, key, background = false } = {}) {
   const params = new URLSearchParams({ route, ...query });
   let response;
 
@@ -20,6 +20,7 @@ export async function apiClient(route, { query = {}, data, csrf, key } = {}) {
               'Content-Type': 'application/json',
               'X-CSRF-Token': csrf || '',
               'Idempotency-Key': key || '',
+              ...(background ? { 'X-Zeedat-Background': '1' } : {}),
             },
             body: JSON.stringify(data),
           }

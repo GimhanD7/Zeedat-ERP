@@ -13,7 +13,6 @@ class InventoryController {
     }
 
     public static function getUnits(int $branch): array {
-        if (!$branch) throw new ApiError('Select a branch.');
         return ProductRepository::units($branch);
     }
 
@@ -51,6 +50,14 @@ class InventoryController {
 
     public static function releaseUnit(array $user, int $branch, array $body): array {
         return InventoryService::releaseUnit($user, $branch, $body);
+    }
+
+    public static function inspectUnit(array $user, int $branch, array $body): array {
+        return InventoryService::inspectUnit($user, $branch, $body);
+    }
+
+    public static function updateUnit(array $user, array $body): array {
+        return InventoryService::updateUnit($user, $body);
     }
 
     public static function saveCustomer(int $branch, array $body): array {

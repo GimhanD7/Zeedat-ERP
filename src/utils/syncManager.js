@@ -52,6 +52,7 @@ class SyncManager {
 
   async triggerSync() {
     if (this.isSyncing || !navigator.onLine) return;
+    let hadPendingSales = false;
 
     try {
       this.isSyncing = true;
@@ -65,6 +66,7 @@ class SyncManager {
         return;
       }
 
+      hadPendingSales = true;
       console.log(`[SyncManager] Found ${pending.length} pending offline sales. Syncing to cloud...`);
 
       for (const item of pending) {
@@ -92,6 +94,9 @@ class SyncManager {
     } finally {
       this.isSyncing = false;
       await this.updateCount();
+      if (hadPendingSales && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('zeedat-sync-now'));
+      }
     }
   }
 }

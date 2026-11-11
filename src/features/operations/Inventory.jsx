@@ -36,6 +36,9 @@ import { DataView } from '../../components/feedback';
 import { BarcodeLabelModal } from './BarcodeLabelModal';
 import { BatchBarcodeModal } from './BatchBarcodeModal';
 import { StockAdjustModal } from './StockAdjustModal';
+import { BranchStocksTab } from './BranchStocksTab';
+import { DeviceUnitsTab } from './DeviceUnitsTab';
+import { StockHistoryTab } from './StockHistoryTab';
 import {
   categories,
   cents,
@@ -74,8 +77,7 @@ export function Inventory({ ctx }) {
   const [barcodeFilter, setBarcodeFilter] = useState(''); // '', 'with-barcode', 'no-barcode'
   const [tab, setTab] = useState('Products'); // Products, Branch Stocks, Device Units, Stock History
   const [selectedBranch, setSelectedBranch] = useState(ctx.branch || 0); // 0 = All Branches
-  const [unitBranch, setUnitBranch] = useState(actionBranch(ctx));
-  const [movementTypeFilter, setMovementTypeFilter] = useState('all'); // 'all' | 'in' | 'out' | 'adj'
+  const [unitBranch, setUnitBranch] = useState(ctx.branch || 0);
   const [labelProduct, setLabelProduct] = useState(null);
   const [batchModal, setBatchModal] = useState(false);
   const [adjustModal, setAdjustModal] = useState(null); // null | { product, branch }
@@ -118,7 +120,7 @@ export function Inventory({ ctx }) {
     return 'In Stock';
   };
 
-  const form = item => {
+  const form = (item = null, defaults = null) => {
     const isNew = !item;
     const activeBranchId = selectedBranch || actionBranch(ctx);
     const activeBranchName = ctx.branches.find(b => b.id === activeBranchId)?.name || 'Active Branch';
@@ -131,17 +133,18 @@ export function Inventory({ ctx }) {
       values: {
         ...item,
         branch: activeBranchId,
-        category: item?.category || 'Accessories',
+        category: defaults?.category || item?.category || 'Accessories',
         cost: rupees(item?.cost),
         price: rupees(item?.price),
         commission_type: item?.commission_type || 'fixed',
         commission_input:
           item && Number(item.commission_value) > 0
             ? String(rupees(item.commission_value))
-            : item?.category === 'Services'
+            : (defaults?.category || item?.category) === 'Services'
               ? ''
               : '0',
         reorder_level: item?.reorder_level || 0,
+        serialized: Boolean(defaults?.serialized ?? item?.serialized ?? false),
         auto_barcode: false,
         initial_stock: 0,
       },
@@ -214,7 +217,7 @@ export function Inventory({ ctx }) {
               },
             ]
           : []),
-        ...(isNew && values.category === 'Accessories'
+        ...(isNew && values.category !== 'Services'
           ? [{ name: 'serialized', label: 'Track by individual serial number', type: 'checkbox' }]
           : []),
       ],
@@ -275,12 +278,16 @@ export function Inventory({ ctx }) {
       branch: preselectedBranch || (selectedBranch || actionBranch(ctx)),
     });
 
-  const transfer = (product, fromBranch = null) =>
+  const transfer = (product, fromBranch = null) => {
+    const src = fromBranch || actionBranch(ctx);
+    const dest = ctx.branches.find(b => Number(b.id) !== Number(src))?.id || src;
     ctx.setDialog({
       title: 'Transfer stock between branches',
+      description: `${product.name} (${product.sku})`,
       route: 'transfer.request',
       values: {
-        branch: fromBranch || actionBranch(ctx),
+        branch: src,
+        to_branch: dest,
         product_id: String(product.id),
         qty: 1,
       },
@@ -302,29 +309,12 @@ export function Inventory({ ctx }) {
           min: 1,
         },
       ],
+      onSuccess: () => {
+        ctx.setNotice?.(`Stock transfer requested for ${product.name}.`);
+        state.refresh();
+      },
     });
-
-  const receive = items =>
-    ctx.setDialog({
-      title: 'Receive device unit',
-      route: 'unit.receive',
-      values: { branch: unitBranch, grade: 'New' },
-      fields: [
-        branchField(ctx),
-        {
-          name: 'product_id',
-          label: 'Serialized product',
-          choices: options(items.filter(p => p.serialized)),
-        },
-        { name: 'code', label: 'Internal unit code' },
-        { name: 'imei', label: 'IMEI / serial', optional: true },
-        {
-          name: 'grade',
-          label: 'Condition grade',
-          choices: ['New', 'Used', 'Refurbished'],
-        },
-      ],
-    });
+  };
 
   return (
     <DataView state={state}>
@@ -734,271 +724,44 @@ export function Inventory({ ctx }) {
                   </div>
                 </>
               ) : tab === 'Branch Stocks' ? (
-                /* Dedicated Branch-wise Stocks Matrix */
-                <>
-                  <div className="panel-tools toolbar">
-                    <SearchBox
-                      value={query}
-                      onChange={setQuery}
-                      placeholder="Filter products across branches…"
-                    />
-                    <Select
-                      aria-label="Category"
-                      blank="All categories"
-                      value={category}
-                      onChange={e => setCategory(e.target.value)}
-                      options={categories}
-                    />
-                    <Button icon={ArrowUpDown} onClick={() => adjust(items)}>
-                      New stock adjustment
-                    </Button>
-                  </div>
-
-                  <Table
-                    rows={matching.filter(p => p.category !== 'Services')}
-                    columns={[
-                      [
-                        'Product',
-                        r => (
-                          <div className="table-product">
-                            <ProductArt item={r} small />
-                            <span>
-                              <strong>{r.name}</strong>
-                              <small className="subtext mono">{r.sku}</small>
-                            </span>
-                          </div>
-                        ),
-                      ],
-                      [
-                        'Barcode',
-                        r => (
-                          <span
-                            className="mono"
-                            style={{ cursor: 'pointer' }}
-                            title="Click to manage barcode"
-                            onClick={() => setLabelProduct(r)}
-                          >
-                            {r.barcode ? (
-                              r.barcode
-                            ) : (
-                              <span className="badge-no-barcode" style={{ fontSize: 10 }}>
-                                No Barcode
-                              </span>
-                            )}
-                          </span>
-                        ),
-                      ],
-                      // Dynamically render a column for each branch in the workspace
-                      ...ctx.branches.map(b => [
-                        b.name,
-                        r => {
-                          const stockItem = (r.branch_stocks || []).find(bs => bs.branch_id === b.id);
-                          const qty = stockItem ? stockItem.qty : 0;
-                          const toneClass =
-                            qty === 0 ? 'zero' : qty <= r.reorder_level ? 'low' : 'ok';
-                          return (
-                            <div className="branch-matrix-cell">
-                              <span className={`badge-stock ${toneClass}`}>{qty}</span>
-                              <Button
-                                size="small"
-                                variant="link"
-                                title={`Adjust stock for ${r.name} at ${b.name}`}
-                                onClick={() => adjust(items, r, b.id)}
-                              >
-                                Adjust
-                              </Button>
-                            </div>
-                          );
-                        },
-                      ]),
-                      [
-                        'Total Stock',
-                        r => (
-                          <strong>{r.total_qty ?? r.qty}</strong>
-                        ),
-                      ],
-                      [
-                        'Transfer',
-                        r =>
-                          ctx.branches.length > 1 ? (
-                            <Button
-                              icon={ArrowRightLeft}
-                              size="small"
-                              variant="secondary"
-                              title="Transfer stock to another branch"
-                              onClick={() => transfer(r)}
-                            >
-                              Transfer
-                            </Button>
-                          ) : null,
-                      ],
-                    ]}
-                  />
-                  <div className="panel-foot">
-                    Tracking stock across {ctx.branches.length} branches
-                  </div>
-                </>
+                <BranchStocksTab
+                  ctx={ctx}
+                  items={items}
+                  query={query}
+                  setQuery={setQuery}
+                  category={category}
+                  setCategory={setCategory}
+                  onAdjust={adjust}
+                  onTransfer={transfer}
+                  onOpenBarcode={setLabelProduct}
+                  onOpenUnitsForBranch={(branchId, productName) => {
+                    setUnitBranch(branchId);
+                    setTab('Device Units');
+                    setQuery(productName || '');
+                  }}
+                />
               ) : tab === 'Device Units' ? (
-                <>
-                  <div className="panel-tools toolbar">
-                    <SearchBox
-                      value={query}
-                      onChange={setQuery}
-                      placeholder="Find unit code or IMEI…"
-                    />
-                    <Select
-                      aria-label="Device branch"
-                      value={unitBranch}
-                      onChange={e => setUnitBranch(Number(e.target.value))}
-                      options={options(ctx.branches)}
-                    />
-                    <Button
-                      icon={Plus}
-                      variant="primary"
-                      onClick={() => receive(items)}
-                    >
-                      Receive device
-                    </Button>
-                  </div>
-                  <Table
-                    rows={units.filter(u =>
-                      itemFilter(u, query, ['code', 'imei', 'grade', 'state'])
-                    )}
-                    columns={[
-                      ['Unit code', 'code'],
-                      ['Product', r => items.find(p => p.id === r.product_id)?.name],
-                      ['IMEI', 'imei'],
-                      ['Grade', 'grade'],
-                      ['Status', r => <Badge>{r.state}</Badge>],
-                      [
-                        'Actions',
-                        r =>
-                          r.state === 'Inspection' ? (
-                            <Button
-                              onClick={() =>
-                                ctx.setDialog({
-                                  title: 'Release inspected device',
-                                  description: r.code,
-                                  route: 'unit.release',
-                                  values: { id: r.id, branch: unitBranch },
-                                  fields: [
-                                    {
-                                      name: 'reason',
-                                      label: 'Inspection outcome',
-                                      full: true,
-                                    },
-                                  ],
-                                })
-                              }
-                            >
-                              Release to stock
-                            </Button>
-                          ) : null,
-                      ],
-                    ]}
-                  />
-                </>
+                <DeviceUnitsTab
+                  ctx={ctx}
+                  items={items}
+                  units={units}
+                  unitBranch={unitBranch}
+                  setUnitBranch={setUnitBranch}
+                  query={query}
+                  setQuery={setQuery}
+                  onRefresh={state.refresh}
+                  onCreateSerializedProduct={() => form(null, { category: 'Phones', serialized: true })}
+                />
               ) : (
-                <>
-                  <div className="panel-tools toolbar">
-                    <SearchBox
-                      value={query}
-                      onChange={setQuery}
-                      placeholder="Search product, SKU, reason, or reference…"
-                    />
-                    <Select
-                      aria-label="Branch"
-                      value={selectedBranch}
-                      onChange={e => setSelectedBranch(Number(e.target.value))}
-                      options={branchChoices.map(b => ({ value: b.id, label: b.name }))}
-                    />
-                    <Select
-                      aria-label="Movement type"
-                      value={movementTypeFilter}
-                      onChange={e => setMovementTypeFilter(e.target.value)}
-                      options={[
-                        { value: 'all', label: 'All Movements' },
-                        { value: 'adj', label: 'Manual Adjustments (ADJ-)' },
-                        { value: 'in', label: 'Stock In (+)' },
-                        { value: 'out', label: 'Stock Out (-)' },
-                      ]}
-                    />
-                    <Button icon={ArrowUpDown} variant="primary" onClick={() => adjust(items)}>
-                      New Adjustment
-                    </Button>
-                  </div>
-                  {(() => {
-                    const filteredMovements = movements.filter(m => {
-                      const q = query.trim().toLowerCase();
-                      if (movementTypeFilter === 'in' && Number(m.qty) <= 0) return false;
-                      if (movementTypeFilter === 'out' && Number(m.qty) >= 0) return false;
-                      if (
-                        movementTypeFilter === 'adj' &&
-                        !String(m.reference || '').toUpperCase().startsWith('ADJ') &&
-                        !String(m.kind || '').toLowerCase().includes('stocktake')
-                      ) {
-                        return false;
-                      }
-                      if (q) {
-                        const hay = `${m.product_name} ${m.sku} ${m.barcode || ''} ${m.kind} ${m.reference} ${m.user_name} ${m.branch_name}`.toLowerCase();
-                        if (!hay.includes(q)) return false;
-                      }
-                      return true;
-                    });
-
-                    return (
-                      <>
-                        <Table
-                          rows={filteredMovements}
-                          columns={[
-                            [
-                              'Date & Time',
-                              r =>
-                                r.created_at
-                                  ? new Date(String(r.created_at).replace(' ', 'T')).toLocaleString('en-GB', {
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                      year: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })
-                                  : '—',
-                            ],
-                            ['Branch', 'branch_name'],
-                            [
-                              'Product',
-                              r => (
-                                <div>
-                                  <strong>{r.product_name}</strong>
-                                  <div>
-                                    <small className="subtext mono">{r.sku}</small>
-                                  </div>
-                                </div>
-                              ),
-                            ],
-                            [
-                              'Change',
-                              r => {
-                                const q = Number(r.qty);
-                                return (
-                                  <Badge tone={q > 0 ? 'mint' : q < 0 ? 'red' : 'blue'}>
-                                    {q > 0 ? `+${q}` : q}
-                                  </Badge>
-                                );
-                              },
-                            ],
-                            ['Reason / Type', 'kind'],
-                            ['Reference', r => <span className="mono">{r.reference || '—'}</span>],
-                            ['Staff', 'user_name'],
-                          ]}
-                        />
-                        <div className="panel-foot">
-                          Showing {filteredMovements.length} of {movements.length} recent stock movements
-                        </div>
-                      </>
-                    );
-                  })()}
-                </>
+                <StockHistoryTab
+                  ctx={ctx}
+                  movements={movements}
+                  selectedBranch={selectedBranch}
+                  setSelectedBranch={setSelectedBranch}
+                  query={query}
+                  setQuery={setQuery}
+                  onNewAdjustment={() => adjust(items)}
+                />
               )}
             </Panel>
 

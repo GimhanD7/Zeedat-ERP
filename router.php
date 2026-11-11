@@ -19,6 +19,11 @@ if ($file && str_starts_with($file, $dist . DIRECTORY_SEPARATOR) && is_file($fil
     };
     header('Content-Type: ' . $type);
     header('X-Content-Type-Options: nosniff');
+    if (str_ends_with($file, 'index.html')) {
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+    } elseif (preg_match('~^/assets/[^/]+-[A-Za-z0-9_-]{8,}\.(?:js|css)$~D', $path)) {
+        header('Cache-Control: public, max-age=31536000, immutable');
+    }
     readfile($file);
     return;
 }

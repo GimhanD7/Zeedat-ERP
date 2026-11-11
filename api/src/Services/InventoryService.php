@@ -330,43 +330,132 @@ class InventoryService {
     }
 
     public static function getStockMovements(int $branch, array $query = []): array {
-        $limit = (int) ($query['limit'] ?? 200);
-        return ProductRepository::stockMovements($branch, $limit);
+        $limit = (int) ($query['limit'] ?? 300);
+        $from = !empty($query['from']) ? Validator::date($query, 'from') : '';
+        $to = !empty($query['to']) ? Validator::date($query, 'to') : '';
+        return ProductRepository::stockMovements($branch, $limit, $from, $to);
     }
 
     public static function receiveUnit(array $user, int $branch, array $body): array {
+        if ($branch <= 0) {
+            throw new ApiError('Select a specific branch to receive a device unit.');
+        }
+
         $product = Validator::integer($body['product_id'] ?? null, 'Product');
         $p = ProductRepository::findById($product);
         if (!$p || !$p['serialized']) {
             throw new ApiError('Product must be serialized.');
         }
 
-        $code = strtoupper(Validator::str($body, 'code', 50));
+        $rawCode = strtoupper(trim((string) ($body['code'] ?? '')));
+        if ($rawCode === '') {
+            do {
+                $code = 'UNIT-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+            } while (BaseRepository::scalar('SELECT id FROM units WHERE code=?', [$code]));
+        } else {
+            $code = strtoupper(Validator::str($body, 'code', 50));
+            if (BaseRepository::scalar('SELECT id FROM units WHERE code=?', [$code])) {
+                throw new ApiError("Unit code '{$code}' already exists.", 409);
+            }
+        }
+
         $imei = Validator::str($body, 'imei', 60, false);
+        if ($imei !== '' && BaseRepository::scalar('SELECT id FROM units WHERE imei=?', [$imei])) {
+            throw new ApiError("IMEI / Serial '{$imei}' is already registered to another unit.", 409);
+        }
+
         $grade = Validator::str($body, 'grade', 20);
+        if (!in_array($grade, ['New', 'Used', 'Refurbished'], true)) {
+            throw new ApiError('Invalid unit condition grade.');
+        }
 
-        $id = BaseRepository::insert(
-            "INSERT INTO units(branch_id, product_id, code, imei, grade, state) VALUES (?,?,?,?,?,'Available')",
-            [$branch, $product, $code, $imei ?: null, $grade]
-        );
+        $state = trim((string) ($body['state'] ?? 'Available'));
+        if (!in_array($state, ['Available', 'Inspection'], true)) {
+            throw new ApiError('Initial unit state must be Available or Inspection.');
+        }
 
-        ProductRepository::adjustStock($branch, $product, 1, 'Receive device unit', $code, (int) $user['id']);
+        return BaseRepository::transaction(function () use ($user, $branch, $product, $code, $imei, $grade, $state) {
+            $id = BaseRepository::insert(
+                'INSERT INTO units(branch_id, product_id, code, imei, grade, state) VALUES (?,?,?,?,?,?)',
+                [$branch, $product, $code, $imei ?: null, $grade, $state]
+            );
 
-        return ['id' => $id, 'code' => $code, 'state' => 'Available'];
+            if ($state === 'Available') {
+                ProductRepository::adjustStock($branch, $product, 1, 'Receive device unit', $code, (int) $user['id']);
+            }
+
+            return ['id' => $id, 'code' => $code, 'state' => $state, 'grade' => $grade];
+        });
     }
 
     public static function releaseUnit(array $user, int $branch, array $body): array {
         $id = Validator::integer($body['id'] ?? null, 'Unit');
-        $unit = BaseRepository::one("SELECT * FROM units WHERE id=? AND branch_id=? AND state='Inspection' FOR UPDATE", [$id, $branch]);
+        $reason = Validator::str($body, 'reason', 150);
+
+        return BaseRepository::transaction(function () use ($user, $branch, $id, $reason) {
+            $unit = $branch > 0
+                ? BaseRepository::one("SELECT * FROM units WHERE id=? AND branch_id=? AND state='Inspection' FOR UPDATE", [$id, $branch])
+                : BaseRepository::one("SELECT * FROM units WHERE id=? AND state='Inspection' FOR UPDATE", [$id]);
+            if (!$unit) {
+                throw new ApiError('Unit is not in inspection.', 404);
+            }
+
+            $targetBranch = (int) $unit['branch_id'];
+            BaseRepository::run("UPDATE units SET state='Available' WHERE id=?", [$id]);
+            ProductRepository::adjustStock($targetBranch, (int) $unit['product_id'], 1, 'Inspection released to stock: ' . $reason, $unit['code'], (int) $user['id']);
+
+            return ['id' => $id, 'state' => 'Available', 'code' => $unit['code']];
+        });
+    }
+
+    public static function inspectUnit(array $user, int $branch, array $body): array {
+        $id = Validator::integer($body['id'] ?? null, 'Unit');
+        $reason = Validator::str($body, 'reason', 150);
+
+        return BaseRepository::transaction(function () use ($user, $branch, $id, $reason) {
+            $unit = $branch > 0
+                ? BaseRepository::one("SELECT * FROM units WHERE id=? AND branch_id=? AND state='Available' FOR UPDATE", [$id, $branch])
+                : BaseRepository::one("SELECT * FROM units WHERE id=? AND state='Available' FOR UPDATE", [$id]);
+            if (!$unit) {
+                throw new ApiError('Only Available units can be moved to Inspection.', 404);
+            }
+
+            $targetBranch = (int) $unit['branch_id'];
+            BaseRepository::run("UPDATE units SET state='Inspection' WHERE id=?", [$id]);
+            ProductRepository::adjustStock($targetBranch, (int) $unit['product_id'], -1, 'Moved to inspection: ' . $reason, $unit['code'], (int) $user['id']);
+
+            return ['id' => $id, 'state' => 'Inspection', 'code' => $unit['code']];
+        });
+    }
+
+    public static function updateUnit(array $user, array $body): array {
+        $id = Validator::integer($body['id'] ?? null, 'Unit');
+        $unit = BaseRepository::one('SELECT * FROM units WHERE id=?', [$id]);
         if (!$unit) {
-            throw new ApiError('Unit is not in inspection.', 404);
+            throw new ApiError('Device unit not found.', 404);
+        }
+        if ($unit['state'] === 'Sold') {
+            throw new ApiError('Sold units cannot be modified.');
         }
 
-        $reason = Validator::str($body, 'reason', 150);
-        BaseRepository::run("UPDATE units SET state='Available' WHERE id=?", [$id]);
-        ProductRepository::adjustStock($branch, (int) $unit['product_id'], 1, 'Inspection released to stock: ' . $reason, $unit['code'], (int) $user['id']);
+        $imei = Validator::str($body, 'imei', 60, false);
+        if ($imei !== '' && BaseRepository::scalar('SELECT id FROM units WHERE imei=? AND id!=?', [$imei, $id])) {
+            throw new ApiError("IMEI / Serial '{$imei}' is already registered to another unit.", 409);
+        }
 
-        return ['id' => $id, 'state' => 'Available'];
+        $grade = Validator::str($body, 'grade', 20);
+        if (!in_array($grade, ['New', 'Used', 'Refurbished'], true)) {
+            throw new ApiError('Invalid unit condition grade.');
+        }
+
+        BaseRepository::run('UPDATE units SET imei=?, grade=? WHERE id=?', [$imei ?: null, $grade, $id]);
+        UserRepository::logAudit((int) $user['id'], (int) $unit['branch_id'], 'unit.update', [
+            'id' => $id,
+            'code' => $unit['code'],
+            'grade' => $grade,
+        ]);
+
+        return ['id' => $id, 'code' => $unit['code'], 'imei' => $imei, 'grade' => $grade];
     }
 
     public static function saveCustomer(int $branch, array $body): array {
@@ -378,13 +467,20 @@ class InventoryService {
 
         if ($id) {
             BaseRepository::run(
-                'UPDATE customers SET name=?, phone=?, email=?, notes=? WHERE id=? AND branch_id=?',
+                'UPDATE customers SET name=?, phone=?, email=?, notes=?, synced=0 WHERE id=? AND branch_id=?',
                 [$name, $phone, $email ?: '', $notes ?: '', $id, $branch]
             );
-        } else {
+        } elseif (\Zeedat\Config\Database::isSqlite()) {
+            $uuid = 'CUS-' . bin2hex(random_bytes(8));
             $id = BaseRepository::insert(
-                'INSERT INTO customers(branch_id, name, phone, email, notes) VALUES (?,?,?,?,?)',
-                [$branch, $name, $phone, $email ?: '', $notes ?: '']
+                'INSERT INTO customers(uuid, sync_uuid, synced, branch_id, name, phone, email, notes) VALUES (?,?,0,?,?,?,?,?)',
+                [$uuid, $uuid, $branch, $name, $phone, $email ?: '', $notes ?: '']
+            );
+        } else {
+            $uuid = 'CUS-' . bin2hex(random_bytes(8));
+            $id = BaseRepository::insert(
+                'INSERT INTO customers(sync_uuid, synced, branch_id, name, phone, email, notes) VALUES (?,0,?,?,?,?,?)',
+                [$uuid, $branch, $name, $phone, $email ?: '', $notes ?: '']
             );
         }
 

@@ -278,6 +278,16 @@ class AutoMigrator
                     $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount INTEGER NOT NULL DEFAULT 0");
                 }
 
+                foreach (['products', 'customers', 'sales', 'repairs'] as $syncTbl) {
+                    $tCols = array_column($db->query("PRAGMA table_info({$syncTbl})")->fetchAll(), 'name');
+                    if (!in_array('synced', $tCols, true)) {
+                        $db->exec("ALTER TABLE {$syncTbl} ADD COLUMN synced INTEGER NOT NULL DEFAULT 0");
+                    }
+                    if (!in_array('sync_uuid', $tCols, true)) {
+                        $db->exec("ALTER TABLE {$syncTbl} ADD COLUMN sync_uuid TEXT NULL");
+                    }
+                }
+
                 $branchCols = $db->query("PRAGMA table_info(branches)")->fetchAll();
                 $branchColNames = array_column($branchCols, 'name');
                 if (!in_array('phone', $branchColNames, true)) {
@@ -335,6 +345,16 @@ class AutoMigrator
                 $siCommCols = $db->query("SHOW COLUMNS FROM sale_items LIKE 'commission_amount'")->fetchAll();
                 if (empty($siCommCols)) {
                     $db->exec("ALTER TABLE sale_items ADD COLUMN commission_amount BIGINT UNSIGNED NOT NULL DEFAULT 0");
+                }
+                foreach (['products', 'customers', 'sales', 'repairs'] as $syncTbl) {
+                    $sCol = $db->query("SHOW COLUMNS FROM `{$syncTbl}` LIKE 'synced'")->fetchAll();
+                    if (empty($sCol)) {
+                        $db->exec("ALTER TABLE `{$syncTbl}` ADD COLUMN synced TINYINT(1) NOT NULL DEFAULT 0");
+                    }
+                    $uCol = $db->query("SHOW COLUMNS FROM `{$syncTbl}` LIKE 'sync_uuid'")->fetchAll();
+                    if (empty($uCol)) {
+                        $db->exec("ALTER TABLE `{$syncTbl}` ADD COLUMN sync_uuid VARCHAR(64) NULL");
+                    }
                 }
             }
         } catch (Throwable) {

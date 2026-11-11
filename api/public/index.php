@@ -90,7 +90,38 @@ try {
 
         session_write_close();
 
-        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull'], true);
+        if ($action === 'sync.auto' && PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
+            && \Zeedat\Config\Database::isSqlite()
+            && ($_SERVER['HTTP_X_ZEEDAT_BACKGROUND'] ?? '') === '1') {
+            $settings = BaseRepository::one('SELECT cloud_backup_url, auto_sync_enabled FROM settings WHERE id=1');
+            if (empty($settings['auto_sync_enabled']) || trim($settings['cloud_backup_url'] ?? '') === '') {
+                Response::json(['ran' => false]);
+            }
+            $script = dirname(__DIR__, 2) . '/scripts/auto_sync_sqlite.php';
+            $branchId = (int) ($user['branch_id'] ?? 0);
+            $command = 'start "Zeedat background sync" /B ' . escapeshellarg(PHP_BINARY)
+                . ' ' . escapeshellarg($script) . ' --auto ' . $branchId . ' <NUL >NUL 2>&1';
+            $process = popen($command, 'r');
+            if ($process === false) {
+                throw new ApiError('Could not start background sync.', 503);
+            }
+            $exitCode = pclose($process);
+            if ($exitCode !== 0) {
+                throw new ApiError('Could not start background sync.', 503);
+            }
+            Response::json(['ran' => false, 'queued' => true], 202);
+        }
+
+        if (PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
+            && in_array($action, ['sync.auto', 'sync.push', 'sync.pull', 'backup.create'], true)
+            && \Zeedat\Config\Database::isSqlite()) {
+            $syncLock = fopen(\Zeedat\Config\Database::getSqlitePath() . '.sync.lock', 'c');
+            if (!$syncLock || !flock($syncLock, LOCK_EX | LOCK_NB)) {
+                throw new ApiError('A sync or backup is already running. Try again shortly.', 409);
+            }
+        }
+
+        $global = in_array($action, ['staff.save', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         if ($branch) {
             BranchRepository::lock($branch);
@@ -179,6 +210,14 @@ try {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::releaseUnit($user, $branch, $body);
                 })(),
+                'unit.inspect' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    return InventoryController::inspectUnit($user, $branch, $body);
+                })(),
+                'unit.update' => (function () use ($user, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    return InventoryController::updateUnit($user, $body);
+                })(),
                 'repair.create' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'repairs');
                     return RepairController::create($branch, $body);
@@ -261,6 +300,10 @@ try {
                 'sync.pull' => (function () use ($user) {
                     RoleGuard::allowPermission($user, 'settings');
                     return \Zeedat\Services\CloudSyncService::pullFromCloud();
+                })(),
+                'sync.auto' => (function () use ($user) {
+                    $bId = $user['branch_id'] ? (int) $user['branch_id'] : null;
+                    return \Zeedat\Services\CloudSyncService::runAutoSyncAndBackup($bId);
                 })(),
                 default => throw new ApiError('Route not found.', 404),
             };

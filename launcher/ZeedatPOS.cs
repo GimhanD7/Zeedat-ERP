@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Sockets;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace ZeedatPOS
@@ -13,13 +15,18 @@ namespace ZeedatPOS
             try
             {
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string configFile = Path.Combine(baseDir, "config.json");
+                string appRoot = ResolveAppRoot(baseDir);
+                string configFile = Path.Combine(appRoot, "config.json");
+                if (!File.Exists(configFile))
+                {
+                    configFile = Path.Combine(baseDir, "config.json");
+                }
+
                 string serverUrl = "http://127.0.0.1:8081";
                 int width = 1280;
                 int height = 800;
                 bool kiosk = false;
 
-                // Load or create config.json
                 if (!File.Exists(configFile))
                 {
                     string defaultConfig = "{\n" +
@@ -45,7 +52,9 @@ namespace ZeedatPOS
                     }
                 }
 
-                // Find Browser Executable (Edge or Chrome)
+                // Auto-start local PHP backend (SQLite offline database) when pointing to localhost
+                EnsureLocalBackendRunning(appRoot, serverUrl);
+
                 string browserPath = FindBrowser();
                 if (string.IsNullOrEmpty(browserPath))
                 {
@@ -58,7 +67,6 @@ namespace ZeedatPOS
                     return;
                 }
 
-                // Isolated profile directory for POS offline data
                 string dataDir = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "ZeedatPOS",
@@ -69,7 +77,6 @@ namespace ZeedatPOS
                     Directory.CreateDirectory(dataDir);
                 }
 
-                // Build browser launch arguments
                 string arguments = string.Format(
                     "--app=\"{0}\" --user-data-dir=\"{1}\" --window-size={2},{3} --disable-backgrounding-occluded-windows",
                     serverUrl,
@@ -100,6 +107,120 @@ namespace ZeedatPOS
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
+            }
+        }
+
+        static string ResolveAppRoot(string baseDir)
+        {
+            if (File.Exists(Path.Combine(baseDir, "router.php")))
+            {
+                return baseDir;
+            }
+            DirectoryInfo parent = Directory.GetParent(baseDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (parent != null && File.Exists(Path.Combine(parent.FullName, "router.php")))
+            {
+                return parent.FullName;
+            }
+            return baseDir;
+        }
+
+        static void EnsureLocalBackendRunning(string appRoot, string serverUrl)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out uri))
+            {
+                return;
+            }
+
+            string host = uri.Host;
+            int port = uri.Port > 0 ? uri.Port : 80;
+            bool isLocal = host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                           host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+
+            if (!isLocal || IsPortOpen(host, port))
+            {
+                return;
+            }
+
+            string routerFile = Path.Combine(appRoot, "router.php");
+            if (!File.Exists(routerFile))
+            {
+                return;
+            }
+
+            string phpExe = FindPhpExecutable(appRoot);
+            if (string.IsNullOrEmpty(phpExe))
+            {
+                return;
+            }
+
+            ProcessStartInfo phpPsi = new ProcessStartInfo
+            {
+                FileName = phpExe,
+                Arguments = string.Format("-S {0}:{1} \"{2}\"", host, port, routerFile),
+                WorkingDirectory = appRoot,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            phpPsi.EnvironmentVariables["DB_DRIVER"] = "sqlite";
+
+            try
+            {
+                using (Process backend = Process.Start(phpPsi))
+                {
+                    Stopwatch startup = Stopwatch.StartNew();
+                    while (!backend.HasExited && startup.ElapsedMilliseconds < 4000)
+                    {
+                        if (IsPortOpen(host, port))
+                        {
+                            break;
+                        }
+                        Thread.Sleep(50);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore if PHP launch fails; browser error page or external server will inform user
+            }
+        }
+
+        static string FindPhpExecutable(string appRoot)
+        {
+            string[] candidates = new string[]
+            {
+                Path.Combine(appRoot, @"php\php.exe"),
+                @"C:\xampp\php\php.exe",
+                "php.exe"
+            };
+
+            foreach (string c in candidates)
+            {
+                if (c.Equals("php.exe", StringComparison.OrdinalIgnoreCase) || File.Exists(c))
+                {
+                    return c;
+                }
+            }
+            return null;
+        }
+
+        static bool IsPortOpen(string host, int port)
+        {
+            try
+            {
+                using (TcpClient client = new TcpClient())
+                {
+                    IAsyncResult res = client.BeginConnect(host, port, null, null);
+                    bool ok = res.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(250));
+                    if (!ok) return false;
+                    client.EndConnect(res);
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
 

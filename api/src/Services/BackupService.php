@@ -18,40 +18,101 @@ class BackupService {
     }
 
     /**
-     * Checks if internet connectivity is currently accessible.
+     * Checks if internet connectivity is currently accessible (HTTP/HTTPS or DNS).
      */
     public static function isInternetAvailable(): bool {
-        // Test lightweight DNS or HTTP socket with a short 2-second timeout
-        $connected = @fsockopen('8.8.8.8', 53, $errno, $errstr, 2);
-        if (is_resource($connected)) {
-            fclose($connected);
-            return true;
+        $hosts = [
+            ['1.1.1.1', 443],
+            ['8.8.8.8', 443],
+            ['8.8.8.8', 53],
+        ];
+        foreach ($hosts as [$host, $port]) {
+            $connected = @fsockopen($host, $port, $errno, $errstr, 1);
+            if (is_resource($connected)) {
+                fclose($connected);
+                return true;
+            }
         }
-
-        $connected = @fsockopen('1.1.1.1', 53, $errno, $errstr, 2);
-        if (is_resource($connected)) {
-            fclose($connected);
-            return true;
-        }
-
         return false;
     }
 
+    public static function resolveCloudEndpoint(string $rawUrl, string $route): string {
+        $url = trim($rawUrl);
+        if ($url === '') {
+            return '';
+        }
+        $parts = parse_url($url);
+        if ($parts === false || empty($parts['scheme']) || empty($parts['host'])) {
+            return $url;
+        }
+        $path = $parts['path'] ?? '';
+        if ($path === '' || $path === '/') {
+            $path = '/api/index.php';
+        } elseif (!str_ends_with($path, '.php')) {
+            $path = rtrim($path, '/') . '/api/index.php';
+        }
+        $query = [];
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $query);
+        }
+        $query['route'] = $route;
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        return $parts['scheme'] . '://' . $parts['host'] . $port . $path . '?' . http_build_query($query);
+    }
+
     /**
-     * Generates a complete SQL dump of the zeedat_pos database.
+     * Generates a complete SQL dump of the active SQLite or MySQL database.
      */
     public static function generateSqlDump(): string {
         $db = Database::getConnection();
-        $dbName = $db->query('SELECT DATABASE()')->fetchColumn() ?: 'zeedat_pos';
+        $isSqlite = Database::isSqlite();
+        $dbName = $isSqlite
+            ? basename(Database::getSqlitePath())
+            : ($db->query('SELECT DATABASE()')->fetchColumn() ?: 'zeedat_pos');
         $timestamp = date('Y-m-d H:i:s');
 
         $out = "-- ============================================================\n";
-        echo ""; // dummy to avoid unused
-        $out .= "-- ZEEDAT ERP AUTOMATED DATABASE BACKUP\n";
+        $out .= "-- ZEEDAT ERP AUTOMATED DATABASE BACKUP (" . ($isSqlite ? 'SQLITE' : 'MYSQL') . ")\n";
         $out .= "-- Database: {$dbName}\n";
         $out .= "-- Generated at: {$timestamp} (Asia/Colombo)\n";
-        $out .= "-- Host: 127.0.0.1\n";
         $out .= "-- ============================================================\n\n";
+
+        if ($isSqlite) {
+            $out .= "PRAGMA foreign_keys = OFF;\nBEGIN TRANSACTION;\n\n";
+            $tables = $db->query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($tables as $tRow) {
+                $table = $tRow['name'];
+                $createSql = $tRow['sql'] ?? '';
+                $out .= "-- Table: {$table}\n";
+                $out .= "DROP TABLE IF EXISTS \"{$table}\";\n";
+                $out .= $createSql . ";\n\n";
+
+                $rows = $db->query("SELECT * FROM \"{$table}\"")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($rows as $row) {
+                    $colNames = implode('", "', array_keys($row));
+                    $vals = [];
+                    foreach ($row as $val) {
+                        if ($val === null) {
+                            $vals[] = 'NULL';
+                        } elseif (is_int($val) || is_float($val)) {
+                            $vals[] = (string) $val;
+                        } else {
+                            $vals[] = $db->quote((string) $val);
+                        }
+                    }
+                    $out .= "INSERT INTO \"{$table}\" (\"{$colNames}\") VALUES (" . implode(', ', $vals) . ");\n";
+                }
+                if (!empty($rows)) {
+                    $out .= "\n";
+                }
+            }
+
+            $out .= "COMMIT;\nPRAGMA foreign_keys = ON;\n";
+            $out .= "-- Backup completed at: " . date('Y-m-d H:i:s') . "\n";
+            return $out;
+        }
+
         $out .= "SET FOREIGN_KEY_CHECKS=0;\n";
         $out .= "SET SQL_MODE = \"NO_AUTO_VALUE_ON_ZERO\";\n";
         $out .= "SET NAMES utf8mb4;\n\n";
@@ -60,7 +121,6 @@ class BackupService {
         $tables = $db->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN);
 
         foreach ($tables as $table) {
-            // Get CREATE TABLE
             $createRow = $db->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_NUM);
             $createSql = $createRow[1] ?? '';
 
@@ -70,7 +130,6 @@ class BackupService {
             $out .= "DROP TABLE IF EXISTS `{$table}`;\n";
             $out .= $createSql . ";\n\n";
 
-            // Get row data
             $stmt = $db->query("SELECT * FROM `{$table}`");
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             if (empty($rows)) {
@@ -79,8 +138,6 @@ class BackupService {
             }
 
             $out .= "-- Dumping data for `{$table}` (" . count($rows) . " rows)\n";
-            
-            // Chunk rows for efficient inserts
             $chunks = array_chunk($rows, 100);
             foreach ($chunks as $chunk) {
                 $columns = array_keys($chunk[0]);
@@ -147,7 +204,8 @@ class BackupService {
 
         // If online and remote server URL is configured, push to server
         if ($isOnline && !empty($remoteUrl)) {
-            $uploadResult = self::uploadFileToCloud($filePath, $remoteUrl, $apiKey, $branchName);
+            $uploadEndpoint = self::resolveCloudEndpoint($remoteUrl, 'backup.receive');
+            $uploadResult = self::uploadFileToCloud($filePath, $uploadEndpoint, $apiKey, $branchName);
             if ($uploadResult['success']) {
                 $status = 'synced';
                 BaseRepository::run('UPDATE settings SET last_synced_at=NOW() WHERE id=1');
@@ -296,8 +354,13 @@ class BackupService {
         // Check local disk space in MB
         $dir = self::getBackupDir();
         $freeSpaceMb = round(disk_free_space($dir) / (1024 * 1024), 2);
+        $unsyncedCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE synced=0')
+            + (int) BaseRepository::scalar('SELECT COUNT(*) FROM customers WHERE synced=0')
+            + (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE synced=0');
+        $pendingBackups = (int) BaseRepository::scalar("SELECT COUNT(*) FROM backup_logs WHERE status='local_saved'");
 
         return [
+            'driver' => Database::getDriver(),
             'is_online' => $isOnline,
             'cloud_backup_url' => $settings['cloud_backup_url'] ?? '',
             'cloud_api_key' => $settings['cloud_api_key'] ?? '',
@@ -306,9 +369,51 @@ class BackupService {
             'last_synced_at' => $settings['last_synced_at'] ?? null,
             'last_backup' => $lastLog,
             'total_backups_created' => $totalBackups,
+            'unsynced_count' => $unsyncedCount,
+            'pending_backups' => $pendingBackups,
             'free_disk_space_mb' => $freeSpaceMb,
             'local_storage_dir' => $dir,
         ];
+    }
+
+    /**
+     * Uploads any offline-saved .sql snapshots once internet connectivity returns.
+     */
+    public static function uploadPendingBackups(int $maxFiles = 5): array {
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $remoteUrl = trim($settings['cloud_backup_url'] ?? '');
+        $apiKey = trim($settings['cloud_api_key'] ?? '');
+        if ($remoteUrl === '' || !self::isInternetAvailable()) {
+            return ['uploaded' => 0];
+        }
+
+        $uploadEndpoint = self::resolveCloudEndpoint($remoteUrl, 'backup.receive');
+        $pending = BaseRepository::rows(
+            "SELECT b.*, COALESCE(br.name, 'HQ') AS branch_name
+             FROM backup_logs b
+             LEFT JOIN branches br ON br.id=b.branch_id
+             WHERE b.status IN ('local_saved','failed')
+             ORDER BY b.id DESC
+             LIMIT {$maxFiles}"
+        );
+
+        $dir = self::getBackupDir();
+        $uploaded = 0;
+        foreach ($pending as $row) {
+            $path = $dir . DIRECTORY_SEPARATOR . basename((string) $row['filename']);
+            if (!is_file($path)) {
+                continue;
+            }
+            $branchSlug = preg_replace('/[^a-zA-Z0-9_-]/', '_', (string) $row['branch_name']);
+            $res = self::uploadFileToCloud($path, $uploadEndpoint, $apiKey, $branchSlug);
+            if ($res['success']) {
+                BaseRepository::run("UPDATE backup_logs SET status='synced', error_message=NULL WHERE id=?", [$row['id']]);
+                BaseRepository::run('UPDATE settings SET last_synced_at=NOW() WHERE id=1');
+                $uploaded++;
+            }
+        }
+
+        return ['uploaded' => $uploaded];
     }
 }
 

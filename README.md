@@ -1,5 +1,10 @@
 # ZEEDAT POS
 
+
+Email: owner@zeedat.local
+Password: Password1234!
+
+
 A branch-scoped retail and repair application with a React frontend, a PHP JSON API, and a MySQL database. The included XAMPP MariaDB server also works for local development.
 
 ## Run on Windows with XAMPP
