@@ -34,7 +34,7 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { cents, dateLabel, managers, money, rupees, timeLabel, today } from '../../utils';
+import { cents, dateLabel, managers, money, printHtmlDocument, rupees, timeLabel, today } from '../../utils';
 
 const canManage = ctx => managers.includes(ctx.user.role);
 
@@ -81,6 +81,7 @@ export function CashRegister({ ctx }) {
 
   // Modals
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [sessionModal, setSessionModal] = useState(null);
   const [closeModalDrawer, setCloseModalDrawer] = useState(null);
   const [denoms, setDenoms] = useState({});
   const [coinsAmount, setCoinsAmount] = useState('');
@@ -755,15 +756,7 @@ export function CashRegister({ ctx }) {
               {activeTab === 'Cashbook Ledger' && (
                 <div>
                   {/* Date Presets & Pickers */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '10px',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      marginBottom: '12px',
-                    }}
-                  >
+                  <div className="zk-cb-filter-bar">
                     <FilterTabs
                       choices={[
                         ['all', 'All Time'],
@@ -776,8 +769,8 @@ export function CashRegister({ ctx }) {
                       onChange={applyDatePreset}
                     />
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>From:</span>
+                    <div className="zk-cb-date-inputs">
+                      <span>From:</span>
                       <input
                         type="date"
                         value={fromDate}
@@ -785,14 +778,8 @@ export function CashRegister({ ctx }) {
                           setDatePreset('custom');
                           setFromDate(e.target.value);
                         }}
-                        style={{
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '6px',
-                          padding: '5px 8px',
-                          fontSize: '12.5px',
-                        }}
                       />
-                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>To:</span>
+                      <span>To:</span>
                       <input
                         type="date"
                         value={toDate}
@@ -800,35 +787,21 @@ export function CashRegister({ ctx }) {
                           setDatePreset('custom');
                           setToDate(e.target.value);
                         }}
-                        style={{
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '6px',
-                          padding: '5px 8px',
-                          fontSize: '12.5px',
-                        }}
                       />
                     </div>
                   </div>
 
                   {/* Search & Type Filter */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '10px',
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                      marginBottom: '14px',
-                    }}
-                  >
-                    <div style={{ flex: '1 1 220px' }}>
+                  <div className="zk-cb-filter-bar" style={{ background: '#ffffff' }}>
+                    <div style={{ flex: '1 1 240px' }}>
                       <SearchBox
                         value={ledgerSearch}
                         onChange={setLedgerSearch}
-                        placeholder="Search category, invoice, branch, or description..."
+                        placeholder="Search category, invoice, branch, operator or reference..."
                       />
                     </div>
 
-                    <div style={{ minWidth: '170px' }}>
+                    <div style={{ minWidth: '185px' }}>
                       <Select
                         aria-label="Filter Movement Type"
                         value={ledgerFilter}
@@ -844,68 +817,27 @@ export function CashRegister({ ctx }) {
                     </div>
                   </div>
 
-                  {/* 3 Colored Totals */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: '12px',
-                      marginBottom: '16px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        background: '#f0fdf4',
-                        border: '1px solid #bbf7d0',
-                        padding: '12px 16px',
-                        borderRadius: '10px',
-                      }}
-                    >
-                      <span style={{ fontSize: '11.5px', color: '#166534', fontWeight: 700 }}>
+                  {/* 3 Modern Ledger Totals Cards */}
+                  <div className="zk-cb-ledger-metrics">
+                    <div className="zk-cb-ledger-card in">
+                      <small style={{ color: '#166534' }}>
                         TOTAL INFLOW ({filteredLedger.filter(x => x.amount > 0).length} entries)
-                      </span>
-                      <div style={{ fontSize: '18px', fontWeight: 800, color: '#15803d', marginTop: '2px' }}>
-                        + {money(ledgerIn)}
-                      </div>
+                      </small>
+                      <strong style={{ color: '#15803d' }}>+ {money(ledgerIn)}</strong>
                     </div>
 
-                    <div
-                      style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fecaca',
-                        padding: '12px 16px',
-                        borderRadius: '10px',
-                      }}
-                    >
-                      <span style={{ fontSize: '11.5px', color: '#991b1b', fontWeight: 700 }}>
+                    <div className="zk-cb-ledger-card out">
+                      <small style={{ color: '#991b1b' }}>
                         TOTAL OUTFLOW ({filteredLedger.filter(x => x.amount < 0).length} entries)
-                      </span>
-                      <div style={{ fontSize: '18px', fontWeight: 800, color: '#dc2626', marginTop: '2px' }}>
-                        − {money(ledgerOut)}
-                      </div>
+                      </small>
+                      <strong style={{ color: '#dc2626' }}>− {money(ledgerOut)}</strong>
                     </div>
 
-                    <div
-                      style={{
-                        background: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                        padding: '12px 16px',
-                        borderRadius: '10px',
-                      }}
-                    >
-                      <span style={{ fontSize: '11.5px', color: '#334155', fontWeight: 700 }}>
-                        NET CASH FLOW
-                      </span>
-                      <div
-                        style={{
-                          fontSize: '18px',
-                          fontWeight: 800,
-                          color: ledgerNet >= 0 ? '#15803d' : '#dc2626',
-                          marginTop: '2px',
-                        }}
-                      >
+                    <div className="zk-cb-ledger-card">
+                      <small>NET CASH FLOW</small>
+                      <strong style={{ color: ledgerNet >= 0 ? '#15803d' : '#dc2626' }}>
                         {money(ledgerNet)}
-                      </div>
+                      </strong>
                     </div>
                   </div>
 
@@ -959,25 +891,15 @@ export function CashRegister({ ctx }) {
                       No categorized cashbook transactions found yet.
                     </div>
                   ) : (
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                        gap: '14px',
-                      }}
-                    >
+                    <div className="zk-cb-cat-grid">
                       {categories.map((c, idx) => {
                         const isNeg = c.total < 0;
                         const pct = Math.min(100, Math.round((Math.abs(c.total) / maxCatVal) * 100));
                         return (
                           <div
                             key={idx}
-                            style={{
-                              border: '1px solid #e2e8f0',
-                              borderRadius: '12px',
-                              padding: '14px 16px',
-                              background: isNeg ? '#fffafa' : '#f8fdfb',
-                            }}
+                            className="zk-cb-cat-card"
+                            style={{ background: isNeg ? '#fffafa' : '#f8fdfb' }}
                           >
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>{c.name}</strong>
@@ -1068,11 +990,77 @@ export function CashRegister({ ctx }) {
                         },
                       ],
                       ['Notes', r => r.notes || '—'],
+                      [
+                        'Inspect',
+                        r => (
+                          <Button variant="outline" onClick={() => setSessionModal(r)} style={{ padding: '0.25rem 0.6rem', fontSize: '0.82rem' }}>
+                            View Shift
+                          </Button>
+                        ),
+                      ],
                     ]}
                   />
                 </div>
               )}
             </Panel>
+
+            {/* CLOSED SESSION INSPECT MODAL */}
+            {sessionModal && (
+              <Modal
+                title={`Closed Shift: ${dateLabel(sessionModal.business_date)}`}
+                description={`${sessionModal.branch_name || currentBranchName} · Cashier: ${sessionModal.operator || 'Staff'}`}
+                onClose={() => setSessionModal(null)}
+                wide={true}
+              >
+                <div className="modal-body" style={{ display: 'grid', gap: '12px' }}>
+                  <div className="zk-recon-summary">
+                    <div className="zk-recon-box">
+                      <small>Opening Float</small>
+                      <strong>{money(sessionModal.opening)}</strong>
+                    </div>
+                    <div className="zk-recon-box">
+                      <small>System Expected</small>
+                      <strong>{money(sessionModal.expected)}</strong>
+                    </div>
+                    <div className="zk-recon-box" style={{ background: '#f0fdfa', borderColor: '#99f6e4' }}>
+                      <small style={{ color: '#0f766e' }}>Actual Counted</small>
+                      <strong style={{ color: '#0d9488' }}>{money(sessionModal.counted)}</strong>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <span style={{ fontWeight: 600, color: '#475569' }}>Reconciliation Variance</span>
+                    <strong style={{ color: (sessionModal.counted || 0) - (sessionModal.expected || 0) === 0 ? '#15803d' : '#dc2626' }}>
+                      {money((sessionModal.counted || 0) - (sessionModal.expected || 0))}
+                    </strong>
+                  </div>
+                  {sessionModal.notes && (
+                    <div style={{ padding: '10px 14px', borderRadius: '10px', background: '#fffbeb', border: '1px solid #fde68a', fontSize: '0.88rem' }}>
+                      <strong>Closing Notes:</strong> {sessionModal.notes}
+                    </div>
+                  )}
+                  <Table
+                    rows={ledger.filter(m => Number(m.drawer_id) === Number(sessionModal.id))}
+                    empty="No individual movements linked to this shift."
+                    columns={[
+                      ['Time', m => timeLabel(m.created_at)],
+                      ['Category', 'kind'],
+                      ['Reference', m => m.reference || '—'],
+                      [
+                        'Amount',
+                        m => (
+                          <strong className={m.amount < 0 ? 'text-red' : 'text-green'}>
+                            {m.amount < 0 ? `− ${money(Math.abs(m.amount))}` : `+ ${money(m.amount)}`}
+                          </strong>
+                        ),
+                      ],
+                    ]}
+                  />
+                </div>
+                <div className="modal-footer">
+                  <Button variant="outline" onClick={() => setSessionModal(null)}>Close</Button>
+                </div>
+              </Modal>
+            )}
 
             {/* DENOMINATION CASH RECONCILIATION & CLOSE DRAWER MODAL */}
             {closeModalDrawer && (
@@ -1366,7 +1354,11 @@ export function CashRegister({ ctx }) {
                     <Button variant="outline" onClick={() => setPrintModalOpen(false)}>
                       Close
                     </Button>
-                    <Button icon={Printer} variant="primary" onClick={() => window.print()}>
+                    <Button icon={Printer} variant="primary" onClick={() => {
+                      const el = document.getElementById('printable-cashbook-area');
+                      if (!el) return;
+                      printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Cashbook Statement</title><style>body{font-family:'Segoe UI',Arial,sans-serif;padding:18px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{padding:6px;border-bottom:1px solid #e2e8f0;font-size:12px}</style></head><body>${el.innerHTML}</body></html>`);
+                    }}>
                       Print Statement
                     </Button>
                   </div>

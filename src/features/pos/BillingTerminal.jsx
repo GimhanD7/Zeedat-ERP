@@ -204,7 +204,25 @@ function BillingView({ ctx, data }) {
         title="POS / Billing"
         description={'Create bills, sell products and record payments — ' + branch?.name}
       >
-        <Button icon={Wallet} onClick={() => ctx.navigate('drawer')}>
+        <Button
+          icon={Wallet}
+          onClick={() => {
+            if (ctx.hasPermission?.('drawer')) {
+              ctx.navigate('drawer');
+            } else if (!current) {
+              ctx.setDialog({
+                title: 'Open Cash Register',
+                description: 'Enter starting cash float to begin today’s POS shift.',
+                route: 'drawer.open',
+                submit: 'Open Register',
+                fields: [{ name: 'opening', label: 'Opening Float (LKR)', type: 'money', full: true }],
+                values: { opening: 0 },
+                transform: v => ({ ...v, opening: cents(v.opening) }),
+                onSuccess: () => state.refresh(),
+              });
+            }
+          }}
+        >
           Cash register{' '}
           <Badge tone={current ? 'green' : 'red'}>{current ? 'Open' : 'Closed'}</Badge>
         </Button>

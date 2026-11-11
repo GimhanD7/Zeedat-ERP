@@ -895,8 +895,7 @@ class CloudSyncService {
                 $existingSale = BaseRepository::one('SELECT id, synced FROM sales WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
                 if ($existingSale) {
                     if ((int) ($existingSale['synced'] ?? 1) === 1) {
-                        BaseRepository::run('UPDATE sales SET credit=?, synced=1 WHERE id=?', [(int) ($s['credit'] ?? 0), $existingSale['id']]);
-                        self::syncSalePayments((int) $existingSale['id'], $drawerId, $uid, $entry['payments'] ?? [], $isSqlite);
+                        self::updateSyncedSale((int) $existingSale['id'], $drawerId, $uid, $s, $entry['payments'] ?? [], $isSqlite);
                     }
                     continue;
                 }
@@ -908,13 +907,7 @@ class CloudSyncService {
                     ) ?: null)
                     : null;
 
-                $saleSql = $isSqlite
-                    ? 'INSERT INTO sales (uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)'
-                    : 'INSERT INTO sales (branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)';
-                $saleParams = $isSqlite
-                    ? [$syncUuid, $bid, $uid, $drawerId, $cid, (int) $s['subtotal'], (int) $s['discount'], (int) $s['tax'], (int) $s['total'], (int) ($s['credit'] ?? 0), $s['due_date'] ?? null, $syncUuid, $s['created_at'] ?? date('Y-m-d H:i:s')]
-                    : [$bid, $uid, $drawerId, $cid, (int) $s['subtotal'], (int) $s['discount'], (int) $s['tax'], (int) $s['total'], (int) ($s['credit'] ?? 0), $s['due_date'] ?? null, $syncUuid, $s['created_at'] ?? date('Y-m-d H:i:s')];
-                $newSaleId = BaseRepository::insert($saleSql, $saleParams);
+                $newSaleId = self::insertSyncedSale($bid, $uid, $drawerId, $cid, $syncUuid, $s, $isSqlite);
 
                 foreach ($entry['items'] ?? [] as $it) {
                     $pid = $productBySku[$it['product_sku'] ?? ''] ?? (int) ($it['product_id'] ?? 0);
@@ -1042,6 +1035,54 @@ class CloudSyncService {
             'INSERT INTO drawers (branch_id, user_id, cycle_id, opening, notes) VALUES (?,?,?,?,?)',
             [$branchId, $userId, $cycleId, 0, 'Cloud Sync Drawer']
         );
+    }
+
+    private static function insertSyncedSale(int $bid, int $uid, int $drawerId, ?int $cid, string $syncUuid, array $s, bool $isSqlite): int {
+        $commonCols = 'branch_id, user_id, drawer_id, customer_id, invoice_no, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, sync_uuid, synced, created_at';
+        $commonVals = [
+            $bid, $uid, $drawerId, $cid,
+            (string) ($s['invoice_no'] ?? ''),
+            (int) ($s['subtotal'] ?? 0),
+            (int) ($s['discount'] ?? 0),
+            (int) ($s['discount_bps'] ?? 0),
+            (int) ($s['tax'] ?? 0),
+            (int) ($s['tax_bps'] ?? 0),
+            (int) ($s['total'] ?? 0),
+            (int) ($s['paid_amount'] ?? 0),
+            (int) ($s['cash_tendered'] ?? 0),
+            (int) ($s['change_amount'] ?? 0),
+            (string) ($s['payment_methods'] ?? ''),
+            (int) ($s['credit'] ?? 0),
+            $s['due_date'] ?? null,
+            (string) ($s['notes'] ?? ''),
+            $syncUuid,
+            $s['created_at'] ?? date('Y-m-d H:i:s'),
+        ];
+        if ($isSqlite) {
+            return BaseRepository::insert(
+                "INSERT INTO sales (uuid, {$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                array_merge([$syncUuid], $commonVals)
+            );
+        }
+        return BaseRepository::insert(
+            "INSERT INTO sales ({$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            $commonVals
+        );
+    }
+
+    private static function updateSyncedSale(int $saleId, int $drawerId, int $uid, array $s, array $payments, bool $isSqlite): void {
+        BaseRepository::run(
+            'UPDATE sales SET credit=?, paid_amount=COALESCE(?, paid_amount), cash_tendered=COALESCE(?, cash_tendered), payment_methods=CASE WHEN ? <> "" THEN ? ELSE payment_methods END, synced=1 WHERE id=?',
+            [
+                (int) ($s['credit'] ?? 0),
+                isset($s['paid_amount']) ? (int) $s['paid_amount'] : null,
+                isset($s['cash_tendered']) ? (int) $s['cash_tendered'] : null,
+                (string) ($s['payment_methods'] ?? ''),
+                (string) ($s['payment_methods'] ?? ''),
+                $saleId,
+            ]
+        );
+        self::syncSalePayments($saleId, $drawerId, $uid, $payments, $isSqlite);
     }
 
     private static function syncSalePayments(int $saleId, int $drawerId, int $userId, array $payments, bool $isSqlite): void {
@@ -1708,8 +1749,7 @@ class CloudSyncService {
 
                 $existingSaleId = (int) BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid = ? LIMIT 1', [$syncUuid]);
                 if ($existingSaleId > 0) {
-                    BaseRepository::run('UPDATE sales SET credit=?, synced=1 WHERE id=?', [(int) ($s['credit'] ?? 0), $existingSaleId]);
-                    self::syncSalePayments($existingSaleId, $drawerId, $uid, $saleEntry['payments'] ?? [], $isSqlite);
+                    self::updateSyncedSale($existingSaleId, $drawerId, $uid, $s, $saleEntry['payments'] ?? [], $isSqlite);
                 } else {
                     $cid = (!empty($s['customer_sync_uuid']) || !empty($s['customer_phone']))
                         ? (BaseRepository::scalar(
@@ -1718,13 +1758,7 @@ class CloudSyncService {
                         ) ?: null)
                         : null;
 
-                    $saleSql = $isSqlite
-                        ? 'INSERT INTO sales (uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)'
-                        : 'INSERT INTO sales (branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)';
-                    $saleParams = $isSqlite
-                        ? [$syncUuid, $bid, $uid, $drawerId, $cid, (int) ($s['subtotal'] ?? 0), (int) ($s['discount'] ?? 0), (int) ($s['tax'] ?? 0), (int) ($s['total'] ?? 0), (int) ($s['credit'] ?? 0), $s['due_date'] ?? null, $syncUuid, $s['created_at'] ?? date('Y-m-d H:i:s')]
-                        : [$bid, $uid, $drawerId, $cid, (int) ($s['subtotal'] ?? 0), (int) ($s['discount'] ?? 0), (int) ($s['tax'] ?? 0), (int) ($s['total'] ?? 0), (int) ($s['credit'] ?? 0), $s['due_date'] ?? null, $syncUuid, $s['created_at'] ?? date('Y-m-d H:i:s')];
-                    $newSaleId = BaseRepository::insert($saleSql, $saleParams);
+                    $newSaleId = self::insertSyncedSale($bid, $uid, $drawerId, $cid, $syncUuid, $s, $isSqlite);
 
                     foreach ($saleEntry['items'] ?? [] as $it) {
                         $pid = $resolveProduct($it['product_sku'] ?? null, (int) ($it['product_id'] ?? 0));

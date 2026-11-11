@@ -425,7 +425,7 @@ function Workspace({ session, onLogout }) {
     clearIntent: () => setIntent(''),
   };
 
-  const Page = available.find(item => item[0] === page)?.[4] || DashboardPage;
+  const Page = available.find(item => item[0] === page)?.[4] || available[0]?.[4] || DashboardPage;
 
   return (
     <>

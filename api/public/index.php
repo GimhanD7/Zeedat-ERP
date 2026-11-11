@@ -152,7 +152,7 @@ try {
                     return SaleController::saveDraft($action, $user, $branch, $body);
                 })(),
                 'drawer.open' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'drawer');
+                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
                     return DrawerController::open($user, $branch, $body);
                 })(),
                 'drawer.close' => (function () use ($user, $branch, $body) {
@@ -359,11 +359,11 @@ try {
             return DashboardController::getDashboard($branch, $_GET);
         })(),
         'products' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'inventory');
+            RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
             return InventoryController::getProducts($branch, $user);
         })(),
         'units' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'inventory');
+            RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
             return InventoryController::getUnits($branch);
         })(),
         'stock.movements' => (function () use ($user, $branch) {
@@ -371,7 +371,7 @@ try {
             return InventoryController::getStockMovements($branch, $_GET);
         })(),
         'customers' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'customers');
+            RoleGuard::allowAnyPermission($user, 'customers', 'pos');
             $params = $branch ? [$branch] : [];
             return BaseRepository::rows(
                 "SELECT c.*, b.name branch, CAST(COALESCE(t.total,0) AS UNSIGNED) total, CAST(COALESCE(t.credit,0) AS UNSIGNED) credit
@@ -402,7 +402,7 @@ try {
             return SaleController::getInvoice($branch, $_GET);
         })(),
         'drawer' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'drawer');
+            RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
             if (!$branch && !in_array($user['role'], ['owner', 'manager'], true)) throw new ApiError('Select a branch.');
             return DrawerController::getRegister($branch, $user, $_GET);
         })(),
@@ -436,7 +436,7 @@ try {
             return AdminController::getPermissions();
         })(),
         'settings' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
+            RoleGuard::allowAnyPermission($user, 'settings', 'pos');
             return AdminController::getSettings();
         })(),
         'branches.summary' => (function () use ($user) {

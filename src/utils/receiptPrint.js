@@ -56,14 +56,18 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
     settings?.show_tax_on_receipt !== 0 && settings?.show_tax_on_receipt !== '0';
 
   const invNumber =
+    invoice?.invoice_no ||
     invoice?.invoiceNo ||
     (invoice?.id ? ref(String(settings?.invoice_prefix || 'INV').replace(/-+$/, ''), invoice.id) : 'PREVIEW');
 
   const items = invoice?.items || [];
   const itemRowsHtml = items
     .map(item => {
-      const serialLine = item.code
-        ? `<div class="item-meta">${esc(item.code)}${item.imei ? ' · ' + esc(item.imei) : ''}</div>`
+      const skuText = item.sku ? `SKU: ${esc(item.sku)}` : '';
+      const unitText = item.code ? `${esc(item.code)}${item.imei ? ' · IMEI: ' + esc(item.imei) : ''}` : '';
+      const metaCombined = [skuText, unitText].filter(Boolean).join(' · ');
+      const serialLine = metaCombined
+        ? `<div class="item-meta">${metaCombined}</div>`
         : '';
       return `
         <tr>
@@ -83,14 +87,16 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
     .map(
       p => `
         <div class="sum-row">
-          <span>${esc(p.method)}${p.kind === 'Credit' ? ' repayment' : ''}</span>
+          <span>${esc(p.method)}${p.kind === 'Credit' ? ' repayment' : ''}${p.reference ? ` (${esc(p.reference)})` : ''}</span>
           <strong>${esc(money(p.amount))}</strong>
         </div>`
     )
     .join('');
 
-  const cashTendered = Number(invoice?.cashTendered || 0);
-  const changeAmount = Number(invoice?.change || 0);
+  const cashTendered = Number(invoice?.cashTendered ?? invoice?.cash_tendered ?? 0);
+  const changeAmount = Number(invoice?.change ?? invoice?.change_amount ?? 0);
+  const discPct = invoice?.discount_bps ? ` (${(Number(invoice.discount_bps) / 100).toFixed(Number(invoice.discount_bps) % 100 === 0 ? 0 : 1)}%)` : '';
+  const taxPct = invoice?.tax_bps ? ` (${(Number(invoice.tax_bps) / 100).toFixed(Number(invoice.tax_bps) % 100 === 0 ? 0 : 1)}%)` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -211,7 +217,8 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
     <hr class="sep" />
     <div class="meta-line"><strong>Bill:</strong> ${esc(invNumber)}${invoice?.isPreview ? ' (Review)' : ''}</div>
     <div class="meta-line"><strong>Date:</strong> ${esc(invoice?.created_at ? dateLabel(invoice.created_at) : dateLabel(new Date().toISOString().slice(0, 10)))}</div>
-    <div class="meta-line"><strong>Customer:</strong> ${esc(invoice?.customer || 'Walk-in customer')}</div>
+    ${invoice?.cashier ? `<div class="meta-line"><strong>Cashier:</strong> ${esc(invoice.cashier)}</div>` : ''}
+    <div class="meta-line"><strong>Customer:</strong> ${esc(invoice?.customer || 'Walk-in customer')}${invoice?.customer_phone ? ` (${esc(invoice.customer_phone)})` : ''}</div>
     <hr class="sep" />
     <table>
       <thead>
@@ -232,12 +239,12 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
     </div>
     ${
       Number(invoice?.discount || 0) > 0
-        ? `<div class="sum-row"><span>Discount</span><strong>- ${esc(money(invoice.discount))}</strong></div>`
+        ? `<div class="sum-row"><span>Discount${esc(discPct)}</span><strong>- ${esc(money(invoice.discount))}</strong></div>`
         : ''
     }
     ${
       showTax
-        ? `<div class="sum-row"><span>Tax</span><strong>${esc(money(invoice?.tax || 0))}</strong></div>`
+        ? `<div class="sum-row"><span>Tax${esc(taxPct)}</span><strong>${esc(money(invoice?.tax || 0))}</strong></div>`
         : ''
     }
     <div class="sum-row grand">
@@ -265,6 +272,11 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
         ? `<div class="sum-row"><span>Refunded</span><strong>${esc(money(invoice.refunded))}</strong></div>`
         : ''
     }
+    ${
+      invoice?.notes
+        ? `<div class="meta-line" style="margin-top:4px;"><strong>Note:</strong> ${esc(invoice.notes)}</div>`
+        : ''
+    }
     <hr class="sep" />
     <div class="footer-msg">${esc(settings?.receipt_footer || 'Thank you for your business!')}</div>
   </div>
@@ -273,21 +285,9 @@ export function buildThermalReceiptHtml(invoice, settings = {}) {
 }
 
 /**
- * Print a full thermal receipt with all items via Electron silent printer or clean browser iframe fallback.
+ * Print an isolated HTML document via hidden iframe without printing the main app workspace.
  */
-export async function printThermalReceipt(invoice, settings = {}, options = {}) {
-  const html = buildThermalReceiptHtml(invoice, settings);
-  const paperWidth = Number(settings?.paper_width) === 58 ? 58 : 80;
-
-  if (window.electronAPI?.printReceiptHtml) {
-    return window.electronAPI.printReceiptHtml({
-      html,
-      paperWidth,
-      deviceName: settings?.receipt_printer_name || '',
-      silent: options.silent ?? true,
-    });
-  }
-
+export function printHtmlDocument(html) {
   return new Promise(resolve => {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -326,10 +326,29 @@ export async function printThermalReceipt(invoice, settings = {}, options = {}) 
         } finally {
           cleanup();
         }
-      }, 120);
+      }, 140);
     } catch (err) {
       cleanup();
       resolve({ success: false, error: err?.message || 'Print failed' });
     }
   });
+}
+
+/**
+ * Print a full thermal receipt with all items via Electron silent printer or clean browser iframe fallback.
+ */
+export async function printThermalReceipt(invoice, settings = {}, options = {}) {
+  const html = buildThermalReceiptHtml(invoice, settings);
+  const paperWidth = Number(settings?.paper_width) === 58 ? 58 : 80;
+
+  if (window.electronAPI?.printReceiptHtml) {
+    return window.electronAPI.printReceiptHtml({
+      html,
+      paperWidth,
+      deviceName: settings?.receipt_printer_name || '',
+      silent: options.silent ?? true,
+    });
+  }
+
+  return printHtmlDocument(html);
 }

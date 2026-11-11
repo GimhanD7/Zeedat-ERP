@@ -103,18 +103,25 @@ class CheckoutService {
             $due = Validator::date($body, 'due_date', true);
         }
 
+        $notes = Validator::str($body, 'notes', 500, false) ?: '';
+        $paymentMethods = !empty($payments) ? implode(' + ', array_keys($payments)) : ($credit ? 'Credit' : 'Cash');
+        $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
+        $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
+
         $syncUuid = 'SL-' . bin2hex(random_bytes(10));
         if (\Zeedat\Config\Database::isSqlite()) {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $tax, $total, $credit, $due]
+                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, tax, total, credit, due_date) VALUES (?,0,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $tax, $total, $credit, $due]
+                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes]
             );
         }
+        $invoiceNo = Helpers::ref($prefixCode, $id);
+        BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [$invoiceNo, $id]);
 
         $processed = 0;
         $allocated = 0;
@@ -167,7 +174,11 @@ class CheckoutService {
         $ref = $method === 'Cash' ? null : Validator::str($body, 'reference', 100, true);
 
         self::salePayment($user, $drawer, $sale['id'], $amount, $method, $ref, 'Credit');
-        BaseRepository::run('UPDATE sales SET credit=credit-?, synced=0 WHERE id=?', [$amount, $sale['id']]);
+        $cashAdd = $method === 'Cash' ? $amount : 0;
+        BaseRepository::run(
+            "UPDATE sales SET credit=credit-?, paid_amount=COALESCE(paid_amount,0)+?, cash_tendered=COALESCE(cash_tendered,0)+?, payment_methods=CASE WHEN COALESCE(payment_methods,'') IN ('','Credit') THEN ? WHEN INSTR(payment_methods, ?) > 0 THEN payment_methods ELSE CONCAT(payment_methods, ' + ', ?) END, synced=0 WHERE id=?",
+            [$amount, $amount, $cashAdd, $method, $method, $method, $sale['id']]
+        );
 
         return SaleRepository::invoiceDetails($sale['id'], $branch);
     }

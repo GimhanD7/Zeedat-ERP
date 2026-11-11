@@ -495,5 +495,53 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure full invoice detail columns on sales + one-time cashier POS-only permission default
+        try {
+            $salesColsSpec = [
+                'invoice_no' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(40) NOT NULL DEFAULT ''",
+                'discount_bps' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'INT NOT NULL DEFAULT 0',
+                'tax_bps' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'INT NOT NULL DEFAULT 0',
+                'paid_amount' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'cash_tendered' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'change_amount' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
+                'payment_methods' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(120) NOT NULL DEFAULT ''",
+                'notes' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT ''" : "VARCHAR(500) NOT NULL DEFAULT ''",
+            ];
+            if ($driver === 'sqlite') {
+                $existingSalesCols = array_column($db->query('PRAGMA table_info(sales)')->fetchAll(), 'name');
+                foreach ($salesColsSpec as $col => $def) {
+                    if (!in_array($col, $existingSalesCols, true)) {
+                        $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
+                    }
+                }
+                $setCols = array_column($db->query('PRAGMA table_info(settings)')->fetchAll(), 'name');
+                if (!in_array('cashier_pos_only', $setCols, true)) {
+                    $db->exec('ALTER TABLE settings ADD COLUMN cashier_pos_only INTEGER NOT NULL DEFAULT 0');
+                }
+                $flag = (int) ($db->query('SELECT cashier_pos_only FROM settings WHERE id=1')->fetchColumn() ?: 0);
+                if ($flag === 0) {
+                    $db->exec("DELETE FROM role_permissions WHERE role='cashier' AND permission <> 'pos'");
+                    $db->exec("INSERT OR IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'pos')");
+                    $db->exec('UPDATE settings SET cashier_pos_only=1 WHERE id=1');
+                }
+            } else {
+                foreach ($salesColsSpec as $col => $def) {
+                    if (empty($db->query("SHOW COLUMNS FROM sales LIKE '{$col}'")->fetchAll())) {
+                        $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
+                    }
+                }
+                if (empty($db->query("SHOW COLUMNS FROM settings LIKE 'cashier_pos_only'")->fetchAll())) {
+                    $db->exec('ALTER TABLE settings ADD COLUMN cashier_pos_only TINYINT(1) NOT NULL DEFAULT 0');
+                }
+                $flag = (int) ($db->query('SELECT cashier_pos_only FROM settings WHERE id=1')->fetchColumn() ?: 0);
+                if ($flag === 0) {
+                    $db->exec("DELETE FROM role_permissions WHERE role='cashier' AND permission <> 'pos'");
+                    $db->exec("INSERT IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'pos')");
+                    $db->exec('UPDATE settings SET cashier_pos_only=1 WHERE id=1');
+                }
+            }
+        } catch (Throwable) {
+        }
     }
 }

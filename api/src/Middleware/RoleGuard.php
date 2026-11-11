@@ -16,14 +16,22 @@ class RoleGuard {
     }
 
     public static function allowPermission(array $user, string $permission): void {
+        self::allowAnyPermission($user, $permission);
+    }
+
+    public static function allowAnyPermission(array $user, string ...$permissions): void {
         if ($user['role'] === 'owner') {
             return;
         }
-        if (!PermissionRepository::userHasPermission((int) $user['id'], $user['role'], $permission)) {
-            $permInfo = PermissionRepository::ALL_PERMISSIONS[$permission] ?? null;
-            $name = $permInfo['name'] ?? $permission;
-            throw new ApiError("Access denied: Your account does not have permission for {$name}.", 403);
+        foreach ($permissions as $permission) {
+            if (PermissionRepository::userHasPermission((int) $user['id'], $user['role'], $permission)) {
+                return;
+            }
         }
+        $primary = $permissions[0] ?? 'module';
+        $permInfo = PermissionRepository::ALL_PERMISSIONS[$primary] ?? null;
+        $name = $permInfo['name'] ?? $primary;
+        throw new ApiError("Access denied: Your account does not have permission for {$name}.", 403);
     }
 
     public static function branchFor(array $user, mixed $requested, bool $required = true): int {

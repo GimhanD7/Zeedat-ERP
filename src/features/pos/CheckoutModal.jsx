@@ -59,6 +59,7 @@ export function CheckoutModal({
   const [printReceipt, setPrintReceipt] = useState(
     () => settings?.auto_print !== 0 && settings?.auto_print !== '0'
   );
+  const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -170,6 +171,8 @@ export function CheckoutModal({
       change,
       credit: credit ? balance : 0,
       due_date: due,
+      notes: notes.trim(),
+      cashier: ctx.user?.name || '',
     };
     await printThermalReceipt(previewInvoice, settings);
   };
@@ -198,6 +201,7 @@ export function CheckoutModal({
           })),
         allow_credit: credit,
         due_date: due,
+        notes: notes.trim(),
       });
 
       onComplete({
@@ -617,6 +621,27 @@ export function CheckoutModal({
                 <div className="zk-change-highlight-row">
                   <span>Change</span>
                   <strong>{money(change)}</strong>
+                </div>
+
+                <div style={{ marginTop: '12px' }}>
+                  <label className="zk-paid-label" style={{ marginBottom: '4px', display: 'block' }}>
+                    Invoice / Warranty Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    maxLength={500}
+                    placeholder="Add warranty note, delivery info, or remarks..."
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    style={{
+                      width: '100%',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      resize: 'vertical',
+                    }}
+                  />
                 </div>
               </div>
             </div>
