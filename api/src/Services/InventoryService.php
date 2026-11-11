@@ -11,17 +11,28 @@ use Zeedat\Support\Validator;
 
 class InventoryService {
     public static function generateUniqueSku(string $category = 'Accessories'): string {
-        $prefix = match ($category) {
-            'Phones' => 'PHN',
-            'Accessories' => 'ACC',
-            'Repair Parts' => 'PRT',
-            'Services' => 'SRV',
-            default => 'PRD',
-        };
-        do {
-            $sku = $prefix . '-' . str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-        } while (BaseRepository::scalar('SELECT id FROM products WHERE sku=?', [$sku]));
-        return $sku;
+        $rows = BaseRepository::rows('SELECT sku FROM products');
+        $maxNum = 0;
+        $taken = [];
+        foreach ($rows as $row) {
+            $existing = trim((string) ($row['sku'] ?? ''));
+            if ($existing === '') {
+                continue;
+            }
+            $taken[$existing] = true;
+            if (ctype_digit($existing)) {
+                $num = (int) $existing;
+                if ($num > $maxNum) {
+                    $maxNum = $num;
+                }
+            }
+        }
+
+        $next = max(1, $maxNum + 1);
+        while (isset($taken[(string) $next])) {
+            $next++;
+        }
+        return (string) $next;
     }
 
     public static function generateBarcode(array $excludeCodes = [], ?int $productId = null): array {
@@ -74,10 +85,11 @@ class InventoryService {
         $id = empty($body['id']) ? null : Validator::integer($body['id'], 'Product');
         $category = Validator::str($body, 'category', 40);
 
-        // Auto-generate SKU by system if not provided
+        // Sequential numeric Item Code (1, 2, 3...) when omitted or cleared
+        $hasSkuKey = array_key_exists('sku', $body);
         $skuInput = trim((string) ($body['sku'] ?? ''));
         if ($skuInput === '') {
-            if ($id) {
+            if ($id && !$hasSkuKey) {
                 $existingSku = BaseRepository::scalar('SELECT sku FROM products WHERE id=?', [$id]);
                 $sku = $existingSku ?: self::generateUniqueSku($category);
             } else {

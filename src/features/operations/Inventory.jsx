@@ -132,6 +132,7 @@ export function Inventory({ ctx }) {
       wide: true,
       values: {
         ...item,
+        sku: item?.sku || '',
         branch: activeBranchId,
         category: defaults?.category || item?.category || 'Accessories',
         cost: rupees(item?.cost),
@@ -151,6 +152,12 @@ export function Inventory({ ctx }) {
       fields: values => [
         branchField(ctx),
         { name: 'name', label: values.category === 'Services' ? 'Service name' : 'Product name' },
+        {
+          name: 'sku',
+          label: 'Item Code (Leave blank to auto-number from 1)',
+          optional: true,
+          placeholder: 'Auto (1, 2, 3...) — or clear to assign next number',
+        },
         { name: 'category', label: 'Category', choices: categories },
         ...(values.category !== 'Services'
           ? [
@@ -246,6 +253,7 @@ export function Inventory({ ctx }) {
         }
         return {
           ...v,
+          sku: (v.sku || '').trim(),
           cost: cents(v.cost || 0),
           price: cents(v.price),
           commission_type: commType,
@@ -550,8 +558,8 @@ export function Inventory({ ctx }) {
                               <small className="subtext">
                                 {r.brand ? `${r.brand} • ` : ''}
                                 {r.category}
-                                <span className="mono" style={{ marginLeft: 6, opacity: 0.75 }}>
-                                  ({r.sku})
+                                <span className="mono" style={{ marginLeft: 6, opacity: 0.78 }}>
+                                  #{r.sku}
                                 </span>
                               </small>
                             </span>
