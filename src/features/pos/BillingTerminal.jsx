@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Archive,
+  ArrowDownLeft,
   ArrowRight,
+  ArrowUpRight,
   Banknote,
   Barcode,
   CalendarDays,
   History,
+  LockKeyhole,
   Minus,
   Plus,
   ShoppingCart,
@@ -42,6 +45,11 @@ import {
 } from '../../utils';
 import { CheckoutModal } from './CheckoutModal';
 import { ReceiptModal } from './ReceiptModal';
+import {
+  CashRegisterModal,
+  CloseReconcileModal,
+  QuickCashMovementModal,
+} from '../finance/CashRegister';
 
 const lineKey = (product, unit) => product + ':' + (unit || '');
 const amountDue = (subtotal, discount, tax) => subtotal - discount + tax;
@@ -56,10 +64,10 @@ export function BillingTerminal({ ctx }) {
     settings: 'settings',
   });
 
-  return <DataView state={state}>{data => <BillingView ctx={ctx} data={data} />}</DataView>;
+  return <DataView state={state}>{data => <BillingView ctx={ctx} data={data} onRefresh={state.refresh} />}</DataView>;
 }
 
-function BillingView({ ctx, data }) {
+function BillingView({ ctx, data, onRefresh }) {
   const { products, units, customers, register, drafts, settings } = data;
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All Products');
@@ -72,9 +80,19 @@ function BillingView({ ctx, data }) {
   const [checkout, setCheckout] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [held, setHeld] = useState(false);
+  const [cashMoveDir, setCashMoveDir] = useState(null);
+  const [cashbookOpen, setCashbookOpen] = useState(() => ctx.intent === 'cashbook');
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const input = useRef(null);
+
+  useEffect(() => {
+    if (ctx.intent === 'cashbook') {
+      setCashbookOpen(true);
+      ctx.clearIntent?.();
+    }
+  }, [ctx.intent]);
 
   const branch = ctx.branches.find(b => b.id === ctx.branch);
 
@@ -155,7 +173,7 @@ function BillingView({ ctx, data }) {
 
   useEffect(() => {
     const handle = e => {
-      if (device || held || checkout || receipt || document.querySelector('.modal')) return;
+      if (device || held || checkout || receipt || cashMoveDir || cashbookOpen || reconcileOpen || document.querySelector('.modal')) return;
       if (e.key === 'F2') {
         e.preventDefault();
         input.current?.focus();
@@ -167,7 +185,7 @@ function BillingView({ ctx, data }) {
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [device, held, checkout, receipt, lines.length, register.drawer]);
+  }, [device, held, checkout, receipt, cashMoveDir, cashbookOpen, reconcileOpen, lines.length, register.drawer]);
 
   const hold = async () => {
     setBusy(true);
@@ -183,7 +201,40 @@ function BillingView({ ctx, data }) {
     }
   };
 
-  const current = register.drawer?.business_date === today();
+  const drawer = register.drawer;
+  const registerMovements = register.movements || [];
+  const registerBlocked = Boolean(register.blocked);
+  const shiftCashIn = registerMovements.reduce((s, r) => s + Math.max(0, r.amount), 0);
+  const shiftCashOut = registerMovements.reduce((s, r) => s + Math.min(0, r.amount), 0);
+  const current = drawer?.business_date === today();
+  const isManager = ['owner', 'manager'].includes(ctx.user.role);
+
+  const openCashRegisterDialog = () => {
+    ctx.setDialog({
+      title: 'Open Cash Register',
+      description: 'Enter starting cash float to begin today’s POS shift.',
+      route: 'drawer.open',
+      submit: 'Open Register',
+      fields: [{ name: 'opening', label: 'Opening Float (LKR)', type: 'money', full: true }],
+      values: { opening: 0 },
+      transform: v => ({ ...v, opening: cents(v.opening) }),
+      onSuccess: () => onRefresh?.(),
+    });
+  };
+
+  const handleQuickCashMovement = dir => {
+    if (registerBlocked) {
+      setError('Another cashier currently holds the open drawer for this branch.');
+      return;
+    }
+    if (!drawer && !isManager) {
+      ctx.setNotice('Open today’s cash register first before recording Cash In or Cash Out.');
+      openCashRegisterDialog();
+      return;
+    }
+    setCashMoveDir(dir);
+  };
+
   const q = query.trim().toLowerCase();
   const matched = new Set(
     units
@@ -207,23 +258,14 @@ function BillingView({ ctx, data }) {
         <Button
           icon={Wallet}
           onClick={() => {
-            if (ctx.hasPermission?.('drawer')) {
-              ctx.navigate('drawer');
-            } else if (!current) {
-              ctx.setDialog({
-                title: 'Open Cash Register',
-                description: 'Enter starting cash float to begin today’s POS shift.',
-                route: 'drawer.open',
-                submit: 'Open Register',
-                fields: [{ name: 'opening', label: 'Opening Float (LKR)', type: 'money', full: true }],
-                values: { opening: 0 },
-                transform: v => ({ ...v, opening: cents(v.opening) }),
-                onSuccess: () => state.refresh(),
-              });
+            if (!drawer && !registerBlocked && !isManager) {
+              openCashRegisterDialog();
+            } else {
+              setCashbookOpen(true);
             }
           }}
         >
-          Cash register{' '}
+          Cashbook &amp; Register{' '}
           <Badge tone={current ? 'green' : 'red'}>{current ? 'Open' : 'Closed'}</Badge>
         </Button>
         <span className="date-chip">
@@ -233,6 +275,73 @@ function BillingView({ ctx, data }) {
       </Heading>
 
       <Alert>{error}</Alert>
+
+      {/* MODERN POS REGISTER & CASH IN / CASH OUT BAR */}
+      <section className="zk-pos-cashbar" aria-label="Cash Register & Movements">
+        <div className="zk-pos-cashbar-stats">
+          <div className="zk-pos-cash-status">
+            <span className={`zk-cb-status-pill ${current ? 'open' : 'closed'}`}>
+              <span className="zk-cb-dot" />
+              {current ? 'Register Open' : registerBlocked ? 'Active Elsewhere' : 'Register Closed'}
+            </span>
+            <small>{drawer ? `Cashier: ${drawer.operator || ctx.user.name}` : branch?.name}</small>
+          </div>
+
+          <div className="zk-pos-cash-metrics">
+            <div className="zk-pos-cash-metric">
+              <span>Float</span>
+              <strong>{money(drawer?.opening || 0)}</strong>
+            </div>
+            <div className="zk-pos-cash-metric in">
+              <span>Cash In</span>
+              <strong>+ {money(shiftCashIn)}</strong>
+            </div>
+            <div className="zk-pos-cash-metric out">
+              <span>Cash Out</span>
+              <strong>− {money(-shiftCashOut)}</strong>
+            </div>
+            <div className="zk-pos-cash-metric total">
+              <span>In Drawer</span>
+              <strong>{money(drawer?.expected || 0)}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="zk-pos-cashbar-actions">
+          <button
+            type="button"
+            className="zk-pos-cash-btn in"
+            disabled={registerBlocked}
+            onClick={() => handleQuickCashMovement('In')}
+          >
+            <ArrowDownLeft size={16} />
+            <span>Cash In</span>
+          </button>
+          <button
+            type="button"
+            className="zk-pos-cash-btn out"
+            disabled={registerBlocked}
+            onClick={() => handleQuickCashMovement('Out')}
+          >
+            <ArrowUpRight size={16} />
+            <span>Cash Out</span>
+          </button>
+          <Button icon={Wallet} variant="outline" onClick={() => setCashbookOpen(true)}>
+            Cashbook
+          </Button>
+          {drawer ? (
+            <Button icon={LockKeyhole} variant="outline" onClick={() => setReconcileOpen(true)}>
+              Close Shift
+            </Button>
+          ) : (
+            !registerBlocked && (
+              <Button icon={Plus} variant="primary" onClick={openCashRegisterDialog}>
+                Open Register
+              </Button>
+            )
+          )}
+        </div>
+      </section>
 
       <div className="pos-grid">
         <Panel title="Product Catalog" icon={Barcode}>
@@ -578,6 +687,35 @@ function BillingView({ ctx, data }) {
           invoice={receipt}
           settings={settings}
           onClose={() => setReceipt(null)}
+        />
+      )}
+
+      {cashMoveDir && (
+        <QuickCashMovementModal
+          ctx={ctx}
+          drawer={drawer}
+          blocked={registerBlocked}
+          initialDirection={cashMoveDir}
+          onClose={() => setCashMoveDir(null)}
+          onSuccess={onRefresh}
+        />
+      )}
+
+      {cashbookOpen && (
+        <CashRegisterModal
+          ctx={ctx}
+          registerData={register}
+          onClose={() => setCashbookOpen(false)}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {reconcileOpen && drawer && (
+        <CloseReconcileModal
+          ctx={ctx}
+          drawer={drawer}
+          onClose={() => setReconcileOpen(false)}
+          onSuccess={onRefresh}
         />
       )}
     </>

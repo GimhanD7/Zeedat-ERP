@@ -136,11 +136,11 @@ try {
                     return DrawerController::open($user, $branch, $body);
                 })(),
                 'drawer.close' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'drawer');
+                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
                     return DrawerController::close($user, $branch, $body);
                 })(),
                 'drawer.movement' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'drawer');
+                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
                     return DrawerController::movement($user, $branch, $body);
                 })(),
                 'cycle.close' => (function () use ($user, $branch, $body) {

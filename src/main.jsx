@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   ShoppingCart,
   Users,
-  Wallet,
   Wrench,
   ChartNoAxesCombined,
   Settings,
@@ -53,7 +52,6 @@ const pages = [
   ['repairs', 'Repairs', Wrench, 'repairs', lazyPage(operations, 'Repairs')],
   ['inventory', 'Inventory', Package, 'inventory', lazyPage(operations, 'Inventory')],
   ['barcodes', 'Barcode', Barcode, 'inventory', lazyPage(operations, 'BarcodesPage')],
-  ['drawer', 'Cashbook & Register', Wallet, 'drawer', lazyPage(finance, 'CashRegister')],
   ['returns', 'Returns', ArrowLeftRight, 'returns', lazyPage(finance, 'Returns')],
   ['purchases', 'Purchases', ClipboardList, 'purchases', lazyPage(finance, 'Purchases')],
   ['transfers', 'Stock Transfers', Boxes, 'transfers', lazyPage(finance, 'StockTransfers')],
@@ -183,7 +181,8 @@ function Workspace({ session, onLogout }) {
   );
 
   const getPage = useCallback(() => {
-    const current = location.hash.slice(1);
+    const raw = location.hash.slice(1);
+    const current = raw === 'drawer' ? 'pos' : raw;
     if (available.some(p => p[0] === current)) return current;
     return available.find(p => p[0] === firstPage[user.role])?.[0] || available[0]?.[0] || 'pos';
   }, [available, user.role]);
@@ -325,9 +324,10 @@ function Workspace({ session, onLogout }) {
   }, [getPage, hasPermission, csrf]);
 
   const navigate = (target, mode = '') => {
-    setIntent(mode);
-    setPage(target);
-    location.hash = target;
+    const resolved = target === 'drawer' ? 'pos' : target;
+    setIntent(mode || (target === 'drawer' ? 'cashbook' : ''));
+    setPage(resolved);
+    location.hash = resolved;
     setQuick('');
     setMenu(false);
   };
