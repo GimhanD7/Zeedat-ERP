@@ -59,6 +59,19 @@ const itemFilter = (item, q, fields) =>
 const stateTone = status =>
   ({ 'Low Stock': 'amber', 'Out of Stock': 'red', 'In Stock': 'green' })[status];
 
+const shortBranchCode = name => {
+  const raw = String(name || '').trim();
+  const lower = raw.toLowerCase();
+  if (lower.includes('battaramulla') && lower.includes('mobile')) return 'BM';
+  if (lower.includes('battaramulla') && lower.includes('pc')) return 'BP';
+  if (lower === 'malabe' || lower.startsWith('malabe')) return 'M';
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return raw ? raw[0].toUpperCase() : '—';
+};
+
 const formatCommission = item => {
   const val = Number(item?.commission_value || 0);
   if (val <= 0) return null;
@@ -666,7 +679,7 @@ export function Inventory({ ctx }) {
                                       }`}
                                       title={`${bs.branch_name}: ${bs.qty} in stock`}
                                     >
-                                      <span className="branch-name">{bs.branch_name}:</span>{' '}
+                                      <span className="branch-name">{shortBranchCode(bs.branch_name)}:</span>{' '}
                                       <strong>{bs.qty}</strong>
                                     </span>
                                   ))}
