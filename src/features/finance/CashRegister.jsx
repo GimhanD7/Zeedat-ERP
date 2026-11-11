@@ -13,13 +13,13 @@ import {
   RefreshCw,
   Tag,
   Wallet,
-  Zap,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
   Button,
   FilterTabs,
+  Heading,
   Modal,
   SearchBox,
   Select,
@@ -792,96 +792,78 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
         </div>
       </div>
 
-      {/* TAB 1: TODAY'S REGISTER & INLINE CASH IN / CASH OUT */}
+      {/* TAB 1: TODAY'S REGISTER (CASHBOOK ONLY, NO QUICK CASH IN/OUT CARD) */}
       {activeTab === 'register' && (
-        <div className="zk-cashbook-layout">
-          <div className="zk-cb-main-card">
-            {drawer && (
-              <div className="zk-pay-strip">
-                {['Cash', 'Card', 'Bank Transfer', 'Koko'].map(method => {
-                  const found = payment_breakdown.find(p => p.method === method);
-                  return (
-                    <div className="zk-pay-pill" key={method}>
-                      <small>{method}</small>
-                      <strong>{money(found?.total || 0)}</strong>
-                      <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
-                        {found?.count || 0} txns
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="zk-cb-section-head">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <strong style={{ fontSize: '14px' }}>Shift Cash Movements</strong>
-                <Badge tone={drawer ? 'green' : 'amber'}>
-                  {drawer ? `${movements.length} Entries` : 'Closed'}
-                </Badge>
-              </div>
-              <FilterTabs
-                choices={[
-                  ['all', 'All'],
-                  ['in', 'Cash In'],
-                  ['out', 'Cash Out'],
-                  ['sales', 'Sales'],
-                ]}
-                value={shiftFilter}
-                onChange={setShiftFilter}
-              />
-            </div>
-
-            <Table
-              rows={movementsWithBalance}
-              empty="No cash movements recorded in this shift yet."
-              columns={[
-                ['Time', r => timeLabel(r.created_at)],
-                [
-                  'Category / Type',
-                  r => (
-                    <Badge tone={r.amount < 0 ? 'red' : 'green'}>
-                      {r.kind || (r.amount < 0 ? 'Cash Out' : 'Cash In')}
-                    </Badge>
-                  ),
-                ],
-                ['Operator', r => r.operator_name || 'Staff'],
-                ['Reference', r => r.reference || '—'],
-                [
-                  'Amount',
-                  r => (
-                    <strong className={r.amount < 0 ? 'text-red' : 'text-green'}>
-                      {r.amount < 0 ? `− ${money(Math.abs(r.amount))}` : `+ ${money(r.amount)}`}
-                    </strong>
-                  ),
-                ],
-                [
-                  'Balance',
-                  r => (
-                    <span style={{ fontWeight: 700, color: '#334155' }}>
-                      {money(r.running_balance)}
+        <div className="zk-cb-main-card">
+          {drawer && (
+            <div className="zk-pay-strip">
+              {['Cash', 'Card', 'Bank Transfer', 'Koko'].map(method => {
+                const found = payment_breakdown.find(p => p.method === method);
+                return (
+                  <div className="zk-pay-pill" key={method}>
+                    <small>{method}</small>
+                    <strong>{money(found?.total || 0)}</strong>
+                    <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>
+                      {found?.count || 0} txns
                     </span>
-                  ),
-                ],
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="zk-cb-section-head">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <strong style={{ fontSize: '14px' }}>Shift Cash Movements</strong>
+              <Badge tone={drawer ? 'green' : 'amber'}>
+                {drawer ? `${movements.length} Entries` : 'Closed'}
+              </Badge>
+            </div>
+            <FilterTabs
+              choices={[
+                ['all', 'All'],
+                ['in', 'Cash In'],
+                ['out', 'Cash Out'],
+                ['sales', 'Sales'],
               ]}
+              value={shiftFilter}
+              onChange={setShiftFilter}
             />
           </div>
 
-          <div className="zk-cb-entry-card">
-            <div className="zk-card-header" style={{ marginBottom: '12px' }}>
-              <div className="zk-card-title">
-                <Zap size={17} style={{ color: '#0d9488' }} />
-                <span>Quick Cash In / Cash Out</span>
-              </div>
-            </div>
-            <CashMovementForm
-              ctx={ctx}
-              drawer={drawer}
-              blocked={blocked}
-              compact={true}
-              onSuccess={onRefresh}
-            />
-          </div>
+          <Table
+            rows={movementsWithBalance}
+            empty="No cash movements recorded in this shift yet."
+            columns={[
+              ['Time', r => timeLabel(r.created_at)],
+              [
+                'Category / Type',
+                r => (
+                  <Badge tone={r.amount < 0 ? 'red' : 'green'}>
+                    {r.kind || (r.amount < 0 ? 'Cash Out' : 'Cash In')}
+                  </Badge>
+                ),
+              ],
+              ['Operator', r => r.operator_name || 'Staff'],
+              ['Reference', r => r.reference || '—'],
+              [
+                'Amount',
+                r => (
+                  <strong className={r.amount < 0 ? 'text-red' : 'text-green'}>
+                    {r.amount < 0 ? `− ${money(Math.abs(r.amount))}` : `+ ${money(r.amount)}`}
+                  </strong>
+                ),
+              ],
+              [
+                'Balance',
+                r => (
+                  <span style={{ fontWeight: 700, color: '#334155' }}>
+                    {money(r.running_balance)}
+                  </span>
+                ),
+              ],
+            ]}
+          />
         </div>
       )}
 
@@ -1376,6 +1358,10 @@ export function CashRegister({ ctx }) {
     <DataView state={state}>
       {({ register }) => (
         <div className="zk-dashboard-wrap">
+          <Heading
+            title="Cashbook & Register"
+            description="Daily cash journal, shift reconciliation, payment breakdown & denomination counter."
+          />
           <CashbookWorkspace ctx={ctx} registerData={register} onRefresh={state.refresh} />
         </div>
       )}
