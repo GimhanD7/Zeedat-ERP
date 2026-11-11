@@ -3395,11 +3395,36 @@
   }
 }
 
+.receipt-print {
+  display: grid;
+  gap: 5px;
+  text-align: center;
+  color: #111;
+}
+.receipt-print p {
+  font-size: 12px;
+}
+.receipt-print .table-wrap {
+  margin-top: 8px;
+}
 
-
-
-
-
-
-
-
+@media print {
+  .receipt-print {
+    width: var(--paper, 80mm);
+    padding: 2mm;
+    font-size: 9px;
+  }
+  .receipt-print table,
+  .receipt-print p,
+  .receipt-print .totals {
+    font-size: 9px;
+  }
+  .receipt-print th,
+  .receipt-print td {
+    font-size: 8px;
+    padding: 2px;
+  }
+  .receipt-print .total {
+    font-size: 10px;
+  }
+}

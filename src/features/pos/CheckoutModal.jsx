@@ -24,7 +24,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { Alert } from '../../components/feedback';
-import { cents, managers, money, rupees, today } from '../../utils';
+import { cents, managers, money, printThermalReceipt, rupees, today } from '../../utils';
 
 const METHOD_KEYS = [
   { id: 'Cash', label: 'Cash', icon: Banknote },
@@ -45,15 +45,20 @@ export function CheckoutModal({
   tax = 0,
   total = 0,
   customer = null,
+  customerName = '',
+  branchName = '',
   discountBps = 0,
   draftId = null,
+  settings = {},
 }) {
   const [method, setMethod] = useState('Cash');
   const [tender, setTender] = useState({ Cash: String(rupees(total)) });
   const [refs, setRefs] = useState({});
   const [credit, setCredit] = useState(false);
   const [due, setDue] = useState(today());
-  const [printReceipt, setPrintReceipt] = useState(true);
+  const [printReceipt, setPrintReceipt] = useState(
+    () => settings?.auto_print !== 0 && settings?.auto_print !== '0'
+  );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -141,12 +146,43 @@ export function CheckoutModal({
   const discountPct = (discountBps / 100).toFixed(discountBps % 100 === 0 ? 0 : 1);
   const vatPct = ((ctx.branch?.tax_bps || 1800) / 100).toFixed(0);
 
+  // Pre-settlement thermal preview print (all products print, cash drawer stays closed)
+  const handlePrintPreview = async () => {
+    const previewInvoice = {
+      isPreview: true,
+      invoiceNo,
+      branch: branchName || ctx.branches?.find(b => b.id === ctx.branch)?.name || '',
+      customer: customerName || 'Walk-in customer',
+      items: lines.map(l => ({
+        name: l.product?.name || 'Item',
+        qty: l.qty,
+        price: l.product?.price || 0,
+        total: l.qty * (l.product?.price || 0),
+      })),
+      subtotal,
+      discount,
+      tax,
+      total,
+      payments: activeMethods
+        .filter(key => cents(tender[key] || 0) > 0)
+        .map(key => ({ method: key, amount: cents(tender[key] || 0) })),
+      cashTendered: activeMethods.includes('Cash') ? cents(tender.Cash || 0) : 0,
+      change,
+      credit: credit ? balance : 0,
+      due_date: due,
+    };
+    await printThermalReceipt(previewInvoice, settings);
+  };
+
   // Complete checkout
   const complete = async e => {
     if (e) e.preventDefault();
     setBusy(true);
     setError('');
     try {
+      const cashTendered = activeMethods.includes('Cash') ? cents(tender.Cash || 0) : 0;
+      const hasCashSettlement = cashTendered > 0;
+
       const invoice = await ctx.mutate('sale.checkout', {
         items: lines.map(({ product_id, unit_id, qty }) => ({ product_id, unit_id, qty })),
         discount_bps: discountBps,
@@ -164,7 +200,12 @@ export function CheckoutModal({
         due_date: due,
       });
 
-      onComplete({ ...invoice, printReceipt });
+      onComplete({
+        ...invoice,
+        cashTendered,
+        hasCashSettlement,
+        shouldAutoPrint: printReceipt,
+      });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -600,7 +641,7 @@ export function CheckoutModal({
             <button
               type="button"
               className="zk-btn-outline"
-              onClick={() => window.print()}
+              onClick={handlePrintPreview}
               disabled={busy}
             >
               <Printer size={16} />

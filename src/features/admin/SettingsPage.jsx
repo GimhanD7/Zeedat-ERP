@@ -62,7 +62,11 @@ export function SettingsPage({ ctx }) {
     receipt_footer: 'Thank you for your business! Please retain this receipt for warranty.',
     auto_print: true,
     show_tax_on_receipt: true,
+    receipt_printer_name: '',
+    cash_drawer_enabled: true,
   });
+  const [printers, setPrinters] = useState([]);
+  const [drawerTesting, setDrawerTesting] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
   const [storeMsg, setStoreMsg] = useState(null);
 
@@ -107,9 +111,44 @@ export function SettingsPage({ ctx }) {
           'Thank you for your business! Please retain this receipt for warranty.',
         auto_print: s.auto_print !== 0 && s.auto_print !== '0',
         show_tax_on_receipt: s.show_tax_on_receipt !== 0 && s.show_tax_on_receipt !== '0',
+        receipt_printer_name: s.receipt_printer_name || '',
+        cash_drawer_enabled: s.cash_drawer_enabled !== 0 && s.cash_drawer_enabled !== '0',
       });
     }
   }, [state.data?.settings]);
+
+  const loadPrinters = async () => {
+    if (!window.electronAPI?.getPrinters) return;
+    try {
+      const list = await window.electronAPI.getPrinters();
+      if (Array.isArray(list)) setPrinters(list);
+    } catch {
+      // Ignore printer enumeration failures
+    }
+  };
+
+  useEffect(() => {
+    loadPrinters();
+  }, []);
+
+  const handleTestDrawer = async () => {
+    if (!window.electronAPI?.openCashDrawer) {
+      setStoreMsg({ type: 'error', text: 'Hardware cash drawer kick is only available in the Zeedat desktop app.' });
+      return;
+    }
+    setDrawerTesting(true);
+    setStoreMsg(null);
+    try {
+      const res = await window.electronAPI.openCashDrawer({ deviceName: form.receipt_printer_name || '' });
+      if (res?.ok) {
+        setStoreMsg({ type: 'success', text: `Cash drawer kick sent to ${res.printerName || 'default printer'}.` });
+      } else {
+        setStoreMsg({ type: 'error', text: res?.error || 'Could not trigger cash drawer.' });
+      }
+    } finally {
+      setDrawerTesting(false);
+    }
+  };
 
   const handleSaveStoreSettings = async e => {
     e.preventDefault();
@@ -127,6 +166,8 @@ export function SettingsPage({ ctx }) {
         receipt_footer: form.receipt_footer,
         auto_print: form.auto_print ? 1 : 0,
         show_tax_on_receipt: form.show_tax_on_receipt ? 1 : 0,
+        receipt_printer_name: form.receipt_printer_name || '',
+        cash_drawer_enabled: form.cash_drawer_enabled ? 1 : 0,
       });
       setStoreMsg({ type: 'success', text: 'Store & receipt settings saved successfully.' });
       ctx.setNotice('Store settings updated.');
@@ -509,7 +550,7 @@ export function SettingsPage({ ctx }) {
 
                       <div className="zk-form-row-2">
                         <label className="zk-toggle-row">
-                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-open print dialog after sale</span>
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-print bill after sale</span>
                           <input
                             type="checkbox"
                             checked={form.auto_print}
@@ -528,6 +569,48 @@ export function SettingsPage({ ctx }) {
                           />
                         </label>
                       </div>
+
+                      <div className="zk-form-row-2" style={{ marginTop: '12px', alignItems: 'end' }}>
+                        <div className="zk-field-wrap" style={{ marginBottom: 0 }}>
+                          <label className="zk-field-label">Receipt Printer &amp; Cash Drawer Port</label>
+                          <select
+                            className="input"
+                            value={form.receipt_printer_name}
+                            onChange={e => setForm({ ...form, receipt_printer_name: e.target.value })}
+                          >
+                            <option value="">System Default Thermal Printer</option>
+                            {printers.map(p => (
+                              <option key={p.name} value={p.name}>
+                                {p.name}{p.isDefault ? ' (Default)' : ''}
+                              </option>
+                            ))}
+                            {form.receipt_printer_name && !printers.some(p => p.name === form.receipt_printer_name) && (
+                              <option value={form.receipt_printer_name}>{form.receipt_printer_name}</option>
+                            )}
+                          </select>
+                        </div>
+
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-open cash drawer (Cash only)</span>
+                          <input
+                            type="checkbox"
+                            checked={form.cash_drawer_enabled}
+                            onChange={e => setForm({ ...form, cash_drawer_enabled: e.target.checked })}
+                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                          />
+                        </label>
+                      </div>
+
+                      {window.electronAPI?.openCashDrawer && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                          <Button type="button" variant="outline" onClick={loadPrinters} style={{ fontSize: '12px', padding: '5px 10px' }}>
+                            Refresh Printers
+                          </Button>
+                          <Button type="button" variant="outline" disabled={drawerTesting} onClick={handleTestDrawer} style={{ fontSize: '12px', padding: '5px 10px' }}>
+                            {drawerTesting ? 'Opening Drawer...' : 'Test Cash Drawer Kick'}
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="zk-form-footer">

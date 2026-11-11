@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   printReceipt: options => ipcRenderer.invoke('print-receipt', options),
+  printReceiptHtml: options => ipcRenderer.invoke('print-receipt-html', options),
+  openCashDrawer: options => ipcRenderer.invoke('open-cash-drawer', options),
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
   checkForUpdate: (autoDownload = false) => ipcRenderer.invoke('check-for-update', Boolean(autoDownload)),

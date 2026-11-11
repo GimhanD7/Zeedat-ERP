@@ -142,10 +142,12 @@ class UserRepository extends BaseRepository {
         string $receiptFooter = '',
         string $invoicePrefix = 'INV-',
         int $autoPrint = 1,
-        int $showTaxOnReceipt = 1
+        int $showTaxOnReceipt = 1,
+        string $receiptPrinterName = '',
+        int $cashDrawerEnabled = 1
     ): void {
         self::run(
-            'UPDATE settings SET shop_name=?, tax_bps=?, paper_width=?, shop_phone=?, shop_address=?, shop_email=?, receipt_footer=?, invoice_prefix=?, auto_print=?, show_tax_on_receipt=? WHERE id=1',
+            'UPDATE settings SET shop_name=?, tax_bps=?, paper_width=?, shop_phone=?, shop_address=?, shop_email=?, receipt_footer=?, invoice_prefix=?, auto_print=?, show_tax_on_receipt=?, receipt_printer_name=?, cash_drawer_enabled=? WHERE id=1',
             [
                 $shopName,
                 $taxBps,
@@ -157,6 +159,8 @@ class UserRepository extends BaseRepository {
                 $invoicePrefix,
                 $autoPrint,
                 $showTaxOnReceipt,
+                $receiptPrinterName,
+                $cashDrawerEnabled,
             ]
         );
     }

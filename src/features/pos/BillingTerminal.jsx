@@ -32,10 +32,13 @@ import {
   categories,
   cents,
   dateLabel,
+  hasCashInPayments,
   money,
   options,
+  printThermalReceipt,
   ref,
   today,
+  triggerCashDrawerForSettlement,
 } from '../../utils';
 import { CheckoutModal } from './CheckoutModal';
 import { ReceiptModal } from './ReceiptModal';
@@ -505,13 +508,40 @@ function BillingView({ ctx, data }) {
         <CheckoutModal
           ctx={ctx}
           onClose={() => setCheckout(false)}
-          onComplete={invoice => {
+          onComplete={async invoice => {
             setCheckout(false);
             clear();
-            setReceipt(invoice);
+            const isCash =
+              invoice.hasCashSettlement ??
+              hasCashInPayments(invoice.payments, invoice.cashTendered);
+            const enriched = {
+              ...invoice,
+              hasCashSettlement: isCash,
+            };
+            setReceipt(enriched);
             ctx.setNotice('Sale posted');
+
+            const tasks = [];
+            tasks.push(
+              triggerCashDrawerForSettlement({
+                settings,
+                hasCashSettlement: isCash,
+              })
+            );
+            if (invoice.shouldAutoPrint) {
+              tasks.push(printThermalReceipt(enriched, settings, { silent: true }));
+            }
+            const [drawerRes] = await Promise.all(tasks);
+            if (drawerRes?.opened) {
+              setReceipt(prev => (prev && prev.id === enriched.id ? { ...prev, drawerOpened: true } : prev));
+            }
           }}
           onUpdateQty={increment}
+          customerName={
+            customers.find(c => String(c.id) === String(customer))?.name || 'Walk-in customer'
+          }
+          branchName={branch?.name || ''}
+          settings={settings}
           {...{
             lines,
             subtotal,

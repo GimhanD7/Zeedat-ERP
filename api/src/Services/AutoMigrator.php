@@ -259,6 +259,12 @@ class AutoMigrator
                 if (!in_array('delete_pin_hash', $colNames, true)) {
                     $db->exec("ALTER TABLE settings ADD COLUMN delete_pin_hash TEXT NOT NULL DEFAULT ''");
                 }
+                if (!in_array('receipt_printer_name', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN receipt_printer_name TEXT NOT NULL DEFAULT ''");
+                }
+                if (!in_array('cash_drawer_enabled', $colNames, true)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN cash_drawer_enabled INTEGER NOT NULL DEFAULT 1");
+                }
 
                 $prodCols = $db->query("PRAGMA table_info(products)")->fetchAll();
                 $prodColNames = array_column($prodCols, 'name');
@@ -332,6 +338,14 @@ class AutoMigrator
                 $pinCols = $db->query("SHOW COLUMNS FROM settings LIKE 'delete_pin_hash'")->fetchAll();
                 if (empty($pinCols)) {
                     $db->exec("ALTER TABLE settings ADD COLUMN delete_pin_hash VARCHAR(255) NOT NULL DEFAULT ''");
+                }
+                $rpCols = $db->query("SHOW COLUMNS FROM settings LIKE 'receipt_printer_name'")->fetchAll();
+                if (empty($rpCols)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN receipt_printer_name VARCHAR(150) NOT NULL DEFAULT ''");
+                }
+                $cdCols = $db->query("SHOW COLUMNS FROM settings LIKE 'cash_drawer_enabled'")->fetchAll();
+                if (empty($cdCols)) {
+                    $db->exec("ALTER TABLE settings ADD COLUMN cash_drawer_enabled TINYINT(1) NOT NULL DEFAULT 1");
                 }
                 $prodCols = $db->query("SHOW COLUMNS FROM products LIKE 'active'")->fetchAll();
                 if (empty($prodCols)) {

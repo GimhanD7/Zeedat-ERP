@@ -1,5 +1,6 @@
 // Zeedat POS - Standalone Windows Desktop Shell (Electron + Local PHP/SQLite + Auto-Patch)
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
@@ -266,6 +267,158 @@ ipcMain.handle('print-receipt', async (_event, options = {}) => {
     mainWindow.webContents.print(printOptions, (success, failureReason) => {
       resolve(success ? { success: true } : { success: false, error: failureReason });
     });
+  });
+});
+
+ipcMain.handle('print-receipt-html', async (_event, options = {}) => {
+  const html = String(options.html || '');
+  if (!html) return { success: false, error: 'Empty receipt content' };
+
+  const paperWidth = Number(options.paperWidth) === 58 ? 58 : 80;
+  const printWin = new BrowserWindow({
+    show: false,
+    width: paperWidth === 58 ? 240 : 320,
+    height: 800,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+
+  try {
+    await printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    const heightPx = await printWin.webContents.executeJavaScript(
+      'Math.max(document.documentElement.scrollHeight || 0, document.body.scrollHeight || 0, 200)'
+    );
+    const heightMicrons = Math.max(60000, Math.ceil(Number(heightPx || 400) * 264.583) + 15000);
+
+    let deviceName = String(options.deviceName || '').trim();
+    if (!deviceName && mainWindow && !mainWindow.isDestroyed()) {
+      const printers = await mainWindow.webContents.getPrintersAsync().catch(() => []);
+      const def = printers.find(p => p.isDefault) || printers[0];
+      if (def?.name) deviceName = def.name;
+    }
+
+    return await new Promise(resolve => {
+      printWin.webContents.print(
+        {
+          silent: options.silent ?? true,
+          printBackground: true,
+          deviceName,
+          margins: { marginType: 'none' },
+          pageSize: {
+            width: paperWidth === 58 ? 58000 : 80000,
+            height: heightMicrons,
+          },
+        },
+        (success, failureReason) => {
+          if (!printWin.isDestroyed()) printWin.close();
+          resolve(success ? { success: true, deviceName } : { success: false, error: failureReason });
+        }
+      );
+    });
+  } catch (err) {
+    if (!printWin.isDestroyed()) printWin.close();
+    return { success: false, error: err?.message || 'Thermal print failed.' };
+  }
+});
+
+ipcMain.handle('open-cash-drawer', async (_event, options = {}) => {
+  if (process.platform !== 'win32') {
+    return { ok: false, error: 'Cash drawer kick is only supported on Windows.' };
+  }
+
+  let printerName = String(options?.deviceName || options?.printerName || '').trim();
+  if (!printerName && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      const def = printers.find(p => p.isDefault) || printers[0];
+      printerName = def?.name || '';
+    } catch {
+      printerName = '';
+    }
+  }
+
+  if (!printerName) {
+    return { ok: false, error: 'No Windows printer configured or detected for cash drawer.' };
+  }
+
+  // Standard ESC/POS drawer kick pulses for Pin 2 (0x00) and Pin 5 (0x01)
+  const kickB64 = Buffer.from([
+    0x1b, 0x70, 0x00, 0x19, 0xfa,
+    0x1b, 0x70, 0x01, 0x19, 0xfa,
+  ]).toString('base64');
+
+  const psScript = [
+    "$ErrorActionPreference = 'Stop'",
+    "$code = @'",
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public class ZeedatRawSpooler {',
+    '  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]',
+    '  public class DOCINFOW {',
+    '    [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;',
+    '    [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;',
+    '    [MarshalAs(UnmanagedType.LPWStr)] public string pDataType;',
+    '  }',
+    '  [DllImport("winspool.Drv", EntryPoint = "OpenPrinterW", SetLastError = true, CharSet = CharSet.Unicode)]',
+    '  public static extern bool OpenPrinter(string src, out IntPtr hPrinter, IntPtr pd);',
+    '  [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]',
+    '  public static extern bool ClosePrinter(IntPtr hPrinter);',
+    '  [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterW", SetLastError = true, CharSet = CharSet.Unicode)]',
+    '  public static extern int StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFOW di);',
+    '  [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]',
+    '  public static extern bool EndDocPrinter(IntPtr hPrinter);',
+    '  [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]',
+    '  public static extern bool StartPagePrinter(IntPtr hPrinter);',
+    '  [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]',
+    '  public static extern bool EndPagePrinter(IntPtr hPrinter);',
+    '  [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]',
+    '  public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);',
+    '  public static void SendRaw(string printerName, byte[] data) {',
+    '    IntPtr hPrinter;',
+    '    if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero)) throw new Exception("OpenPrinter failed: " + Marshal.GetLastWin32Error());',
+    '    try {',
+    '      var di = new DOCINFOW { pDocName = "Zeedat Cash Drawer", pDataType = "RAW" };',
+    '      if (StartDocPrinter(hPrinter, 1, di) <= 0) throw new Exception("StartDocPrinter failed");',
+    '      try {',
+    '        if (StartPagePrinter(hPrinter)) {',
+    '          IntPtr unmanaged = Marshal.AllocCoTaskMem(data.Length);',
+    '          try {',
+    '            Marshal.Copy(data, 0, unmanaged, data.Length);',
+    '            int written;',
+    '            WritePrinter(hPrinter, unmanaged, data.Length, out written);',
+    '          } finally { Marshal.FreeCoTaskMem(unmanaged); }',
+    '          EndPagePrinter(hPrinter);',
+    '        }',
+    '      } finally { EndDocPrinter(hPrinter); }',
+    '    } finally { ClosePrinter(hPrinter); }',
+    '  }',
+    '}',
+    "'@",
+    'Add-Type -TypeDefinition $code',
+    '$bytes = [Convert]::FromBase64String($env:ZEEDAT_RAW_B64)',
+    '[ZeedatRawSpooler]::SendRaw($env:ZEEDAT_PRINTER, $bytes)',
+  ].join('\n');
+
+  return new Promise(resolve => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+      {
+        env: { ...process.env, ZEEDAT_PRINTER: printerName, ZEEDAT_RAW_B64: kickB64 },
+        windowsHide: true,
+        timeout: 6000,
+      },
+      (err, _stdout, stderr) => {
+        if (err) {
+          resolve({ ok: false, error: (stderr || err.message || 'Drawer kick failed').trim() });
+          return;
+        }
+        resolve({ ok: true, printerName });
+      }
+    );
   });
 });
 

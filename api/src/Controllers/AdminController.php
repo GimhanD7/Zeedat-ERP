@@ -256,6 +256,8 @@ class AdminController
         $invoicePrefix = Validator::str($body, 'invoice_prefix', 20, false) ?: 'INV-';
         $autoPrint = !empty($body['auto_print']) ? 1 : 0;
         $showTax = !empty($body['show_tax_on_receipt']) ? 1 : 0;
+        $receiptPrinterName = Validator::str($body, 'receipt_printer_name', 150, false) ?: '';
+        $cashDrawerEnabled = array_key_exists('cash_drawer_enabled', $body) ? (!empty($body['cash_drawer_enabled']) ? 1 : 0) : 1;
 
         UserRepository::updateSettings(
             $shopName,
@@ -267,7 +269,9 @@ class AdminController
             $receiptFooter,
             $invoicePrefix,
             $autoPrint,
-            $showTax
+            $showTax,
+            $receiptPrinterName,
+            $cashDrawerEnabled
         );
 
         return [
@@ -281,6 +285,8 @@ class AdminController
             'invoice_prefix' => $invoicePrefix,
             'auto_print' => $autoPrint,
             'show_tax_on_receipt' => $showTax,
+            'receipt_printer_name' => $receiptPrinterName,
+            'cash_drawer_enabled' => $cashDrawerEnabled,
         ];
     }
 
