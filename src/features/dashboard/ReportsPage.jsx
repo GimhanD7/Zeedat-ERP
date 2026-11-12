@@ -278,7 +278,8 @@ export function ReportsPage({ ctx }) {
             </Heading>
 
             <Panel className="zk-rpt-filter-bar">
-              <div className="zk-rpt-filter-row">
+              <div className="zk-rpt-filter-inner">
+                <div className="zk-rpt-filter-row">
                 <FilterTabs
                   value={preset}
                   onChange={applyPreset}
@@ -326,8 +327,9 @@ export function ReportsPage({ ctx }) {
                   <Button icon={RefreshCw} variant="ghost" onClick={state.refresh} title="Reload report data" />
                 </div>
               </div>
-              <div className="zk-rpt-tab-strip">
-                <FilterTabs value={tab} onChange={setTab} choices={REPORT_TABS} />
+                <div className="zk-rpt-tab-strip">
+                  <FilterTabs value={tab} onChange={setTab} choices={REPORT_TABS} />
+                </div>
               </div>
             </Panel>
 

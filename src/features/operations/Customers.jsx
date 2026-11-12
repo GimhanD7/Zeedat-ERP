@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   Award,
   Building2,
   CalendarDays,
   CheckCircle2,
   CreditCard,
   Download,
-  FileText,
   History,
   Mail,
   Pencil,
@@ -15,12 +13,9 @@ import {
   Plus,
   Printer,
   ReceiptText,
-  ShoppingBag,
   Trash2,
-  UserRound,
   Users,
   Wallet,
-  Wrench,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
@@ -98,13 +93,17 @@ export function Customers({ ctx }) {
   });
 
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
   const [filterMode, setFilterMode] = useState(() => (ctx.intent === 'credit' ? 'credit' : 'all'));
   const [sortBy, setSortBy] = useState('top');
+  const [dirLimit, setDirLimit] = useState(60);
   const [selected, setSelected] = useState(null);
   const [detailTab, setDetailTab] = useState('receivables');
   const [ledger, setLedger] = useState({ wallet_logs: [], credit_payments: [] });
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  const ledgerCacheRef = useRef(new Map());
+  const lastRevisionRef = useRef(ctx.revision);
 
   useEffect(() => {
     if (ctx.intent === 'credit') {
@@ -113,17 +112,99 @@ export function Customers({ ctx }) {
     }
   }, [ctx.intent]);
 
+  useEffect(() => {
+    if (lastRevisionRef.current !== ctx.revision) {
+      ledgerCacheRef.current.clear();
+      lastRevisionRef.current = ctx.revision;
+    }
+  }, [ctx.revision]);
+
+  useEffect(() => {
+    setDirLimit(60);
+  }, [deferredQuery, filterMode, sortBy]);
+
   const customersList = state.data?.customers || [];
+  const salesList = state.data?.sales || [];
+  const repairsList = state.data?.repairs || [];
   const todayStr = today();
 
   const isOverdueCustomer = c =>
     Number(c.credit || 0) > 0 && Boolean(c.next_due_date) && String(c.next_due_date).slice(0, 10) < todayStr;
 
+  const kpiSummary = useMemo(() => {
+    let totalCredit = 0;
+    let creditCustomersCount = 0;
+    let overdueCustomersCount = 0;
+    let totalWallet = 0;
+    let walletHoldersCount = 0;
+    let totalPoints = 0;
+    let totalLifetimeSales = 0;
+    let repeatBuyers = 0;
+
+    for (const c of customersList) {
+      const credit = Number(c.credit || 0);
+      const wallet = Number(c.wallet_balance || 0);
+      const salesCount = Number(c.sales_count || 0);
+      if (credit > 0) {
+        totalCredit += credit;
+        creditCustomersCount++;
+        if (c.next_due_date && String(c.next_due_date).slice(0, 10) < todayStr) {
+          overdueCustomersCount++;
+        }
+      }
+      if (wallet > 0) {
+        totalWallet += wallet;
+        walletHoldersCount++;
+      }
+      if (salesCount >= 2) repeatBuyers++;
+      totalPoints += Number(c.loyalty_points || 0);
+      totalLifetimeSales += Number(c.total || 0);
+    }
+    return {
+      totalCredit,
+      creditCustomersCount,
+      overdueCustomersCount,
+      totalWallet,
+      walletHoldersCount,
+      totalPoints,
+      totalLifetimeSales,
+      repeatBuyers,
+    };
+  }, [customersList, todayStr]);
+
+  const { salesByCustomer, repairsByCustomer } = useMemo(() => {
+    const sMap = new Map();
+    for (const s of salesList) {
+      const cid = Number(s.customer_id || 0);
+      if (!cid) continue;
+      let arr = sMap.get(cid);
+      if (!arr) {
+        arr = [];
+        sMap.set(cid, arr);
+      }
+      arr.push(s);
+    }
+    const rMap = new Map();
+    for (const r of repairsList) {
+      const cid = Number(r.customer_id || 0);
+      if (!cid) continue;
+      let arr = rMap.get(cid);
+      if (!arr) {
+        arr = [];
+        rMap.set(cid, arr);
+      }
+      arr.push(r);
+    }
+    return { salesByCustomer: sMap, repairsByCustomer: rMap };
+  }, [salesList, repairsList]);
+
   const filteredCustomers = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     const list = customersList.filter(c => {
-      const hay = `${c.name || ''} ${c.phone || ''} ${c.email || ''} ${ref('CUS', c.id)}`.toLowerCase();
-      if (q && !hay.includes(q)) return false;
+      if (q) {
+        const hay = `${c.name || ''} ${c.phone || ''} ${c.email || ''} ${ref('CUS', c.id)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       if (filterMode === 'credit') return Number(c.credit || 0) > 0;
       if (filterMode === 'overdue') return isOverdueCustomer(c);
       if (filterMode === 'wallet') return Number(c.wallet_balance || 0) > 0;
@@ -138,7 +219,12 @@ export function Customers({ ctx }) {
       if (sortBy === 'newest') return Number(b.id || 0) - Number(a.id || 0);
       return Number(b.total || 0) - Number(a.total || 0) || Number(b.sales_count || 0) - Number(a.sales_count || 0);
     });
-  }, [customersList, query, filterMode, sortBy, todayStr]);
+  }, [customersList, deferredQuery, filterMode, sortBy, todayStr]);
+
+  const visibleCustomers = useMemo(
+    () => filteredCustomers.slice(0, dirLimit),
+    [filteredCustomers, dirLimit]
+  );
 
   const activePerson = filteredCustomers.find(c => c.id === selected) || filteredCustomers[0] || null;
   const activePersonId = activePerson?.id || 0;
@@ -146,22 +232,32 @@ export function Customers({ ctx }) {
   useEffect(() => {
     if (!activePersonId) {
       setLedger({ wallet_logs: [], credit_payments: [] });
+      setLedgerLoading(false);
       return;
     }
+    const cached = ledgerCacheRef.current.get(activePersonId);
+    if (cached) {
+      setLedger(cached);
+      setLedgerLoading(false);
+    } else {
+      setLedgerLoading(true);
+    }
+
     let alive = true;
-    setLedgerLoading(true);
     ctx
       .get('customer.ledger', { customer_id: activePersonId, branch: activePerson?.branch_id || 0 })
       .then(res => {
         if (alive && res) {
-          setLedger({
+          const normalized = {
             wallet_logs: res.wallet_logs || [],
             credit_payments: res.credit_payments || [],
-          });
+          };
+          ledgerCacheRef.current.set(activePersonId, normalized);
+          setLedger(normalized);
         }
       })
       .catch(() => {
-        if (alive) setLedger({ wallet_logs: [], credit_payments: [] });
+        if (alive && !cached) setLedger({ wallet_logs: [], credit_payments: [] });
       })
       .finally(() => {
         if (alive) setLedgerLoading(false);
@@ -191,20 +287,23 @@ export function Customers({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ customers, sales, repairs, settings }) => {
+      {({ customers, settings }) => {
         const shopName = settings?.shop_name || 'ZEEDAT POS';
-        const totalCredit = customers.reduce((s, c) => s + Number(c.credit || 0), 0);
-        const creditCustomersCount = customers.filter(c => Number(c.credit || 0) > 0).length;
-        const overdueCustomersCount = customers.filter(isOverdueCustomer).length;
-        const totalWallet = customers.reduce((s, c) => s + Number(c.wallet_balance || 0), 0);
-        const walletHoldersCount = customers.filter(c => Number(c.wallet_balance || 0) > 0).length;
-        const totalPoints = customers.reduce((s, c) => s + Number(c.loyalty_points || 0), 0);
-        const totalLifetimeSales = customers.reduce((s, c) => s + Number(c.total || 0), 0);
+        const {
+          totalCredit,
+          creditCustomersCount,
+          overdueCustomersCount,
+          totalWallet,
+          walletHoldersCount,
+          totalPoints,
+          totalLifetimeSales,
+          repeatBuyers,
+        } = kpiSummary;
 
         const person = activePerson;
-        const personSales = person ? sales.filter(s => Number(s.customer_id) === Number(person.id)) : [];
+        const personSales = person ? salesByCustomer.get(Number(person.id)) || [] : [];
         const receivables = personSales.filter(s => Number(s.credit || 0) > 0);
-        const personRepairs = person ? repairs.filter(r => Number(r.customer_id) === Number(person.id)) : [];
+        const personRepairs = person ? repairsByCustomer.get(Number(person.id)) || [] : [];
 
         const openCreditPayment = (targetInvoice = null) => {
           if (!person || !receivables.length) return;
@@ -375,7 +474,7 @@ export function Customers({ ctx }) {
                   icon: Users,
                   label: 'Total Customers',
                   value: customers.length,
-                  note: `${customers.filter(c => Number(c.sales_count || 0) >= 2).length} repeat buyers`,
+                  note: `${repeatBuyers} repeat buyers`,
                 },
                 {
                   icon: CreditCard,
@@ -408,77 +507,90 @@ export function Customers({ ctx }) {
                 title={`Directory (${filteredCustomers.length})`}
                 icon={Users}
               >
-                <div className="zk-cust-dir-controls">
-                  <div className="zk-cust-search-sort">
-                    <SearchBox
-                      value={query}
-                      onChange={setQuery}
-                      placeholder="Search name, phone, email or CUS ID…"
-                    />
-                    <select
-                      aria-label="Sort customers"
-                      className="zk-cust-sort"
-                      value={sortBy}
-                      onChange={e => setSortBy(e.target.value)}
-                    >
-                      <option value="top">Top Buyers</option>
-                      <option value="credit">Highest Credit</option>
-                      <option value="wallet">Highest Wallet</option>
-                      <option value="points">Most Points</option>
-                      <option value="newest">Newest</option>
-                    </select>
+                <div className="zk-cust-dir-body">
+                  <div className="zk-cust-dir-controls">
+                    <div className="zk-cust-search-sort">
+                      <SearchBox
+                        value={query}
+                        onChange={setQuery}
+                        placeholder="Search name, phone, email or CUS ID…"
+                      />
+                      <select
+                        aria-label="Sort customers"
+                        className="zk-cust-sort"
+                        value={sortBy}
+                        onChange={e => setSortBy(e.target.value)}
+                      >
+                        <option value="top">Top Buyers</option>
+                        <option value="credit">Highest Credit</option>
+                        <option value="wallet">Highest Wallet</option>
+                        <option value="points">Most Points</option>
+                        <option value="newest">Newest</option>
+                      </select>
+                    </div>
+                    <div className="zk-cust-filter-bar">
+                      <FilterTabs value={filterMode} onChange={setFilterMode} choices={FILTER_OPTIONS} />
+                    </div>
                   </div>
-                  <div className="zk-cust-filter-bar">
-                    <FilterTabs value={filterMode} onChange={setFilterMode} choices={FILTER_OPTIONS} />
-                  </div>
-                </div>
 
-                <div className="zk-cust-cards-scroll">
-                  {filteredCustomers.length > 0 ? (
-                    filteredCustomers.map(c => {
-                      const active = person && c.id === person.id;
-                      const overdue = isOverdueCustomer(c);
-                      const creditAmt = Number(c.credit || 0);
-                      const walletAmt = Number(c.wallet_balance || 0);
-                      const pts = Number(c.loyalty_points || 0);
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          className={`zk-cust-card-row${active ? ' active' : ''}`}
-                          onClick={() => setSelected(c.id)}
-                        >
-                          <div className="zk-cust-row-top">
-                            <span className="avatar mini">{initials(c.name)}</span>
-                            <div className="zk-cust-row-info">
-                              <div className="zk-cust-row-name">
-                                <strong>{c.name}</strong>
-                                {overdue && <Badge tone="red">Overdue</Badge>}
+                  <div className="zk-cust-cards-scroll">
+                    {visibleCustomers.length > 0 ? (
+                      <>
+                        {visibleCustomers.map(c => {
+                          const active = person && c.id === person.id;
+                          const overdue = isOverdueCustomer(c);
+                          const creditAmt = Number(c.credit || 0);
+                          const walletAmt = Number(c.wallet_balance || 0);
+                          const pts = Number(c.loyalty_points || 0);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              className={`zk-cust-card-row${active ? ' active' : ''}`}
+                              onClick={() => setSelected(c.id)}
+                            >
+                              <div className="zk-cust-row-top">
+                                <span className="avatar mini">{initials(c.name)}</span>
+                                <div className="zk-cust-row-info">
+                                  <div className="zk-cust-row-name">
+                                    <strong>{c.name}</strong>
+                                    {overdue && <Badge tone="red">Overdue</Badge>}
+                                  </div>
+                                  <div className="zk-cust-row-sub">
+                                    <span>{ref('CUS', c.id)}</span>
+                                    <span>·</span>
+                                    <span>{c.phone}</span>
+                                    <span>·</span>
+                                    <span>{c.branch}</span>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="zk-cust-row-sub">
-                                <span>{ref('CUS', c.id)}</span>
-                                <span>·</span>
-                                <span>{c.phone}</span>
-                                <span>·</span>
-                                <span>{c.branch}</span>
+                              <div className="zk-cust-row-metrics">
+                                <Badge tone="amber">{pts.toLocaleString()} pts</Badge>
+                                {walletAmt > 0 && <Badge tone="green">Wallet {money(walletAmt)}</Badge>}
+                                {creditAmt > 0 ? (
+                                  <Badge tone={overdue ? 'red' : 'amber'}>Due {money(creditAmt)}</Badge>
+                                ) : (
+                                  <Badge tone="slate">{c.sales_count || 0} bills</Badge>
+                                )}
                               </div>
-                            </div>
-                          </div>
-                          <div className="zk-cust-row-metrics">
-                            <Badge tone="amber">{pts.toLocaleString()} pts</Badge>
-                            {walletAmt > 0 && <Badge tone="green">Wallet {money(walletAmt)}</Badge>}
-                            {creditAmt > 0 ? (
-                              <Badge tone={overdue ? 'red' : 'amber'}>Due {money(creditAmt)}</Badge>
-                            ) : (
-                              <Badge tone="slate">{c.sales_count || 0} bills</Badge>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <Empty>No matching customers found.</Empty>
-                  )}
+                            </button>
+                          );
+                        })}
+                        {filteredCustomers.length > visibleCustomers.length && (
+                          <Button
+                            variant="ghost"
+                            onClick={() => setDirLimit(n => n + 60)}
+                            style={{ width: '100%', justifyContent: 'center' }}
+                          >
+                            Load more ({filteredCustomers.length - visibleCustomers.length} remaining)
+                          </Button>
+                        )}
+                      </>
+                    ) : (
+                      <Empty>No matching customers found.</Empty>
+                    )}
+                  </div>
                 </div>
               </Panel>
 
@@ -486,6 +598,7 @@ export function Customers({ ctx }) {
               {person ? (
                 <div className="zk-cust-detail-col">
                   <Panel className="zk-cust-hero-panel">
+                    <div className="zk-cust-hero-body">
                     <div className="zk-cust-hero-top">
                       <div className="zk-cust-hero-id">
                         <span className="avatar zk-cust-avatar-lg">{initials(person.name)}</span>
@@ -539,7 +652,7 @@ export function Customers({ ctx }) {
                       </div>
                     </div>
 
-                    {person.notes && <p className="note-strip">{person.notes}</p>}
+                    {person.notes && <p className="note-strip zk-cust-note-banner">{person.notes}</p>}
 
                     {/* 3 FINANCIAL ACCOUNT CARDS */}
                     <div className="zk-cust-accounts-grid">
@@ -600,6 +713,7 @@ export function Customers({ ctx }) {
                         </Button>
                       </div>
                     </div>
+                    </div>
                   </Panel>
 
                   {/* TABBED ACTIVITY & LEDGERS */}
@@ -607,7 +721,8 @@ export function Customers({ ctx }) {
                     className="zk-cust-ledger-panel"
                     title="Customer Activity & Ledgers"
                     icon={History}
-                    action={
+                  >
+                    <div className="zk-cust-ledger-tabs">
                       <FilterTabs
                         value={detailTab}
                         onChange={setDetailTab}
@@ -619,8 +734,7 @@ export function Customers({ ctx }) {
                           ['repairs', `Repairs (${personRepairs.length})`],
                         ]}
                       />
-                    }
-                  >
+                    </div>
                     {detailTab === 'receivables' && (
                       <Table
                         rows={receivables}

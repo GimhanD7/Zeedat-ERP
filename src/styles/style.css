@@ -4874,7 +4874,8 @@
   flex-wrap: wrap;
 }
 
-.zk-rpt-filter-bar .panel-body {
+.zk-rpt-filter-bar .zk-rpt-filter-inner {
+  padding: 14px 16px;
   display: grid;
   gap: 10px;
 }
@@ -4920,16 +4921,9 @@
 }
 
 /* Modern Customers & Credit CRM Workspace */
-.zk-cust-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .zk-cust-workspace {
   display: grid;
-  grid-template-columns: minmax(310px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 385px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -4940,21 +4934,35 @@
   }
 }
 
-.zk-cust-directory .panel-body {
+.zk-cust-directory {
+  position: sticky;
+  top: 14px;
+  overflow: hidden;
+}
+
+@media (max-width: 1080px) {
+  .zk-cust-directory {
+    position: static;
+  }
+}
+
+.zk-cust-dir-body {
+  padding: 14px 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .zk-cust-dir-controls {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .zk-cust-search-sort {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  align-items: center;
 }
 
 .zk-cust-sort {
@@ -4966,19 +4974,22 @@
   font-size: 12.5px;
   font-weight: 600;
   color: #334155;
+  cursor: pointer;
 }
 
 .zk-cust-filter-bar {
   overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .zk-cust-cards-scroll {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 640px;
+  max-height: calc(100dvh - 340px);
+  min-height: 340px;
   overflow-y: auto;
-  padding-right: 2px;
+  padding: 2px 4px 2px 2px;
 }
 
 .zk-cust-card-row {
@@ -4987,12 +4998,14 @@
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #ffffff;
-  padding: 10px 12px;
+  padding: 11px 13px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 78px;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 
 .zk-cust-card-row:hover {
@@ -5003,7 +5016,7 @@
 .zk-cust-card-row.active {
   border-color: #0d9488;
   background: #f0fdfa;
-  box-shadow: 0 0 0 1px #0d9488;
+  box-shadow: inset 3px 0 0 #0d9488;
 }
 
 .zk-cust-row-top {
@@ -5055,29 +5068,35 @@
   min-width: 0;
 }
 
-.zk-cust-hero-panel .panel-body {
+.zk-cust-hero-body {
+  padding: 18px 20px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
+}
+
+.zk-cust-note-banner {
+  margin: 0;
+  padding: 9px 12px;
 }
 
 .zk-cust-hero-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
 .zk-cust-hero-id {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
 .zk-cust-avatar-lg {
-  width: 48px;
-  height: 48px;
+  width: 50px;
+  height: 50px;
   font-size: 16px;
   flex-shrink: 0;
 }
@@ -5091,23 +5110,25 @@
 
 .zk-cust-hero-title h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 19px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
   color: #0f172a;
 }
 
 .zk-cust-contact-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .zk-cust-contact-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 12.5px;
   color: #475569;
   text-decoration: none;
 }
@@ -5119,14 +5140,14 @@
 .zk-cust-hero-btns {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .zk-cust-accounts-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 @media (max-width: 900px) {
@@ -5138,7 +5159,7 @@
 .zk-cust-acct-card {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: #f8fafc;
   display: flex;
   flex-direction: column;
@@ -5177,7 +5198,8 @@
 }
 
 .zk-cust-acct-val {
-  font-size: 20px;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
   color: #0f172a;
   line-height: 1.2;
 }
@@ -5186,6 +5208,13 @@
   margin-top: auto;
   width: 100%;
   justify-content: center;
+}
+
+.zk-cust-ledger-tabs {
+  padding: 10px 16px;
+  border-bottom: 1px solid #edf1f5;
+  background: #fafcff;
+  overflow-x: auto;
 }
 
 
