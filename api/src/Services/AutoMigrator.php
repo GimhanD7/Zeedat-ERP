@@ -626,6 +626,8 @@ class AutoMigrator
             $saleLoyaltyCols = [
                 'wallet_used' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'BIGINT UNSIGNED NOT NULL DEFAULT 0',
                 'points_earned' => $driver === 'sqlite' ? 'INTEGER NOT NULL DEFAULT 0' : 'INT UNSIGNED NOT NULL DEFAULT 0',
+                'commission_user_id' => $driver === 'sqlite' ? 'INTEGER NULL' : 'INT NULL',
+                'discount_type' => $driver === 'sqlite' ? "TEXT NOT NULL DEFAULT 'percent'" : "VARCHAR(16) NOT NULL DEFAULT 'percent'",
             ];
             if ($driver === 'sqlite') {
                 $existingCust = array_column($db->query('PRAGMA table_info(customers)')->fetchAll(), 'name');

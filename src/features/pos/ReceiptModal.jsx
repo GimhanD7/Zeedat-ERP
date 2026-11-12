@@ -68,8 +68,14 @@ export function ReceiptModal({ invoice, settings, onClose }) {
             )}
           </div>
           <div className="zk-inv-meta-box">
-            <small>Cashier / Status</small>
+            <small>Cashier / Seller</small>
             <strong>{invoice.cashier || 'Staff'}</strong>
+            {invoice.seller_name && (
+              <span style={{ color: '#0f766e', fontWeight: 600, fontSize: '11.5px' }}>
+                Bill Maker: #{invoice.commission_user_id || ''} · {invoice.seller_name}
+                {Number(invoice.total_commission || 0) > 0 ? ` (Comm: ${money(invoice.total_commission)})` : ''}
+              </span>
+            )}
             <span>
               {Number(invoice.credit || 0) > 0
                 ? `Credit Due: ${money(invoice.credit)}`

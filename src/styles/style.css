@@ -4811,3 +4811,111 @@
   padding: 4px 8px;
   font-weight: 700;
 }
+
+/* POS Discount Mode Toggle & Staff Bill-Maker Lookup */
+.zk-pos-staff-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.zk-pos-staff-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.zk-pos-comm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f766e;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.zk-disc-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.zk-disc-toggle button {
+  border: 0;
+  background: transparent;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+
+.zk-disc-toggle button.active {
+  background: #0f766e;
+  color: #ffffff;
+}
+
+/* Reports & Print Center */
+.zk-rpt-print-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zk-rpt-filter-bar .panel-body {
+  display: grid;
+  gap: 10px;
+}
+
+.zk-rpt-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.zk-rpt-date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.zk-rpt-date-inputs label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.zk-rpt-date-inputs input,
+.zk-rpt-date-inputs select {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  font-size: 12.5px;
+  background: #ffffff;
+}
+
+.zk-rpt-tab-strip {
+  overflow-x: auto;
+  padding-top: 4px;
+  border-top: 1px solid #f1f5f9;
+}
+

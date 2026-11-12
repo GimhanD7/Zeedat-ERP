@@ -435,6 +435,20 @@ try {
             RoleGuard::allowPermission($user, 'staff');
             return AdminController::getStaff();
         })(),
+        'staff.lookup' => (function () use ($user) {
+            RoleGuard::allowAnyPermission($user, 'pos', 'repairs', 'staff', 'reports');
+            return BaseRepository::rows(
+                "SELECT u.id, u.name, u.role, u.branch_id, COALESCE(b.name, 'All Branches') AS branch_name
+                 FROM users u
+                 LEFT JOIN branches b ON b.id=u.branch_id
+                 WHERE COALESCE(u.active, 1)=1
+                 ORDER BY u.id ASC"
+            );
+        })(),
+        'reports' => (function () use ($user, $branch) {
+            RoleGuard::allowPermission($user, 'reports');
+            return DashboardController::getFullReports($branch, $_GET);
+        })(),
         'permissions' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'staff');
             return AdminController::getPermissions();

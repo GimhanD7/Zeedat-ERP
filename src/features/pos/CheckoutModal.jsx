@@ -42,6 +42,8 @@ export function CheckoutModal({
   lines = [],
   subtotal = 0,
   discount = 0,
+  discountType = 'percent',
+  discountAmount = 0,
   tax = 0,
   total = 0,
   customer = null,
@@ -49,6 +51,9 @@ export function CheckoutModal({
   customerName = '',
   branchName = '',
   discountBps = 0,
+  staffId = null,
+  staffName = '',
+  estimatedCommission = 0,
   draftId = null,
   settings = {},
 }) {
@@ -210,7 +215,10 @@ export function CheckoutModal({
 
       const invoice = await ctx.mutate('sale.checkout', {
         items: lines.map(({ product_id, unit_id, qty }) => ({ product_id, unit_id, qty })),
+        discount_type: discountType,
         discount_bps: discountBps,
+        discount_amount: discountAmount || discount,
+        staff_id: staffId || ctx.user?.id,
         customer_id: customer,
         draft_id: draftId,
         expected_total: total,
@@ -373,7 +381,9 @@ export function CheckoutModal({
                 <div className="zk-total-line">
                   <div className="zk-total-label">
                     <Percent size={14} style={{ color: '#15803d' }} />
-                    <span style={{ color: '#15803d' }}>Discount ({discountPct}%)</span>
+                    <span style={{ color: '#15803d' }}>
+                      {discountType === 'fixed' ? 'Discount (Fixed Rs)' : `Discount (${discountPct}%)`}
+                    </span>
                   </div>
                   <strong className="zk-discount-amount">− {money(discount)}</strong>
                 </div>
@@ -655,6 +665,14 @@ export function CheckoutModal({
                 <div className="zk-summary-row">
                   <span>Payment Method</span>
                   <strong style={{ color: '#0d9488' }}>{method === 'Split' ? 'Split Payment' : method}</strong>
+                </div>
+
+                <div className="zk-summary-row">
+                  <span>Commission Credited To</span>
+                  <strong style={{ color: '#0f172a' }}>
+                    #{staffId || ctx.user?.id} · {staffName || ctx.user?.name || 'Staff'}
+                    {estimatedCommission > 0 ? ` (+${money(estimatedCommission)})` : ''}
+                  </strong>
                 </div>
 
                 <div className="zk-summary-divider" />

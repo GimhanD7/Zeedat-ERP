@@ -8,11 +8,14 @@ class SaleRepository extends BaseRepository {
         $where = $branch ? 'WHERE s.branch_id=?' : '';
         $params = $branch ? [$branch] : [];
         return self::rows("SELECT s.id, s.invoice_no, s.branch_id, s.user_id, s.customer_id,
-            s.subtotal, s.discount, s.discount_bps, s.tax, s.tax_bps, s.total,
+            s.subtotal, s.discount, COALESCE(s.discount_type, 'percent') AS discount_type, s.discount_bps, s.tax, s.tax_bps, s.total,
             COALESCE(s.paid_amount, 0) AS paid_amount, COALESCE(s.cash_tendered, 0) AS cash_tendered,
             COALESCE(s.change_amount, 0) AS change_amount, COALESCE(s.payment_methods, '') AS payment_methods,
             s.credit, s.due_date, COALESCE(s.notes, '') AS notes, s.created_at,
             b.name AS branch, COALESCE(u.name, 'Staff') AS cashier,
+            COALESCE(cu.name, u.name, 'Staff') AS seller_name,
+            COALESCE(s.commission_user_id, s.user_id) AS commission_user_id,
+            COALESCE(SUM(si.commission_amount), 0) AS total_commission,
             COALESCE(c.name, 'Walk-in customer') AS customer, COALESCE(c.phone, '') AS customer_phone,
             GROUP_CONCAT(CONCAT(si.qty, 'x ', p.name) SEPARATOR ', ') AS items,
             COUNT(si.id) AS line_count,
@@ -21,6 +24,7 @@ class SaleRepository extends BaseRepository {
             FROM sales s
             JOIN branches b ON b.id=s.branch_id
             LEFT JOIN users u ON u.id=s.user_id
+            LEFT JOIN users cu ON cu.id=COALESCE(s.commission_user_id, s.user_id)
             LEFT JOIN customers c ON c.id=s.customer_id
             JOIN sale_items si ON si.sale_id=s.id
             JOIN products p ON p.id=si.product_id
@@ -33,6 +37,8 @@ class SaleRepository extends BaseRepository {
         $params = $branch ? [$id, $branch] : [$id];
         $sale = self::one("SELECT s.*, b.name AS branch, COALESCE(b.phone, '') AS branch_phone, COALESCE(b.address, '') AS branch_address,
             COALESCE(u.name, 'Staff') AS cashier,
+            COALESCE(cu.name, u.name, 'Staff') AS seller_name,
+            COALESCE(s.commission_user_id, s.user_id) AS commission_user_id,
             COALESCE(c.name, 'Walk-in customer') AS customer,
             COALESCE(c.phone, '') AS customer_phone,
             COALESCE(c.email, '') AS customer_email,
@@ -41,6 +47,7 @@ class SaleRepository extends BaseRepository {
             FROM sales s
             JOIN branches b ON b.id=s.branch_id
             LEFT JOIN users u ON u.id=s.user_id
+            LEFT JOIN users cu ON cu.id=COALESCE(s.commission_user_id, s.user_id)
             LEFT JOIN customers c ON c.id=s.customer_id
             WHERE s.id=? {$scope}", $params);
 
@@ -56,6 +63,9 @@ class SaleRepository extends BaseRepository {
         $sale['refunded'] = (int) self::scalar(
             "SELECT COALESCE(SUM(r.amount),0) FROM returns_log r JOIN sale_items i ON i.id=r.sale_item_id WHERE i.sale_id=? AND r.status='Completed'",
             [$id]
+        );
+        $sale['total_commission'] = array_sum(
+            array_map(static fn(array $it): int => (int) ($it['commission_amount'] ?? 0), $sale['items'])
         );
         $sale['change'] = (int) ($sale['change_amount'] ?? 0);
         $cashPaidFallback = 0;

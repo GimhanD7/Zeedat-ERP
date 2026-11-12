@@ -382,10 +382,22 @@ function Workspace({ session, onLogout }) {
           offlineStore.cacheProducts(res);
         } else if (route === 'customers' && Array.isArray(res)) {
           offlineStore.cacheCustomers(res);
+        } else if (route === 'staff.lookup' && Array.isArray(res)) {
+          try {
+            localStorage.setItem('zeedat_staff_lookup_cache', JSON.stringify(res));
+          } catch {}
         }
         return res;
       } catch (e) {
         if (e.status === 401) onLogout();
+
+        if (route === 'staff.lookup') {
+          try {
+            const cachedStaff = JSON.parse(localStorage.getItem('zeedat_staff_lookup_cache') || 'null');
+            if (Array.isArray(cachedStaff) && cachedStaff.length > 0) return cachedStaff;
+          } catch {}
+          if (user) return [{ id: user.id, name: user.name, role: user.role, branch_id: user.branch_id }];
+        }
 
         if (route === 'products') {
           const cached = await offlineStore.getProducts();

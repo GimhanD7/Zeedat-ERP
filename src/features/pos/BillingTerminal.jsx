@@ -67,20 +67,23 @@ export function BillingTerminal({ ctx }) {
     register: 'drawer',
     drafts: 'drafts',
     settings: 'settings',
+    staffList: 'staff.lookup',
   });
 
   return <DataView state={state}>{data => <BillingView ctx={ctx} data={data} onRefresh={state.refresh} />}</DataView>;
 }
 
 function BillingView({ ctx, data, onRefresh }) {
-  const { products, units, customers, register, drafts, settings } = data;
+  const { products, units, customers, register, drafts, settings, staffList = [] } = data;
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All Products');
   const [cart, setCart] = useState([]);
   const [customer, setCustomer] = useState('');
   const [custQuery, setCustQuery] = useState('');
   const [custDropdownOpen, setCustDropdownOpen] = useState(false);
-  const [discountPct, setDiscountPct] = useState('0');
+  const [discountType, setDiscountType] = useState('percent');
+  const [discountValue, setDiscountValue] = useState('0');
+  const [staffIdInput, setStaffIdInput] = useState(() => String(ctx.user?.id || ''));
   const [draftId, setDraftId] = useState(null);
   const [device, setDevice] = useState(null);
   const [chosenUnit, setChosenUnit] = useState('');
@@ -222,20 +225,59 @@ function BillingView({ ctx, data, onRefresh }) {
     return product ? [{ ...line, product, id: lineKey(line.product_id, line.unit_id) }] : [];
   });
 
+  const parsedStaffId = parseInt(String(staffIdInput || '').trim(), 10) || 0;
+  const resolvedStaff = useMemo(() => {
+    if (!parsedStaffId) return null;
+    return (
+      staffList.find(s => Number(s.id) === parsedStaffId) ||
+      (Number(ctx.user?.id) === parsedStaffId ? ctx.user : null)
+    );
+  }, [parsedStaffId, staffList, ctx.user]);
+  const staffInvalid = String(staffIdInput || '').trim() !== '' && !resolvedStaff;
+
   const subtotal = lines.reduce((sum, r) => sum + r.qty * r.product.price, 0);
-  const discountBps = Math.min(
-    ctx.user.role === 'cashier' ? 500 : 10000,
-    Math.max(0, cents(discountPct))
-  );
-  const discount = Math.floor((subtotal * discountBps + 5000) / 10000);
+  const maxFixedDiscount =
+    ctx.user.role === 'cashier' ? Math.floor((subtotal * 500 + 5000) / 10000) : subtotal;
+  const rawFixedCents = Math.max(0, cents(discountValue || 0));
+  const clampedFixedCents = Math.min(maxFixedDiscount, rawFixedCents);
+  const discountBps =
+    discountType === 'fixed'
+      ? subtotal > 0
+        ? Math.min(10000, Math.round((clampedFixedCents * 10000) / subtotal))
+        : 0
+      : Math.min(ctx.user.role === 'cashier' ? 500 : 10000, Math.max(0, cents(discountValue || 0)));
+  const discount =
+    discountType === 'fixed'
+      ? clampedFixedCents
+      : Math.floor((subtotal * discountBps + 5000) / 10000);
   const tax = Math.floor(((subtotal - discount) * settings.tax_bps + 5000) / 10000);
   const total = amountDue(subtotal, discount, tax);
   const reserved = new Set(cart.map(r => r.unit_id));
 
+  const estimatedCommission = useMemo(() => {
+    if (!lines.length) return 0;
+    let processed = 0;
+    let allocated = 0;
+    return lines.reduce((sum, r) => {
+      const extended = r.qty * r.product.price;
+      processed += extended;
+      const cumulative = subtotal ? Math.floor((processed * total) / subtotal) : 0;
+      const lineTotal = cumulative - allocated;
+      allocated = cumulative;
+      const cType = r.product.commission_type || 'fixed';
+      const cVal = Number(r.product.commission_value || 0);
+      const lineComm =
+        cType === 'percent' ? Math.floor((lineTotal * cVal + 5000) / 10000) : cVal * r.qty;
+      return sum + lineComm;
+    }, 0);
+  }, [lines, subtotal, total]);
+
   const clear = () => {
     setCart([]);
     setCustomer('');
-    setDiscountPct('0');
+    setDiscountType('percent');
+    setDiscountValue('0');
+    setStaffIdInput(String(ctx.user?.id || ''));
     setDraftId(null);
     setError('');
   };
@@ -321,7 +363,10 @@ function BillingView({ ctx, data, onRefresh }) {
     setBusy(true);
     setError('');
     try {
-      await ctx.mutate('draft.save', { id: draftId, payload: { cart, customer, discountPct } });
+      await ctx.mutate('draft.save', {
+        id: draftId,
+        payload: { cart, customer, discountType, discountValue, staffIdInput },
+      });
       clear();
       ctx.setNotice('Bill held');
     } catch (e) {
@@ -778,21 +823,85 @@ function BillingView({ ctx, data, onRefresh }) {
                 </Button>
               </div>
               <div className="totals bill-totals">
+                <div className="zk-pos-staff-row">
+                  <label className="inline-field" style={{ gap: '6px' }}>
+                    <UserRound size={14} />
+                    <span>Staff ID</span>
+                    <input
+                      aria-label="Bill maker staff user ID"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={staffIdInput}
+                      onChange={e => setStaffIdInput(e.target.value)}
+                      placeholder={String(ctx.user?.id || '')}
+                      style={{ width: '68px' }}
+                    />
+                  </label>
+                  <div className="zk-pos-staff-status">
+                    {resolvedStaff ? (
+                      <Badge tone="green">
+                        #{resolvedStaff.id} · {resolvedStaff.name}
+                      </Badge>
+                    ) : staffInvalid ? (
+                      <Badge tone="red">User ID not found</Badge>
+                    ) : (
+                      <Badge tone="slate">
+                        #{ctx.user?.id} · {ctx.user?.name} (Self)
+                      </Badge>
+                    )}
+                    {estimatedCommission > 0 && (
+                      <span className="zk-pos-comm-pill" title="Item commissions credited to identified staff">
+                        <Award size={12} /> +{money(estimatedCommission)}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <div>
                   <span>Subtotal</span>
                   <strong>{money(subtotal)}</strong>
                 </div>
                 <div>
-                  <label className="inline-field">
-                    Discount (%){' '}
+                  <label className="inline-field" style={{ gap: '6px' }}>
+                    <span>Discount</span>
+                    <span className="zk-disc-toggle" role="group" aria-label="Discount type">
+                      <button
+                        type="button"
+                        className={discountType === 'percent' ? 'active' : ''}
+                        onClick={() => {
+                          setDiscountType('percent');
+                          setDiscountValue('0');
+                        }}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        className={discountType === 'fixed' ? 'active' : ''}
+                        onClick={() => {
+                          setDiscountType('fixed');
+                          setDiscountValue('0');
+                        }}
+                      >
+                        Rs
+                      </button>
+                    </span>
                     <input
-                      aria-label="Discount percentage"
+                      aria-label={discountType === 'fixed' ? 'Discount amount in Rupees' : 'Discount percentage'}
                       type="number"
                       min="0"
-                      max={ctx.user.role === 'cashier' ? 5 : 100}
-                      step=".01"
-                      value={discountPct}
-                      onChange={e => setDiscountPct(e.target.value)}
+                      max={
+                        discountType === 'fixed'
+                          ? ctx.user.role === 'cashier'
+                            ? Number((maxFixedDiscount / 100).toFixed(2))
+                            : Number((subtotal / 100).toFixed(2))
+                          : ctx.user.role === 'cashier'
+                            ? 5
+                            : 100
+                      }
+                      step={discountType === 'fixed' ? '1' : '.01'}
+                      value={discountValue}
+                      onChange={e => setDiscountValue(e.target.value)}
                     />
                   </label>
                   <strong>− {money(discount)}</strong>
@@ -806,11 +915,12 @@ function BillingView({ ctx, data, onRefresh }) {
                   <strong>{money(total)}</strong>
                 </div>
                 {!current && <Alert>Open today’s cash register before checkout.</Alert>}
+                {staffInvalid && <Alert>Enter a valid active Staff User ID (or clear to credit your own ID).</Alert>}
                 <Button
                   className="checkout-button"
                   icon={Banknote}
                   variant="primary"
-                  disabled={!lines.length || !current || busy}
+                  disabled={!lines.length || !current || staffInvalid || busy}
                   onClick={() => setCheckout(true)}
                 >
                   Review & checkout <ArrowRight size={17} />
@@ -887,7 +997,9 @@ function BillingView({ ctx, data, onRefresh }) {
                           const p = JSON.parse(r.payload);
                           setCart(p.cart);
                           setCustomer(p.customer);
-                          setDiscountPct(p.discountPct);
+                          setDiscountType(p.discountType || 'percent');
+                          setDiscountValue(p.discountValue ?? p.discountPct ?? '0');
+                          if (p.staffIdInput) setStaffIdInput(String(p.staffIdInput));
                           setDraftId(r.id);
                           setHeld(false);
                         }}
@@ -965,10 +1077,15 @@ function BillingView({ ctx, data, onRefresh }) {
             lines,
             subtotal,
             discount,
+            discountType,
+            discountAmount: discount,
             tax,
             total,
             customer,
             discountBps,
+            staffId: resolvedStaff ? resolvedStaff.id : ctx.user?.id,
+            staffName: resolvedStaff ? resolvedStaff.name : ctx.user?.name,
+            estimatedCommission,
             draftId,
           }}
         />

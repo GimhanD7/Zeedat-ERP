@@ -58,8 +58,23 @@ class CheckoutService {
 
         if ($subtotal > 99999999999) throw new ApiError('Bill exceeds the transaction limit.');
 
-        $discountBps = Validator::integer($body['discount_bps'] ?? 0, 'Discount', 0, $user['role'] === 'cashier' ? 500 : 10000);
-        $discount = Helpers::rate($subtotal, $discountBps);
+        $discountType = ($body['discount_type'] ?? 'percent') === 'fixed' ? 'fixed' : 'percent';
+        if ($discountType === 'fixed') {
+            $maxFixed = $user['role'] === 'cashier' ? Helpers::rate($subtotal, 500) : $subtotal;
+            $discount = Validator::money($body, 'discount_amount');
+            if ($discount > $maxFixed) {
+                throw new ApiError(
+                    $user['role'] === 'cashier'
+                        ? 'Cashier discount cannot exceed 5% of the bill subtotal (' . number_format($maxFixed / 100, 2) . ' LKR).'
+                        : 'Discount cannot exceed the bill subtotal.'
+                );
+            }
+            $discountBps = $subtotal > 0 ? min(10000, (int) round(($discount * 10000) / $subtotal)) : 0;
+        } else {
+            $discountBps = Validator::integer($body['discount_bps'] ?? 0, 'Discount', 0, $user['role'] === 'cashier' ? 500 : 10000);
+            $discount = Helpers::rate($subtotal, $discountBps);
+        }
+
         $taxBps = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
         $tax = Helpers::rate($subtotal - $discount, $taxBps);
         $total = $subtotal - $discount + $tax;
@@ -67,6 +82,13 @@ class CheckoutService {
         if ($total !== Validator::money($body, 'expected_total')) {
             throw new ApiError('Prices changed. Refresh the bill before completing it.', 409);
         }
+
+        $staffId = !empty($body['staff_id']) ? Validator::integer($body['staff_id'], 'Staff ID') : (int) $user['id'];
+        $commissionUser = BaseRepository::one('SELECT id, name, role FROM users WHERE id=? AND active=1', [$staffId]);
+        if (!$commissionUser) {
+            throw new ApiError("Staff User ID #{$staffId} was not found or is inactive.", 404);
+        }
+        $commissionUserId = (int) $commissionUser['id'];
 
         $tenders = $body['payments'] ?? [];
         if (!is_array($tenders) || count($tenders) > 4) throw new ApiError('Invalid payment details.');
@@ -132,13 +154,13 @@ class CheckoutService {
         $syncUuid = 'SL-' . bin2hex(random_bytes(10));
         if (\Zeedat\Config\Database::isSqlite()) {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
+                'INSERT INTO sales(uuid, sync_uuid, synced, branch_id, user_id, commission_user_id, drawer_id, customer_id, subtotal, discount, discount_type, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $syncUuid, $branch, $user['id'], $commissionUserId, $drawer['id'], $customer, $subtotal, $discount, $discountType, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
             );
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$syncUuid, $branch, $user['id'], $drawer['id'], $customer, $subtotal, $discount, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
+                'INSERT INTO sales(sync_uuid, synced, branch_id, user_id, commission_user_id, drawer_id, customer_id, subtotal, discount, discount_type, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, wallet_used, points_earned) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$syncUuid, $branch, $user['id'], $commissionUserId, $drawer['id'], $customer, $subtotal, $discount, $discountType, $discountBps, $tax, $taxBps, $total, $paid, $cashReceived, $change, $paymentMethods, $credit, $due, $notes, $walletUsed, $pointsEarned]
             );
         }
         $invoiceNo = Helpers::ref($prefixCode, $id);
