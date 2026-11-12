@@ -30,10 +30,46 @@ class RepairService {
 
     public static function create(int $branch, array $body, ?array $user = null): array {
         $actor = $user ?: ['id' => 1, 'role' => 'owner'];
-        $customerId = Validator::integer($body['customer_id'] ?? null, 'Customer');
-        $customerRow = BaseRepository::one('SELECT id, name, phone FROM customers WHERE id=? AND branch_id=?', [$customerId, $branch]);
-        if (!$customerRow) {
-            throw new ApiError('Customer not found.', 404);
+        if (!empty($body['customer_id'])) {
+            $customerId = Validator::integer($body['customer_id'], 'Customer');
+            $customerRow = BaseRepository::one('SELECT id, name, phone FROM customers WHERE id=? AND branch_id=?', [$customerId, $branch]);
+            if (!$customerRow) {
+                throw new ApiError('Customer not found.', 404);
+            }
+        } else {
+            $custPhone = Validator::str($body, 'customer_phone', 40);
+            $digits = preg_replace('/\D+/', '', $custPhone);
+            $customerRow = null;
+            if (strlen($digits) >= 7) {
+                $branchCustomers = BaseRepository::rows('SELECT id, name, phone FROM customers WHERE branch_id=?', [$branch]);
+                foreach ($branchCustomers as $bc) {
+                    $bcDigits = preg_replace('/\D+/', '', (string) ($bc['phone'] ?? ''));
+                    if ($bcDigits !== '' && ($bcDigits === $digits || (strlen($digits) >= 9 && str_ends_with($bcDigits, substr($digits, -9))))) {
+                        $customerRow = $bc;
+                        break;
+                    }
+                }
+            }
+            if (!$customerRow) {
+                $custName = Validator::str($body, 'customer_name', 120);
+                $custEmail = Validator::str($body, 'customer_email', 160, false) ?: '';
+                $custNotes = Validator::str($body, 'customer_notes', 500, false) ?: '';
+                if (Database::isSqlite()) {
+                    $cUuid = 'cust_' . bin2hex(random_bytes(10));
+                    $customerId = BaseRepository::insert(
+                        'INSERT INTO customers(uuid, sync_uuid, branch_id, name, phone, email, notes, synced) VALUES (?,?,?,?,?,?,?,0)',
+                        [$cUuid, $cUuid, $branch, $custName, $custPhone, $custEmail, $custNotes]
+                    );
+                } else {
+                    $customerId = BaseRepository::insert(
+                        'INSERT INTO customers(branch_id, name, phone, email, notes, synced) VALUES (?,?,?,?,?,0)',
+                        [$branch, $custName, $custPhone, $custEmail, $custNotes]
+                    );
+                }
+                $customerRow = ['id' => $customerId, 'name' => $custName, 'phone' => $custPhone];
+            } else {
+                $customerId = (int) $customerRow['id'];
+            }
         }
 
         $technicianId = empty($body['technician_id']) ? null : Validator::integer($body['technician_id'], 'Technician');
@@ -151,6 +187,9 @@ class RepairService {
         return [
             'id' => $id,
             'job_number' => $jobNumber,
+            'customer_id' => $customerId,
+            'customer' => (string) ($customerRow['name'] ?? ''),
+            'customer_phone' => (string) ($customerRow['phone'] ?? ''),
             'status' => $status,
             'device' => $device,
             'branch_name' => $branchName,
@@ -250,19 +289,24 @@ class RepairService {
             if ($job['status'] === 'Cancelled') {
                 throw new ApiError('Cancelled repair jobs cannot be completed.');
             }
-            if ($job['status'] === 'Delivered') {
-                throw new ApiError('This repair job is already completed and delivered.');
+            $existingFinal = (int) (($job['final_charge'] ?? 0) > 0 ? $job['final_charge'] : $job['estimate']);
+            $alreadyPaid = (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
+            if ($job['status'] === 'Delivered' && $alreadyPaid >= $existingFinal) {
+                throw new ApiError('This repair job is already completed and fully paid.');
             }
 
             $finalCharge = array_key_exists('final_charge', $body)
                 ? Validator::money($body, 'final_charge')
-                : (int) (($job['final_charge'] ?? 0) > 0 ? $job['final_charge'] : $job['estimate']);
+                : $existingFinal;
 
-            $alreadyPaid = (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
             $defaultPay = max(0, $finalCharge - $alreadyPaid);
             $payAmount = array_key_exists('pay_amount', $body)
                 ? Validator::money($body, 'pay_amount')
                 : $defaultPay;
+
+            if ($job['status'] === 'Delivered' && $payAmount <= 0) {
+                throw new ApiError('Enter a payment amount greater than zero to settle the due.');
+            }
 
             $method = (string) ($body['payment_method'] ?? 'Cash');
             if (!in_array($method, Constants::TENDERS, true)) {

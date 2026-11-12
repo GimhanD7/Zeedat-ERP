@@ -34,9 +34,48 @@ class CheckoutService {
         $subtotal = 0;
         $items = [];
         $claimed = [];
+        $repairLinks = [];
 
         foreach ($lines as $line) {
             if (!is_array($line)) throw new ApiError('Invalid bill line.');
+
+            if (!empty($line['repair_id'])) {
+                $repairId = Validator::integer($line['repair_id'], 'Repair job');
+                $job = BaseRepository::one(
+                    'SELECT id, branch_id, customer_id, device, issue, estimate, final_charge, paid_amount, advance_paid, status, notes FROM repairs WHERE id=? AND branch_id=? FOR UPDATE',
+                    [$repairId, $branch]
+                );
+                if (!$job || $job['status'] === 'Cancelled') {
+                    throw new ApiError('Repair job is unavailable.', 404);
+                }
+                $serviceProduct = BaseRepository::one("SELECT * FROM products WHERE sku='SRV-REPAIR' LIMIT 1");
+                if (!$serviceProduct) {
+                    if (\Zeedat\Config\Database::isSqlite()) {
+                        $spUuid = 'prd_' . bin2hex(random_bytes(8));
+                        $spId = BaseRepository::insert(
+                            "INSERT INTO products(sync_uuid, name, sku, barcode, category, brand, cost, price, serialized, active, synced) VALUES (?,?,?,?,?,?,0,0,0,1,0)",
+                            [$spUuid, 'Repair Service', 'SRV-REPAIR', 'SRV-REPAIR', 'Services', 'Workshop']
+                        );
+                    } else {
+                        $spId = BaseRepository::insert(
+                            "INSERT INTO products(name, sku, barcode, category, brand, cost, price, serialized, active, synced) VALUES (?,?,?,?,?,0,0,0,1,0)",
+                            ['Repair Service', 'SRV-REPAIR', 'SRV-REPAIR', 'Services', 'Workshop']
+                        );
+                    }
+                    $serviceProduct = BaseRepository::one('SELECT * FROM products WHERE id=?', [$spId]);
+                }
+                $linePrice = Validator::money($line, 'price');
+                if ($linePrice <= 0) {
+                    throw new ApiError('Repair billing amount must be greater than zero.');
+                }
+                $lineName = trim((string) ($line['name'] ?? '')) ?: ('Repair ' . Helpers::ref('RJ', $repairId) . ' · ' . $job['device']);
+                $p = array_merge($serviceProduct, ['price' => $linePrice, 'name' => $lineName]);
+                $subtotal += $linePrice;
+                $items[] = [$p, 1, null, $linePrice];
+                $repairLinks[] = [$repairId, $linePrice, $job];
+                continue;
+            }
+
             $product = Validator::integer($line['product_id'] ?? null, 'Product');
             $qty = Validator::integer($line['qty'] ?? null, 'Quantity', 1, 1000);
             $p = ProductRepository::findById($product);
@@ -215,6 +254,20 @@ class CheckoutService {
             if ($amount) {
                 self::salePayment($user, $drawer, $id, $amount, $method, $reference, 'Sale');
             }
+        }
+
+        foreach ($repairLinks as [$repairId, $linePrice, $job]) {
+            $existingFinal = (int) (($job['final_charge'] ?? 0) > 0 ? $job['final_charge'] : $job['estimate']);
+            $alreadyPaid = (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
+            $newFinal = max($existingFinal, $alreadyPaid + $linePrice);
+            $newPaid = $alreadyPaid + $linePrice;
+            $oldNotes = trim((string) ($job['notes'] ?? ''));
+            $billNote = "Billed in {$invoiceNo}";
+            $newNotes = $oldNotes !== '' ? "{$oldNotes} | {$billNote}" : $billNote;
+            BaseRepository::run(
+                "UPDATE repairs SET status='Delivered', final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
+                [$newFinal, $newPaid, $paymentMethods, date('Y-m-d H:i:s'), $newNotes, $repairId]
+            );
         }
 
         if ($draft) BaseRepository::run('DELETE FROM drafts WHERE id=?', [$draft]);

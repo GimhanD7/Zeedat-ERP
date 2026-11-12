@@ -385,7 +385,7 @@ try {
             return InventoryController::getStockMovements($branch, $_GET);
         })(),
         'customers' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+            RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
             $params = $branch ? [$branch] : [];
             return BaseRepository::rows(
                 "SELECT c.*, b.name branch,
@@ -396,9 +396,22 @@ try {
                     CAST(COALESCE(t.credit_count,0) AS UNSIGNED) credit_count,
                     CAST(COALESCE(t.sales_count,0) AS UNSIGNED) sales_count,
                     t.next_due_date,
-                    t.last_sale_at
+                    t.last_sale_at,
+                    CAST(COALESCE(rp.repair_due,0) AS UNSIGNED) repair_due,
+                    CAST(COALESCE(rp.repair_due_count,0) AS UNSIGNED) repair_due_count,
+                    rp.repair_next_due_date
                 FROM customers c JOIN branches b ON b.id=c.branch_id
                 LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit, SUM(CASE WHEN credit > 0 THEN 1 ELSE 0 END) credit_count, MIN(CASE WHEN credit > 0 THEN due_date ELSE NULL END) next_due_date, COUNT(*) sales_count, MAX(created_at) last_sale_at FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
+                LEFT JOIN (
+                    SELECT customer_id,
+                        SUM(CASE WHEN status != 'Cancelled' AND COALESCE(NULLIF(final_charge,0), estimate, 0) > COALESCE(paid_amount, advance_paid, 0)
+                            THEN COALESCE(NULLIF(final_charge,0), estimate, 0) - COALESCE(paid_amount, advance_paid, 0) ELSE 0 END) repair_due,
+                        SUM(CASE WHEN status != 'Cancelled' AND COALESCE(NULLIF(final_charge,0), estimate, 0) > COALESCE(paid_amount, advance_paid, 0)
+                            THEN 1 ELSE 0 END) repair_due_count,
+                        MIN(CASE WHEN status != 'Cancelled' AND COALESCE(NULLIF(final_charge,0), estimate, 0) > COALESCE(paid_amount, advance_paid, 0)
+                            THEN due_date ELSE NULL END) repair_next_due_date
+                    FROM repairs GROUP BY customer_id
+                ) rp ON rp.customer_id=c.id
                 " . ($branch ? 'WHERE c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
             );
@@ -408,7 +421,7 @@ try {
             return InventoryController::getCustomerLedger($branch, $_GET);
         })(),
         'repairs' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'repairs');
+            RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
             return RepairController::getRepairs($branch, $user);
         })(),
         'technicians' => (function () use ($user, $branch) {

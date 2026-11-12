@@ -246,6 +246,10 @@ export function Repairs({ ctx }) {
   const [formError, setFormError] = useState('');
   const [smsSendingId, setSmsSendingId] = useState(null);
   const [openRegisterOpen, setOpenRegisterOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustNotes, setNewCustNotes] = useState('');
+  const [selectedService, setSelectedService] = useState('');
 
   useEffect(() => {
     setIntakeBranch(actionBranch(ctx));
@@ -267,6 +271,7 @@ export function Repairs({ ctx }) {
           customers: ['customers', { branch: intakeBranch || ctx.branch }],
           technicians: ['technicians', { branch: intakeBranch || ctx.branch }],
           drawer: ['drawer', { branch: intakeBranch || ctx.branch }],
+          products: 'products',
         }
       : {}),
   });
@@ -278,30 +283,33 @@ export function Repairs({ ctx }) {
   }, [state.data?.jobs]);
 
   const currentCustomer = useMemo(() => {
+    if (!selectedCustomerId) return null;
     const list = state.data?.customers || [];
-    return list.find(c => String(c.id) === String(selectedCustomerId)) || list[0] || null;
+    return list.find(c => String(c.id) === String(selectedCustomerId)) || null;
   }, [state.data?.customers, selectedCustomerId]);
-
-  useEffect(() => {
-    if (currentCustomer && !selectedCustomerId) {
-      setCustomerPhone(currentCustomer.phone || '');
-      setSelectedCustomerId(String(currentCustomer.id));
-    }
-  }, [currentCustomer, selectedCustomerId]);
 
   const handleCustomerChange = id => {
     setSelectedCustomerId(id);
+    if (!id) {
+      return;
+    }
     const list = state.data?.customers || [];
     const found = list.find(c => String(c.id) === String(id));
     if (found) {
       setCustomerPhone(found.phone || '');
+      setNewCustName('');
+      setNewCustEmail('');
+      setNewCustNotes('');
     }
   };
 
   const handlePhoneChange = val => {
     setCustomerPhone(val);
     const digits = String(val || '').replace(/\D/g, '');
-    if (digits.length < 7) return;
+    if (digits.length < 7) {
+      if (selectedCustomerId) setSelectedCustomerId('');
+      return;
+    }
     const list = state.data?.customers || [];
     const normalize = p => String(p || '').replace(/\D/g, '');
     let match = list.find(c => normalize(c.phone) === digits);
@@ -315,8 +323,15 @@ export function Repairs({ ctx }) {
       const candidates = list.filter(c => normalize(c.phone).endsWith(tail7));
       if (candidates.length === 1) match = candidates[0];
     }
-    if (match && String(match.id) !== String(selectedCustomerId)) {
-      setSelectedCustomerId(String(match.id));
+    if (match) {
+      if (String(match.id) !== String(selectedCustomerId)) {
+        setSelectedCustomerId(String(match.id));
+      }
+      setNewCustName('');
+      setNewCustEmail('');
+      setNewCustNotes('');
+    } else if (selectedCustomerId) {
+      setSelectedCustomerId('');
     }
   };
 
@@ -339,6 +354,12 @@ export function Repairs({ ctx }) {
   };
 
   const clearForm = () => {
+    setSelectedCustomerId('');
+    setCustomerPhone('');
+    setNewCustName('');
+    setNewCustEmail('');
+    setNewCustNotes('');
+    setSelectedService('');
     setModel('');
     setSerial('');
     setIssue('');
@@ -354,12 +375,16 @@ export function Repairs({ ctx }) {
     if (e) e.preventDefault();
     setFormError('');
 
-    if (!selectedCustomerId && !currentCustomer) {
-      setFormError('Please select or add a customer.');
+    if (!customerPhone.trim() && !selectedCustomerId && !currentCustomer) {
+      setFormError('Please enter the customer mobile phone number.');
+      return;
+    }
+    if (!selectedCustomerId && !currentCustomer && !newCustName.trim()) {
+      setFormError('Customer not in database — please enter Customer Full Name to register them.');
       return;
     }
     if (!issue.trim()) {
-      setFormError('Please describe the reported issue.');
+      setFormError('Please select a repair service or describe the reported issue.');
       return;
     }
 
@@ -378,7 +403,11 @@ export function Repairs({ ctx }) {
     try {
       const res = await ctx.mutate('repair.create', {
         branch: intakeBranch,
-        customer_id: selectedCustomerId || currentCustomer?.id,
+        customer_id: selectedCustomerId || currentCustomer?.id || null,
+        customer_phone: customerPhone.trim() || currentCustomer?.phone || '',
+        customer_name: newCustName.trim(),
+        customer_email: newCustEmail.trim(),
+        customer_notes: newCustNotes.trim(),
         technician_id: technicianId ? Number(technicianId) : null,
         brand,
         model,
@@ -412,8 +441,8 @@ export function Repairs({ ctx }) {
           branch_id: intakeBranch,
           branch_name: res.branch_name || ctx.branches.find(b => b.id === intakeBranch)?.name || '',
           job_number: res.job_number,
-          customer: currentCustomer?.name || 'Customer',
-          phone: customerPhone || currentCustomer?.phone || '',
+          customer: res.customer || currentCustomer?.name || newCustName.trim() || 'Customer',
+          phone: res.customer_phone || customerPhone.trim() || currentCustomer?.phone || '',
           device: deviceName,
           serial: serial.trim(),
           issue: issue.trim(),
@@ -635,7 +664,7 @@ export function Repairs({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ jobs = [], customers = [], technicians = [], settings = {}, drawer = null }) => {
+      {({ jobs = [], customers = [], technicians = [], settings = {}, drawer = null, products = [] }) => {
         const active = jobs.filter(j => !['Delivered', 'Cancelled'].includes(j.status));
         const readyJobs = jobs.filter(j => j.status === 'Ready');
         const overdue = active.filter(j => j.due_date < today());
@@ -736,103 +765,66 @@ export function Repairs({ ctx }) {
 
             {/* TAB 1: NEW REPAIR JOB INTAKE */}
             {mainTab === 'New Repair Job' && !tech && (
-              <div className="zk-repairs-layout">
-                <div className="zk-repair-form-card">
-                  <div className="zk-repair-card-header">
-                    <div className="zk-repair-icon-box">
-                      <Wrench size={20} />
+              <div className="zk-repairs-layout" style={{ gap: '16px', alignItems: 'start' }}>
+                <div className="zk-repair-form-card" style={{ padding: '18px 20px' }}>
+                  <div className="zk-repair-card-header" style={{ marginBottom: '12px', paddingBottom: '10px' }}>
+                    <div className="zk-repair-icon-box" style={{ width: '36px', height: '36px' }}>
+                      <Wrench size={18} />
                     </div>
                     <div>
-                      <h3 style={{ margin: 0 }}>New Repair Job Intake</h3>
+                      <h3 style={{ margin: 0, fontSize: '16px' }}>New Repair Job Intake</h3>
                       <small style={{ color: '#64748b' }}>
-                        Assign technician, record advance into Cashbook, send intake SMS &amp; print customer slip
+                        Enter customer phone first · Auto-registers new customers · Select service &amp; print slip
                       </small>
                     </div>
                   </div>
 
                   {formError && (
-                    <Alert tone="red" style={{ marginBottom: '16px' }}>
+                    <Alert tone="red" style={{ marginBottom: '12px' }}>
                       {formError}
                     </Alert>
                   )}
 
                   <form onSubmit={handleCreateJob}>
-                    <div className="zk-section-box">
-                      <div className="zk-section-header">
-                        <div className="zk-section-title">
-                          <User size={16} style={{ color: '#0d9488' }} />
-                          <span>Job &amp; Customer Details</span>
+                    <div className="zk-section-box" style={{ padding: '12px 14px', marginBottom: '12px' }}>
+                      <div className="zk-section-header" style={{ marginBottom: '8px' }}>
+                        <div className="zk-section-title" style={{ fontSize: '13px' }}>
+                          <User size={15} style={{ color: '#0d9488' }} />
+                          <span>Customer Identification</span>
                         </div>
-                        <button
-                          type="button"
-                          className="zk-edit-btn"
-                          onClick={handleNewCustomerModal}
-                          style={{ color: '#0d9488', borderColor: '#ccfbf1', background: '#f0fdfa' }}
-                        >
-                          <Plus size={12} />
-                          <span>New Customer</span>
-                        </button>
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                          Job #{nextJobNumber}
+                        </span>
                       </div>
 
-                      <div className="zk-form-row-3">
+                      <div className="zk-form-row-2" style={{ gap: '10px' }}>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">
-                            Job Number <span className="req">*</span>
-                          </label>
-                          <div className="zk-input-box" style={{ background: '#f8fafc' }}>
-                            <input
-                              type="text"
-                              value={nextJobNumber}
-                              readOnly
-                              style={{ color: '#0f172a', fontWeight: 700 }}
-                            />
-                            <Barcode size={18} style={{ color: '#64748b' }} />
-                          </div>
-                        </div>
-
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">
-                            Customer <span className="req">*</span>
+                            Customer Mobile (Phone) <span className="req">*</span>
                           </label>
                           <div className="zk-input-box">
-                            <UserRound size={16} style={{ color: '#64748b' }} />
-                            <select
-                              value={selectedCustomerId || currentCustomer?.id || ''}
-                              onChange={e => handleCustomerChange(e.target.value)}
-                              required
-                            >
-                              {customers.map(c => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name} {c.phone ? `(${c.phone})` : ''}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">
-                            Customer Mobile (SMS) <span className="req">*</span>
-                          </label>
-                          <div className="zk-input-box">
-                            <Phone size={16} style={{ color: '#64748b' }} />
+                            <Phone size={15} style={{ color: '#0d9488' }} />
                             <input
                               type="text"
                               value={customerPhone}
                               onChange={e => handlePhoneChange(e.target.value)}
-                              placeholder="077 123 4567"
+                              placeholder="Enter phone e.g. 077 123 4567"
                               required
                             />
                           </div>
                           {(() => {
                             const digits = String(customerPhone || '').replace(/\D/g, '');
-                            if (digits.length < 7) return null;
                             if (currentCustomer) {
                               const custCredit = Number(currentCustomer.credit || 0);
+                              const custRepairDue = Number(currentCustomer.repair_due || 0);
+                              const totalCustDue = custCredit + custRepairDue;
                               const custOverdue =
-                                custCredit > 0 &&
-                                currentCustomer.next_due_date &&
-                                String(currentCustomer.next_due_date).slice(0, 10) < today();
+                                (custCredit > 0 &&
+                                  currentCustomer.next_due_date &&
+                                  String(currentCustomer.next_due_date).slice(0, 10) < today()) ||
+                                (custRepairDue > 0 &&
+                                  currentCustomer.repair_next_due_date &&
+                                  String(currentCustomer.repair_next_due_date).slice(0, 10) < today());
                               return (
                                 <div
                                   style={{
@@ -847,55 +839,111 @@ export function Repairs({ ctx }) {
                                   <span style={{ color: '#047857', fontWeight: 600 }}>
                                     Matched: {ref('CUS', currentCustomer.id)} · {currentCustomer.name}
                                   </span>
-                                  {custOverdue && (
-                                    <span style={{ color: '#dc2626', fontWeight: 700 }}>
-                                      · Overdue Credit {money(custCredit)}
+                                  {totalCustDue > 0 && (
+                                    <span style={{ color: custOverdue ? '#dc2626' : '#b45309', fontWeight: 700 }}>
+                                      · {custOverdue ? 'Overdue' : 'Due'}: {money(totalCustDue)}
                                     </span>
                                   )}
                                 </div>
                               );
                             }
-                            return (
-                              <div
-                                style={{
-                                  marginTop: '6px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  gap: '8px',
-                                  fontSize: '12px',
-                                }}
-                              >
-                                <span style={{ color: '#b45309' }}>No customer found for this number</span>
-                                <button
-                                  type="button"
-                                  className="zk-add-new-btn"
-                                  onClick={() => handleNewCustomerModal(customerPhone)}
-                                >
-                                  + Quick Add
-                                </button>
-                              </div>
-                            );
+                            if (digits.length >= 7) {
+                              return (
+                                <div style={{ marginTop: '5px', fontSize: '12px', color: '#b45309', fontWeight: 600 }}>
+                                  New customer — fill name below to save on submit
+                                </div>
+                              );
+                            }
+                            return null;
                           })()}
                         </div>
-                      </div>
-                    </div>
 
-                    <div className="zk-section-box">
-                      <div className="zk-section-header">
-                        <div className="zk-section-title">
-                          <Smartphone size={16} style={{ color: '#0d9488' }} />
-                          <span>Device Details</span>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Existing Customer (Optional)</label>
+                          <div className="zk-input-box">
+                            <UserRound size={15} style={{ color: '#64748b' }} />
+                            <select
+                              value={selectedCustomerId || ''}
+                              onChange={e => handleCustomerChange(e.target.value)}
+                            >
+                              <option value="">-- New / Search by Phone --</option>
+                              {customers.map(c => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name} {c.phone ? `(${c.phone})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="zk-form-row-3">
+                      {!currentCustomer && (
+                        <div
+                          className="zk-form-row-3"
+                          style={{
+                            gap: '10px',
+                            marginTop: '10px',
+                            padding: '10px',
+                            borderRadius: '8px',
+                            background: '#f8fafc',
+                            border: '1px dashed #cbd5e1',
+                          }}
+                        >
+                          <div className="zk-field-wrap">
+                            <label className="zk-field-label">
+                              Customer Full Name <span className="req">*</span>
+                            </label>
+                            <div className="zk-input-box" style={{ background: '#fff' }}>
+                              <input
+                                type="text"
+                                value={newCustName}
+                                onChange={e => setNewCustName(e.target.value)}
+                                placeholder="e.g. Kamal Perera"
+                                required={!currentCustomer}
+                              />
+                            </div>
+                          </div>
+                          <div className="zk-field-wrap">
+                            <label className="zk-field-label">Email (Optional)</label>
+                            <div className="zk-input-box" style={{ background: '#fff' }}>
+                              <input
+                                type="email"
+                                value={newCustEmail}
+                                onChange={e => setNewCustEmail(e.target.value)}
+                                placeholder="customer@email.com"
+                              />
+                            </div>
+                          </div>
+                          <div className="zk-field-wrap">
+                            <label className="zk-field-label">Customer Note (Optional)</label>
+                            <div className="zk-input-box" style={{ background: '#fff' }}>
+                              <input
+                                type="text"
+                                value={newCustNotes}
+                                onChange={e => setNewCustNotes(e.target.value)}
+                                placeholder="Address / reference"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="zk-section-box" style={{ padding: '12px 14px', marginBottom: '12px' }}>
+                      <div className="zk-section-header" style={{ marginBottom: '8px' }}>
+                        <div className="zk-section-title" style={{ fontSize: '13px' }}>
+                          <Smartphone size={15} style={{ color: '#0d9488' }} />
+                          <span>Device &amp; Repair Service</span>
+                        </div>
+                      </div>
+
+                      <div className="zk-form-row-3" style={{ gap: '10px' }}>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">
                             Device Brand <span className="req">*</span>
                           </label>
                           <div className="zk-input-box">
-                            <Smartphone size={16} style={{ color: '#64748b' }} />
+                            <Smartphone size={15} style={{ color: '#64748b' }} />
                             <select value={brand} onChange={e => setBrand(e.target.value)} required>
                               {DEVICE_BRANDS.map(b => (
                                 <option key={b} value={b}>
@@ -922,9 +970,9 @@ export function Repairs({ ctx }) {
                         </div>
 
                         <div className="zk-field-wrap">
-                          <label className="zk-field-label">IMEI or Serial Number</label>
+                          <label className="zk-field-label">IMEI / Serial</label>
                           <div className="zk-input-box">
-                            <Barcode size={16} style={{ color: '#64748b' }} />
+                            <Barcode size={15} style={{ color: '#64748b' }} />
                             <input
                               type="text"
                               value={serial}
@@ -941,29 +989,107 @@ export function Repairs({ ctx }) {
                                 setSerial(dummy);
                               }}
                             >
-                              <QrCode size={16} style={{ color: '#0d9488' }} />
+                              <QrCode size={15} style={{ color: '#0d9488' }} />
                             </button>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="zk-section-box">
-                      <div className="zk-form-row-2">
+                      {(() => {
+                        const catalogServices = products.filter(p => p.category === 'Services');
+                        const commonServices = [
+                          'Screen Replacement',
+                          'Battery Replacement',
+                          'Charging Port Repair',
+                          'Software / Unlock',
+                          'Water Damage Cleaning',
+                          'Back Glass Replacement',
+                          'Speaker / Mic Repair',
+                          'Diagnostic Check',
+                        ];
+                        return (
+                          <div className="zk-form-row-2" style={{ gap: '10px', marginTop: '10px' }}>
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">Repair Service Type</label>
+                              <div className="zk-input-box">
+                                <Wrench size={15} style={{ color: '#0d9488' }} />
+                                <select
+                                  value={selectedService}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setSelectedService(val);
+                                    if (!val) return;
+                                    const svcProd = catalogServices.find(p => p.name === val);
+                                    if (svcProd && Number(svcProd.price || 0) > 0 && !estimate) {
+                                      setEstimate(String(rupees(svcProd.price)));
+                                    }
+                                    setIssue(prev => (prev.trim() ? (prev.includes(val) ? prev : `${val} — ${prev}`) : val));
+                                  }}
+                                >
+                                  <option value="">-- Select Repair Service --</option>
+                                  {catalogServices.map(s => (
+                                    <option key={`cat-${s.id}`} value={s.name}>
+                                      {s.name} {Number(s.price || 0) > 0 ? `(${money(s.price)})` : ''}
+                                    </option>
+                                  ))}
+                                  {commonServices
+                                    .filter(name => !catalogServices.some(s => s.name === name))
+                                    .map(name => (
+                                      <option key={name} value={name}>
+                                        {name}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="zk-field-wrap">
+                              <label className="zk-field-label">Accessories Handed Over</label>
+                              <div className="zk-accessories-grid" style={{ padding: '6px 8px' }}>
+                                {ACCESSORY_LIST.map(({ id, label }) => (
+                                  <label key={id} className="zk-acc-checkbox">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(accessories[id])}
+                                      onChange={() => toggleAccessory(id)}
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                ))}
+                                <input
+                                  type="text"
+                                  style={{
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '6px',
+                                    padding: '3px 8px',
+                                    fontSize: '12px',
+                                    gridColumn: 'span 2',
+                                  }}
+                                  placeholder="Other accessories..."
+                                  value={otherAccessory}
+                                  onChange={e => setOtherAccessory(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="zk-form-row-2" style={{ gap: '10px', marginTop: '10px' }}>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <AlertTriangle size={14} style={{ color: '#eab308' }} />
+                            <AlertTriangle size={13} style={{ color: '#eab308' }} />
                             <span>
-                              Reported Issue <span className="req">*</span>
+                              Reported Issue / Service Details <span className="req">*</span>
                             </span>
                           </label>
                           <div className="zk-textarea-box">
                             <textarea
-                              rows={3}
+                              rows={2}
                               maxLength={500}
                               value={issue}
                               onChange={e => setIssue(e.target.value)}
-                              placeholder="Describe fault, symptoms, or repair work required..."
+                              placeholder="Describe fault or repair service required..."
                               required
                             />
                             <span className="zk-char-counter">{issue.length} / 500</span>
@@ -972,116 +1098,74 @@ export function Repairs({ ctx }) {
 
                         <div className="zk-field-wrap">
                           <label className="zk-field-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Package size={14} style={{ color: '#0d9488' }} />
-                            <span>Accessories Handed Over</span>
+                            <FileText size={13} style={{ color: '#0d9488' }} />
+                            <span>Condition Notes</span>
                           </label>
-                          <div className="zk-accessories-grid">
-                            {ACCESSORY_LIST.map(({ id, label }) => (
-                              <label key={id} className="zk-acc-checkbox">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(accessories[id])}
-                                  onChange={() => toggleAccessory(id)}
-                                />
-                                <span>{label}</span>
-                              </label>
-                            ))}
-                            <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                              <label className="zk-acc-checkbox">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(otherAccessory)}
-                                  onChange={e => !e.target.checked && setOtherAccessory('')}
-                                />
-                                <span>Others</span>
-                              </label>
-                              <input
-                                type="text"
-                                style={{
-                                  border: '1px solid #cbd5e1',
-                                  borderRadius: '6px',
-                                  padding: '4px 8px',
-                                  fontSize: '12px',
-                                  flex: 1,
-                                }}
-                                placeholder="Specify..."
-                                value={otherAccessory}
-                                onChange={e => setOtherAccessory(e.target.value)}
-                              />
-                            </div>
+                          <div className="zk-textarea-box">
+                            <textarea
+                              rows={2}
+                              maxLength={500}
+                              value={notes}
+                              onChange={e => setNotes(e.target.value)}
+                              placeholder="Scratches, cracks, passcode notes..."
+                            />
+                            <span className="zk-char-counter">{notes.length} / 500</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="zk-section-box">
-                      <div className="zk-form-row-2">
+                    <div className="zk-section-box" style={{ padding: '12px 14px', marginBottom: '12px' }}>
+                      <div className="zk-form-row-3" style={{ gap: '10px' }}>
                         <div className="zk-field-wrap">
-                          <label className="zk-field-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <FileText size={14} style={{ color: '#0d9488' }} />
-                            <span>Physical Condition Notes</span>
+                          <label className="zk-field-label">
+                            Estimated Cost (LKR) <span className="req">*</span>
                           </label>
-                          <div className="zk-textarea-box">
-                            <textarea
-                              rows={3}
-                              maxLength={500}
-                              value={notes}
-                              onChange={e => setNotes(e.target.value)}
-                              placeholder="Minor scratches, frame dents, screen cracks..."
+                          <div className="zk-input-box">
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>LKR</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={estimate}
+                              onChange={e => setEstimate(e.target.value)}
+                              placeholder="0.00"
+                              required
                             />
-                            <span className="zk-char-counter">{notes.length} / 500</span>
                           </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'start' }}>
-                          <div className="zk-field-wrap">
-                            <label className="zk-field-label">
-                              Estimated Cost (LKR) <span className="req">*</span>
-                            </label>
-                            <div className="zk-input-box">
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569' }}>LKR</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={estimate}
-                                onChange={e => setEstimate(e.target.value)}
-                                placeholder="0.00"
-                                required
-                              />
-                            </div>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Advance Payment (LKR)</label>
+                          <div className="zk-input-box">
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>LKR</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={advance}
+                              onChange={e => setAdvance(e.target.value)}
+                              placeholder="0.00"
+                            />
                           </div>
+                        </div>
 
-                          <div className="zk-field-wrap">
-                            <label className="zk-field-label">Advance Payment (LKR)</label>
-                            <div className="zk-input-box">
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569' }}>LKR</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={advance}
-                                onChange={e => setAdvance(e.target.value)}
-                                placeholder="0.00"
-                              />
-                            </div>
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Advance Method</label>
+                          <div className="zk-input-box">
+                            <Banknote size={15} style={{ color: '#0d9488' }} />
+                            <select
+                              value={advanceMethod}
+                              onChange={e => setAdvanceMethod(e.target.value)}
+                              disabled={cents(advance || 0) <= 0}
+                            >
+                              {tenders.map(m => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </select>
                           </div>
-
-                          {cents(advance || 0) > 0 && (
-                            <div className="zk-field-wrap" style={{ gridColumn: '1 / -1' }}>
-                              <label className="zk-field-label">Advance Payment Method (Posts Cash to Cashbook)</label>
-                              <div className="zk-input-box">
-                                <Banknote size={15} style={{ color: '#0d9488' }} />
-                                <select value={advanceMethod} onChange={e => setAdvanceMethod(e.target.value)}>
-                                  {tenders.map(m => (
-                                    <option key={m} value={m}>
-                                      {m}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -1221,11 +1305,17 @@ export function Repairs({ ctx }) {
                       )}
                     </div>
 
-                    {currentCustomer && Number(currentCustomer.credit || 0) > 0 && (() => {
+                    {currentCustomer && (Number(currentCustomer.credit || 0) > 0 || Number(currentCustomer.repair_due || 0) > 0) && (() => {
                       const custCredit = Number(currentCustomer.credit || 0);
+                      const custRepairDue = Number(currentCustomer.repair_due || 0);
+                      const totalCustDue = custCredit + custRepairDue;
                       const custOverdue =
-                        currentCustomer.next_due_date &&
-                        String(currentCustomer.next_due_date).slice(0, 10) < today();
+                        (custCredit > 0 &&
+                          currentCustomer.next_due_date &&
+                          String(currentCustomer.next_due_date).slice(0, 10) < today()) ||
+                        (custRepairDue > 0 &&
+                          currentCustomer.repair_next_due_date &&
+                          String(currentCustomer.repair_next_due_date).slice(0, 10) < today());
                       return (
                         <div
                           style={{
@@ -1237,19 +1327,29 @@ export function Repairs({ ctx }) {
                             color: custOverdue ? '#b91c1c' : '#92400e',
                             fontSize: '12px',
                             display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '8px',
+                            flexDirection: 'column',
+                            gap: '4px',
                           }}
                         >
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                            <AlertTriangle size={14} />
-                            {custOverdue ? 'Overdue Credit' : 'Open Credit'}
-                            {currentCustomer.next_due_date
-                              ? ` · Due ${dateLabel(currentCustomer.next_due_date)}`
-                              : ''}
-                          </span>
-                          <strong>{money(custCredit)}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                              <AlertTriangle size={14} />
+                              {custOverdue ? 'Overdue Balance' : 'Open Balance'}
+                            </span>
+                            <strong>{money(totalCustDue)}</strong>
+                          </div>
+                          {custRepairDue > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                              <span>Unpaid Repairs ({currentCustomer.repair_due_count || 1})</span>
+                              <span>{money(custRepairDue)}</span>
+                            </div>
+                          )}
+                          {custCredit > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                              <span>POS Credit {currentCustomer.next_due_date ? `· Due ${dateLabel(currentCustomer.next_due_date)}` : ''}</span>
+                              <span>{money(custCredit)}</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -1472,7 +1572,10 @@ export function Repairs({ ctx }) {
                               const estCents = Number(j.final_charge || j.estimate || 0);
                               const paidCents = Number(j.paid_amount ?? j.advance_paid ?? 0);
                               const balCents = Math.max(0, estCents - paidCents);
-                              const canComplete = !tech && !['Delivered', 'Cancelled'].includes(j.status);
+                              const canComplete =
+                                !tech &&
+                                j.status !== 'Cancelled' &&
+                                (j.status !== 'Delivered' || balCents > 0);
 
                               return (
                                 <article className="repair-card zk-repair-modern-card" key={j.id}>
@@ -1523,14 +1626,14 @@ export function Repairs({ ctx }) {
 
                                   <div className="zk-repair-card-actions">
                                     {canComplete && (
-                                      <button
-                                        type="button"
-                                        className="zk-repair-pay-btn"
-                                        onClick={() => openCompleteModal(j)}
-                                      >
-                                        <Banknote size={14} />
-                                        <span>Complete &amp; Pay</span>
-                                      </button>
+                                        <button
+                                          type="button"
+                                          className="zk-repair-pay-btn"
+                                          onClick={() => openCompleteModal(j)}
+                                        >
+                                          <Banknote size={14} />
+                                          <span>{j.status === 'Delivered' ? 'Settle Due' : 'Complete & Pay'}</span>
+                                        </button>
                                     )}
                                     <button
                                       type="button"
@@ -1624,15 +1727,19 @@ export function Repairs({ ctx }) {
                           'Actions',
                           r => (
                             <div className="row-actions">
-                              {!tech && !['Delivered', 'Cancelled'].includes(r.status) && (
-                                <Button
-                                  icon={Banknote}
-                                  variant="primary"
-                                  onClick={() => openCompleteModal(r)}
-                                >
-                                  Complete &amp; Pay
-                                </Button>
-                              )}
+                              {!tech &&
+                                r.status !== 'Cancelled' &&
+                                (r.status !== 'Delivered' ||
+                                  Number(r.final_charge || r.estimate || 0) >
+                                    Number(r.paid_amount ?? r.advance_paid ?? 0)) && (
+                                  <Button
+                                    icon={Banknote}
+                                    variant="primary"
+                                    onClick={() => openCompleteModal(r)}
+                                  >
+                                    {r.status === 'Delivered' ? 'Settle Due' : 'Complete & Pay'}
+                                  </Button>
+                                )}
                               <Button icon={ArrowRight} onClick={() => openStatusEditor(r)}>
                                 Status
                               </Button>

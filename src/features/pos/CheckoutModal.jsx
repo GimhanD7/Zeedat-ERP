@@ -214,7 +214,11 @@ export function CheckoutModal({
       const hasCashSettlement = cashTendered > 0;
 
       const invoice = await ctx.mutate('sale.checkout', {
-        items: lines.map(({ product_id, unit_id, qty }) => ({ product_id, unit_id, qty })),
+        items: lines.map(({ product_id, unit_id, qty, repair_id, product }) =>
+          repair_id
+            ? { repair_id, qty, price: product?.price || 0, name: product?.name || 'Repair Service' }
+            : { product_id, unit_id, qty }
+        ),
         discount_type: discountType,
         discount_bps: discountBps,
         discount_amount: discountAmount || discount,

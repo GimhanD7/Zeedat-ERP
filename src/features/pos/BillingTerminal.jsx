@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Archive,
   ArrowDownLeft,
   ArrowRight,
@@ -18,6 +19,7 @@ import {
   UserPlus,
   UserRound,
   Wallet,
+  Wrench,
   X,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
@@ -69,13 +71,14 @@ export function BillingTerminal({ ctx }) {
     drafts: 'drafts',
     settings: 'settings',
     staffList: 'staff.lookup',
+    repairs: 'repairs',
   });
 
   return <DataView state={state}>{data => <BillingView ctx={ctx} data={data} onRefresh={state.refresh} />}</DataView>;
 }
 
 function BillingView({ ctx, data, onRefresh }) {
-  const { products, units, customers, register, drafts, settings, staffList = [] } = data;
+  const { products, units, customers, register, drafts, settings, staffList = [], repairs = [] } = data;
   const drawer = register.drawer;
   const registerBlocked = Boolean(register.blocked);
   const current = register.can_checkout !== false && drawer?.business_date === today();
@@ -107,6 +110,71 @@ function BillingView({ ctx, data, onRefresh }) {
     () => customers.find(c => String(c.id) === String(customer)) || null,
     [customers, customer]
   );
+
+  const customerUnpaidRepairs = useMemo(() => {
+    if (!selectedCustomerObj) return [];
+    return (repairs || [])
+      .filter(j => {
+        if (String(j.customer_id) !== String(selectedCustomerObj.id)) return false;
+        if (j.status === 'Cancelled') return false;
+        const charge = Number(j.final_charge || j.estimate || 0);
+        const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
+        return charge > paidAmt;
+      })
+      .map(j => {
+        const charge = Number(j.final_charge || j.estimate || 0);
+        const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
+        return { ...j, balance: Math.max(0, charge - paidAmt) };
+      });
+  }, [repairs, selectedCustomerObj]);
+
+  const buildRepairCartLine = job => ({
+    repair_id: job.id,
+    product_id: null,
+    unit_id: null,
+    qty: 1,
+    repairProduct: {
+      id: null,
+      name: `Repair ${job.job_number || ref('RJ', job.id)} · ${job.device}${job.issue ? ` (${job.issue})` : ''}`,
+      sku: job.job_number || ref('RJ', job.id),
+      price: job.balance,
+      category: 'Services',
+    },
+  });
+
+  const selectCustomer = custId => {
+    const idStr = custId ? String(custId) : '';
+    setCustomer(idStr);
+    setCustQuery('');
+    setCustDropdownOpen(false);
+    setCart(prev => {
+      const nonRepair = prev.filter(item => !item.repair_id);
+      if (!idStr) return nonRepair;
+      const pending = (repairs || [])
+        .filter(j => {
+          if (String(j.customer_id) !== idStr || j.status === 'Cancelled') return false;
+          const charge = Number(j.final_charge || j.estimate || 0);
+          const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
+          return charge > paidAmt;
+        })
+        .map(j => {
+          const charge = Number(j.final_charge || j.estimate || 0);
+          const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
+          return buildRepairCartLine({ ...j, balance: Math.max(0, charge - paidAmt) });
+        });
+      return [...pending, ...nonRepair];
+    });
+  };
+
+  const toggleRepairInCart = job => {
+    setCart(prev => {
+      const exists = prev.some(item => Number(item.repair_id) === Number(job.id));
+      if (exists) {
+        return prev.filter(item => Number(item.repair_id) !== Number(job.id));
+      }
+      return [buildRepairCartLine(job), ...prev];
+    });
+  };
 
   const popularCustomers = useMemo(() => {
     return [...customers]
@@ -164,9 +232,7 @@ function BillingView({ ctx, data, onRefresh }) {
       ],
       onSuccess: created => {
         if (created?.id) {
-          setCustomer(String(created.id));
-          setCustQuery('');
-          setCustDropdownOpen(false);
+          selectCustomer(created.id);
         }
         onRefresh?.();
         ctx.setNotice(`Customer "${created?.name || 'Saved'}" added & selected.`);
@@ -226,6 +292,9 @@ function BillingView({ ctx, data, onRefresh }) {
   };
 
   const lines = cart.flatMap(line => {
+    if (line.repair_id && line.repairProduct) {
+      return [{ ...line, product: line.repairProduct, id: 'repair:' + line.repair_id }];
+    }
     const product = products.find(p => p.id === line.product_id);
     return product ? [{ ...line, product, id: lineKey(line.product_id, line.unit_id) }] : [];
   });
@@ -340,6 +409,12 @@ function BillingView({ ctx, data, onRefresh }) {
   };
 
   const increment = (line, delta) => {
+    if (line.repair_id) {
+      if (delta < 0) {
+        setCart(cart.filter(r => Number(r.repair_id) !== Number(line.repair_id)));
+      }
+      return;
+    }
     if (delta > 0) {
       add(line.product);
       return;
@@ -670,10 +745,7 @@ function BillingView({ ctx, data, onRefresh }) {
                           key={c.id}
                           type="button"
                           className="zk-pos-pop-chip"
-                          onClick={() => {
-                            setCustomer(String(c.id));
-                            setCustQuery('');
-                          }}
+                          onClick={() => selectCustomer(c.id)}
                         >
                           <UserRound size={11} />
                           <span>{c.name}</span>
@@ -701,11 +773,7 @@ function BillingView({ ctx, data, onRefresh }) {
                             key={c.id}
                             type="button"
                             className="zk-pos-cust-option"
-                            onClick={() => {
-                              setCustomer(String(c.id));
-                              setCustQuery('');
-                              setCustDropdownOpen(false);
-                            }}
+                            onClick={() => selectCustomer(c.id)}
                           >
                             <div>
                               <strong>{c.name}</strong>
@@ -755,7 +823,7 @@ function BillingView({ ctx, data, onRefresh }) {
                         type="button"
                         className="zk-pos-clear-cust"
                         title="Switch back to Walk-in customer"
-                        onClick={() => setCustomer('')}
+                        onClick={() => selectCustomer('')}
                       >
                         <X size={14} />
                       </button>
@@ -773,7 +841,103 @@ function BillingView({ ctx, data, onRefresh }) {
                       <Wallet size={12} />
                       <span>Wallet: {money(selectedCustomerObj.wallet_balance || 0)}</span>
                     </span>
+                    {(Number(selectedCustomerObj.credit || 0) > 0 ||
+                      Number(selectedCustomerObj.repair_due || 0) > 0) && (() => {
+                      const creditDue = Number(selectedCustomerObj.credit || 0);
+                      const repairDue = Number(selectedCustomerObj.repair_due || 0);
+                      const totalDue = creditDue + repairDue;
+                      const isOverdue =
+                        (creditDue > 0 &&
+                          selectedCustomerObj.next_due_date &&
+                          String(selectedCustomerObj.next_due_date).slice(0, 10) < today()) ||
+                        (repairDue > 0 &&
+                          selectedCustomerObj.repair_next_due_date &&
+                          String(selectedCustomerObj.repair_next_due_date).slice(0, 10) < today());
+                      return (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '3px 8px',
+                            borderRadius: '999px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            background: isOverdue ? '#fef2f2' : '#fffbeb',
+                            color: isOverdue ? '#dc2626' : '#b45309',
+                            border: `1px solid ${isOverdue ? '#fecaca' : '#fde68a'}`,
+                          }}
+                        >
+                          <AlertTriangle size={11} />
+                          <span>
+                            {isOverdue ? 'Overdue Due:' : 'Total Due:'} {money(totalDue)}
+                          </span>
+                        </span>
+                      );
+                    })()}
                   </div>
+                  {customerUnpaidRepairs.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: '8px',
+                        padding: '8px',
+                        borderRadius: '8px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#334155',
+                          marginBottom: '6px',
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <Wrench size={12} style={{ color: '#0d9488' }} />
+                          Pending Repair Services ({customerUnpaidRepairs.length})
+                        </span>
+                        <span style={{ color: '#64748b', fontWeight: 500 }}>
+                          Click to include/skip in this bill
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {customerUnpaidRepairs.map(job => {
+                          const inCart = cart.some(c => Number(c.repair_id) === Number(job.id));
+                          return (
+                            <button
+                              key={job.id}
+                              type="button"
+                              onClick={() => toggleRepairInCart(job)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 9px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: `1px solid ${inCart ? '#0d9488' : '#cbd5e1'}`,
+                                background: inCart ? '#f0fdfa' : '#fff',
+                                color: inCart ? '#0f766e' : '#475569',
+                              }}
+                            >
+                              <span>{inCart ? '✓' : '+'}</span>
+                              <span>
+                                {job.job_number || ref('RJ', job.id)} · {job.device}
+                              </span>
+                              <strong>{money(job.balance)}</strong>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -809,7 +973,7 @@ function BillingView({ ctx, data, onRefresh }) {
                           icon={Plus}
                           className="icon-only"
                           aria-label={'Increase ' + r.product.name}
-                          disabled={Boolean(r.unit_id)}
+                          disabled={Boolean(r.unit_id || r.repair_id)}
                           onClick={() => increment(r, 1)}
                         />
                       </span>
@@ -1077,6 +1241,7 @@ function BillingView({ ctx, data, onRefresh }) {
           onComplete={async invoice => {
             setCheckout(false);
             clear();
+            onRefresh?.();
             const isCash =
               invoice.hasCashSettlement ??
               hasCashInPayments(invoice.payments, invoice.cashTendered);
