@@ -602,6 +602,9 @@ export function Customers({ ctx }) {
                                 <Badge tone="slate">Wallet {money(walletAmt)}</Badge>
                                 {Number(c.wallet_credits) > 0 && <Badge tone="green">+{money(c.wallet_credits)}</Badge>}
                                 {Number(c.wallet_debits) > 0 && <Badge tone="red">−{money(c.wallet_debits)}</Badge>}
+                                {Number(c.reservation_count) > 0 && (
+                                  <Badge tone="blue">RSV {money(c.reservation_total || 0)}</Badge>
+                                )}
                                 {creditAmt > 0 ? (
                                   <Badge tone={overdue ? 'red' : 'amber'}>Due {money(creditAmt)}</Badge>
                                 ) : (
@@ -732,6 +735,18 @@ export function Customers({ ctx }) {
                         <div className="row-actions">
                           <Badge tone="green">Credits +{money(person.wallet_credits || 0)}</Badge>
                           <Badge tone="red">Debits −{money(person.wallet_debits || 0)}</Badge>
+                          {Number(person.reservation_count || 0) > 0 ? (
+                            <Badge
+                              tone="blue"
+                              onClick={() => setDetailTab('reservations')}
+                              style={{ cursor: 'pointer' }}
+                              title="Click to view customer reservations"
+                            >
+                              Reservations ({person.reservation_count}): {money(person.reservation_total || 0)}
+                            </Badge>
+                          ) : (
+                            <Badge tone="slate">No Reservations</Badge>
+                          )}
                         </div>
                         <Button icon={Wallet} variant="soft" onClick={openWalletTopUp}>
                           Top Up Wallet

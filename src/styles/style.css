@@ -4774,6 +4774,54 @@
   border: 1px solid #99f6e4;
 }
 
+.zk-rsv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.zk-pos-rsv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+}
+
+.zk-pos-rsv-badge:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.zk-pos-rsv-badge.no-rsv {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+  font-weight: 600;
+}
+
+.zk-pos-rsv-badge.no-rsv:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #334155;
+}
+
 .zk-wallet-checkout-card {
   margin-bottom: 10px;
   padding: 10px 12px;

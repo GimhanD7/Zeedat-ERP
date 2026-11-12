@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Button, Field, FilterTabs, Modal, Select } from '../../components/common';
 import { Alert } from '../../components/feedback';
 import { useData } from '../../hooks/useData';
@@ -75,6 +75,12 @@ export function PosReservations({
   const ledger = String(state.data?.ledger?.customer?.id) === customerId ? state.data.ledger : null;
   const reservations = ledger?.reservations || [];
   const selected = reservations.find(row => String(row.id) === String(selectedId));
+
+  useEffect(() => {
+    if (!selectedId && reservations.length > 0) {
+      setSelectedId(reservations[0].id);
+    }
+  }, [reservations, selectedId]);
   const due = selected ? balance(selected) : 0;
   const wallet = Number(ledger?.customer?.wallet_balance ?? customer?.wallet_balance ?? 0);
   const limit = method === 'Wallet' ? Math.min(wallet, tab === 'new' ? total : due) : tab === 'new' ? total : due;

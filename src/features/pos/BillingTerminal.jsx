@@ -73,13 +73,14 @@ export function BillingTerminal({ ctx }) {
     settings: 'settings',
     staffList: 'staff.lookup',
     repairs: 'repairs',
+    reservations: 'reservations',
   });
 
   return <DataView state={state}>{data => <BillingView ctx={ctx} data={data} onRefresh={state.refresh} />}</DataView>;
 }
 
 function BillingView({ ctx, data, onRefresh }) {
-  const { products, units, customers, register, drafts, settings, staffList = [], repairs = [] } = data;
+  const { products, units, customers, register, drafts, settings, staffList = [], repairs = [], reservations = [] } = data;
   const drawer = register.drawer;
   const registerBlocked = Boolean(register.blocked);
   const current = register.can_checkout !== false && drawer?.business_date === today();
@@ -134,6 +135,35 @@ function BillingView({ ctx, data, onRefresh }) {
         return { ...j, balance: Math.max(0, charge - paidAmt) };
       });
   }, [repairs, selectedCustomerObj]);
+
+  const customerActiveReservations = useMemo(() => {
+    if (!selectedCustomerObj) return [];
+    return (reservations || []).filter(
+      r => String(r.customer_id) === String(selectedCustomerObj.id) && r.status === 'Held'
+    );
+  }, [reservations, selectedCustomerObj]);
+
+  const customerReservationCount = useMemo(() => {
+    if (customerActiveReservations.length > 0) return customerActiveReservations.length;
+    return Number(selectedCustomerObj?.reservation_count || 0);
+  }, [customerActiveReservations, selectedCustomerObj]);
+
+  const customerReservationTotal = useMemo(() => {
+    if (customerActiveReservations.length > 0) {
+      return customerActiveReservations.reduce((sum, r) => sum + Number(r.total || 0), 0);
+    }
+    return Number(selectedCustomerObj?.reservation_total || 0);
+  }, [customerActiveReservations, selectedCustomerObj]);
+
+  const customerReservationBalance = useMemo(() => {
+    if (customerActiveReservations.length > 0) {
+      return customerActiveReservations.reduce(
+        (sum, r) => sum + Math.max(0, Number(r.total || 0) - Number(r.paid || 0)),
+        0
+      );
+    }
+    return Number(selectedCustomerObj?.reservation_balance || 0);
+  }, [customerActiveReservations, selectedCustomerObj]);
 
   const buildRepairCartLine = job => ({
     repair_id: job.id,
@@ -785,6 +815,11 @@ function BillingView({ ctx, data, onRefresh }) {
                               <span className="zk-wallet-pill">
                                 <Wallet size={11} /> {money(c.wallet_balance || 0)}
                               </span>
+                              {Number(c.reservation_count || 0) > 0 && (
+                                <span className="zk-rsv-pill" title={`${c.reservation_count} active reservation(s)`}>
+                                  <Archive size={11} /> {c.reservation_count} RSV ({money(c.reservation_total || 0)})
+                                </span>
+                              )}
                             </div>
                           </button>
                         ))
@@ -842,6 +877,34 @@ function BillingView({ ctx, data, onRefresh }) {
                     </span>
                     <Badge tone="green">Credits +{money(selectedCustomerObj.wallet_credits || 0)}</Badge>
                     <Badge tone="red">Debits −{money(selectedCustomerObj.wallet_debits || 0)}</Badge>
+                    {customerReservationCount > 0 ? (
+                      <button
+                        type="button"
+                        className="zk-pos-rsv-badge"
+                        onClick={() => reserveFromPos()}
+                        title="Customer has active reservations. Click to view, collect payment, or handover."
+                      >
+                        <Archive size={12} />
+                        <span>
+                          Reservations ({customerReservationCount}): {money(customerReservationTotal)}
+                        </span>
+                        {customerReservationBalance > 0 ? (
+                          <b style={{ color: '#dc2626' }}> (Due {money(customerReservationBalance)})</b>
+                        ) : (
+                          <b style={{ color: '#047857' }}> (Ready)</b>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="zk-pos-rsv-badge no-rsv"
+                        onClick={() => reserveFromPos()}
+                        title="No active reservations for this customer. Click to create a new reservation."
+                      >
+                        <Archive size={12} />
+                        <span>No Reservations (+ Reserve)</span>
+                      </button>
+                    )}
                     {(Number(selectedCustomerObj.credit || 0) > 0 ||
                       Number(selectedCustomerObj.repair_due || 0) > 0) && (() => {
                       const creditDue = Number(selectedCustomerObj.credit || 0);
@@ -877,6 +940,91 @@ function BillingView({ ctx, data, onRefresh }) {
                       );
                     })()}
                   </div>
+                  {customerActiveReservations.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: '8px',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#1e40af',
+                          marginBottom: '6px',
+                        }}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          <Archive size={12} style={{ color: '#2563eb' }} />
+                          Active Customer Reservations ({customerActiveReservations.length}) · Total {money(customerReservationTotal)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => reserveFromPos()}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#2563eb',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          View / Handover →
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {customerActiveReservations.map(rsv => {
+                          const bal = Math.max(0, Number(rsv.total || 0) - Number(rsv.paid || 0));
+                          return (
+                            <button
+                              key={rsv.id}
+                              type="button"
+                              onClick={() => reserveFromPos()}
+                              title="Click to view & manage this reservation"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 9px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                border: '1px solid #93c5fd',
+                                background: '#ffffff',
+                                color: '#1e3a8a',
+                              }}
+                            >
+                              <span>{ref('RSV', rsv.id)} · {rsv.product}</span>
+                              <span style={{ color: '#64748b' }}>({rsv.unit_code || `Qty ${rsv.qty}`})</span>
+                              <strong>{money(rsv.total)}</strong>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: bal > 0 ? '#fef3c7' : '#dcfce7',
+                                  color: bal > 0 ? '#b45309' : '#15803d',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {bal > 0 ? `Due ${money(bal)}` : 'Ready to Deliver'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {customerUnpaidRepairs.length > 0 && (
                     <div
                       style={{

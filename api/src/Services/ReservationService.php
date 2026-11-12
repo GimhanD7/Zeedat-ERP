@@ -75,6 +75,20 @@ final class ReservationService {
         );
     }
 
+    public static function forBranch(int $branch): array {
+        $params = $branch > 0 ? [$branch] : [];
+        return BaseRepository::rows(
+            'SELECT r.*, p.name AS product, u.code AS unit_code, c.name AS customer_name, c.phone AS customer_phone
+             FROM reservations r
+             JOIN products p ON p.id=r.product_id
+             JOIN customers c ON c.id=r.customer_id
+             LEFT JOIN units u ON u.id=r.unit_id
+             ' . ($branch > 0 ? 'WHERE r.branch_id=?' : '') . '
+             ORDER BY r.id DESC',
+            $params
+        );
+    }
+
     public static function save(array $user, int $branch, array $body, string $action): array {
         RoleGuard::allow($user, 'owner', 'manager', 'cashier');
         return BaseRepository::transaction(function () use ($user, $branch, $body, $action) {

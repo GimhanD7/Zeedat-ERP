@@ -406,7 +406,11 @@ try {
                     t.last_sale_at,
                     CAST(COALESCE(rp.repair_due,0) AS UNSIGNED) repair_due,
                     CAST(COALESCE(rp.repair_due_count,0) AS UNSIGNED) repair_due_count,
-                    rp.repair_next_due_date
+                    rp.repair_next_due_date,
+                    CAST(COALESCE(rsv.held_count, 0) AS UNSIGNED) reservation_count,
+                    CAST(COALESCE(rsv.held_total, 0) AS UNSIGNED) reservation_total,
+                    CAST(COALESCE(rsv.held_paid, 0) AS UNSIGNED) reservation_paid,
+                    CAST(COALESCE(rsv.held_balance, 0) AS UNSIGNED) reservation_balance
                 FROM customers c JOIN branches b ON b.id=c.branch_id
                 LEFT JOIN (
                     SELECT customer_id,
@@ -426,6 +430,15 @@ try {
                             THEN due_date ELSE NULL END) repair_next_due_date
                     FROM repairs GROUP BY customer_id
                 ) rp ON rp.customer_id=c.id
+                LEFT JOIN (
+                    SELECT customer_id,
+                        COUNT(CASE WHEN status = 'Held' THEN 1 ELSE NULL END) held_count,
+                        SUM(CASE WHEN status = 'Held' THEN total ELSE 0 END) held_total,
+                        SUM(CASE WHEN status = 'Held' THEN paid ELSE 0 END) held_paid,
+                        SUM(CASE WHEN status = 'Held' THEN total - paid ELSE 0 END) held_balance
+                    FROM reservations
+                    GROUP BY customer_id
+                ) rsv ON rsv.customer_id = c.id
                 WHERE c.deleted_at IS NULL" . ($branch ? ' AND c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
             );
@@ -433,6 +446,10 @@ try {
         'customer.ledger' => (function () use ($user, $branch) {
             RoleGuard::allowAnyPermission($user, 'customers', 'pos');
             return InventoryController::getCustomerLedger($branch, $_GET);
+        })(),
+        'reservations' => (function () use ($user, $branch) {
+            RoleGuard::allowAnyPermission($user, 'pos', 'customers', 'inventory');
+            return \Zeedat\Services\ReservationService::forBranch($branch);
         })(),
         'repairs' => (function () use ($user, $branch) {
             RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
