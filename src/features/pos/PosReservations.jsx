@@ -41,6 +41,8 @@ export function PosReservations({
   const [tab, setTab] = useState(initialProduct ? 'new' : 'manage');
   const [customerId, setCustomerId] = useState(String(initialCustomer || ''));
   const [customerSearch, setCustomerSearch] = useState('');
+  const [newCustomer, setNewCustomer] = useState(null);
+  const [savedCustomer, setSavedCustomer] = useState(null);
   const [productId, setProductId] = useState(String(initialProduct || ''));
   const [unitId, setUnitId] = useState('');
   const [qty, setQty] = useState('1');
@@ -53,7 +55,11 @@ export function PosReservations({
   const [busy, setBusy] = useState(false);
   const [invoice, setInvoice] = useState(null);
   const branch = Number(ctx.branch);
-  const customer = customers.find(row => String(row.id) === customerId && Number(row.branch_id) === branch);
+  const branchCustomers = customers.filter(row => Number(row.branch_id) === branch);
+  if (savedCustomer && !branchCustomers.some(row => String(row.id) === String(savedCustomer.id))) {
+    branchCustomers.push(savedCustomer);
+  }
+  const customer = branchCustomers.find(row => String(row.id) === customerId);
   const { available, availableUnits, quantity } = reservationStock(products, units, branch);
   const product = available.find(row => String(row.id) === productId);
   const serialized = Boolean(Number(product?.serialized));
@@ -81,8 +87,8 @@ export function PosReservations({
   const canApplyAction = canSubmit && selected?.status === 'Held' && !state.pending && !state.error &&
     ((action === 'pay' && paymentValid) || (action === 'deliver' && due === 0) || (action === 'cancel' && canCancel));
   const search = customerSearch.trim().toLowerCase();
-  const customerChoices = customers.filter(row => Number(row.branch_id) === branch &&
-    (String(row.id) === customerId || [row.name, row.phone].some(value => String(value ?? '').toLowerCase().includes(search))));
+  const customerChoices = branchCustomers.filter(row =>
+    String(row.id) === customerId || [row.name, row.phone].some(value => String(value ?? '').toLowerCase().includes(search)));
 
   function resetAction() {
     setAction('');
@@ -95,6 +101,31 @@ export function PosReservations({
 
   async function submit(event) {
     event.preventDefault();
+    if (newCustomer) {
+      if (busy || !branch || !newCustomer.name.trim() || !newCustomer.phone.trim()) return;
+      setBusy(true);
+      setError('');
+      try {
+        const saved = await ctx.mutate('customer.save', {
+          branch,
+          name: newCustomer.name.trim(),
+          phone: newCustomer.phone.trim(),
+          email: newCustomer.email.trim(),
+        });
+        setSavedCustomer(saved);
+        setCustomerId(String(saved.id));
+        setCustomerSearch('');
+        setSelectedId(null);
+        setNewCustomer(null);
+        setTab('new');
+        setMessage('Customer registered and selected.');
+      } catch (failure) {
+        setError(failure.message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (!canSubmit || !customer) return;
     const creating = tab === 'new';
     if (creating ? !canCreate : !canApplyAction) return;
@@ -136,9 +167,11 @@ export function PosReservations({
       <form onSubmit={submit}>
         <div className="modal-body pos-reservations">
           {!current && <Alert>{shiftMessage}</Alert>}
-          <FilterTabs value={tab} choices={[[ 'manage', 'Find reservation' ], [ 'new', 'New reservation' ]]}
-            onChange={value => { if (!busy && value !== tab) { setTab(value); resetAction(); } }} />
-          <fieldset disabled={busy} className="pos-reservation-fields">
+          {!newCustomer && (
+            <FilterTabs value={tab} choices={[[ 'manage', 'Find reservation' ], [ 'new', 'New reservation' ]]}
+              onChange={value => { if (!busy && value !== tab) { setTab(value); resetAction(); } }} />
+          )}
+          {!newCustomer && <fieldset disabled={busy} className="pos-reservation-fields">
             <Field label="Find customer">
               <input type="search" placeholder="Name or phone" value={customerSearch}
                 onChange={event => setCustomerSearch(event.target.value)} />
@@ -147,12 +180,37 @@ export function PosReservations({
               <Select value={customerId} blank="Select customer" options={customerChoices.map(row => [row.id, row.name + ' · ' + row.phone])}
                 onChange={event => { setCustomerId(event.target.value); setSelectedId(null); resetAction(); }} />
             </Field>
-          </fieldset>
+          </fieldset>}
+          {!newCustomer && <div className="pos-reservation-actions">
+            <Button type="button" variant="soft" disabled={!branch || busy} onClick={() => {
+              const query = customerSearch.trim();
+              const isPhone = /^[+\d\s()-]+$/.test(query);
+              setNewCustomer({ name: isPhone ? '' : query, phone: isPhone ? query : '', email: '' });
+              resetAction();
+            }}>Add New Customer</Button>
+          </div>}
           {error && <Alert>{error}</Alert>}
+          {newCustomer && (
+            <fieldset disabled={busy} className="pos-reservation-body">
+              <legend>New customer</legend>
+              <Field label="Full name">
+                <input autoFocus required maxLength={120} autoComplete="name" value={newCustomer.name}
+                  onChange={event => setNewCustomer({ ...newCustomer, name: event.target.value })} />
+              </Field>
+              <Field label="Phone number">
+                <input type="tel" required maxLength={30} autoComplete="tel" value={newCustomer.phone}
+                  onChange={event => setNewCustomer({ ...newCustomer, phone: event.target.value })} />
+              </Field>
+              <Field label="Email (optional)">
+                <input type="email" maxLength={150} autoComplete="email" value={newCustomer.email}
+                  onChange={event => setNewCustomer({ ...newCustomer, email: event.target.value })} />
+              </Field>
+            </fieldset>
+          )}
           {message && <div className="pos-reservation-result" role="status">{message}
             {invoice && <Button type="button" variant="soft" onClick={() => onInvoice(invoice)}>View Invoice</Button>}
           </div>}
-          {customer && tab === 'new' && (
+          {!newCustomer && customer && tab === 'new' && (
             <fieldset disabled={busy} className="pos-reservation-body">
               <Field label="Item">
                 <Select value={productId} required blank="Select an item"
@@ -174,7 +232,7 @@ export function PosReservations({
               </>}
             </fieldset>
           )}
-          {customer && tab === 'manage' && (
+          {!newCustomer && customer && tab === 'manage' && (
             <section className="pos-reservation-body" aria-label="Customer reservations">
               {state.error ? <Alert>{state.error} <Button type="button" onClick={state.refresh}>Retry</Button></Alert>
                 : state.pending || !ledger ? <p role="status" className="muted">Loading reservations…</p>
@@ -214,11 +272,16 @@ export function PosReservations({
           )}
         </div>
         <div className="modal-footer">
-          <Button type="button" disabled={busy} onClick={action ? resetAction : onClose}>{action ? 'Back' : 'Close'}</Button>
-          {tab === 'new' && <Button type="submit" variant="primary" disabled={!canCreate}>
+          <Button type="button" disabled={busy} onClick={newCustomer ? () => { setNewCustomer(null); setError(''); } : action ? resetAction : onClose}>
+            {newCustomer || action ? 'Back' : 'Close'}
+          </Button>
+          {newCustomer && <Button type="submit" variant="primary" disabled={busy || !newCustomer.name.trim() || !newCustomer.phone.trim()}>
+            {busy ? 'Saving…' : 'Save & Select Customer'}
+          </Button>}
+          {!newCustomer && tab === 'new' && <Button type="submit" variant="primary" disabled={!canCreate}>
             {busy ? 'Saving…' : 'Reserve & Record Deposit'}
           </Button>}
-          {tab === 'manage' && action && <Button type="submit" variant="primary" disabled={!canApplyAction}>
+          {!newCustomer && tab === 'manage' && action && <Button type="submit" variant="primary" disabled={!canApplyAction}>
             {busy ? 'Saving…' : { pay: 'Record Payment', deliver: 'Confirm Handover', cancel: 'Confirm Cancellation' }[action]}
           </Button>}
         </div>
