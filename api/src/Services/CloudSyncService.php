@@ -6,9 +6,16 @@ namespace Zeedat\Services;
 use Throwable;
 use Zeedat\Config\Database;
 use Zeedat\Repositories\BaseRepository;
+use Zeedat\Repositories\PermissionRepository;
 use Zeedat\Support\Response;
 
 class CloudSyncService {
+    private const WALLET_LOG_QUERY = "SELECT w.*, b.name AS branch_name, c.phone AS customer_phone,
+        c.sync_uuid AS customer_sync_uuid, u.email AS user_email, s.sync_uuid AS sale_sync_uuid
+        FROM customer_wallet_logs w JOIN customers c ON c.id=w.customer_id
+        LEFT JOIN branches b ON b.id=w.branch_id LEFT JOIN users u ON u.id=w.user_id
+        LEFT JOIN sales s ON s.id=w.sale_id";
+
     public static function isInternetAvailable(?string $probeUrl = null): bool {
         return BackupService::isInternetAvailable($probeUrl);
     }
@@ -21,16 +28,16 @@ class CloudSyncService {
         $fallbackActive = Database::isFallbackActive();
 
         $tables = [
-            'branches', 'products', 'customers', 'units', 'suppliers', 'purchases',
+            'branches', 'users', 'products', 'customers', 'units', 'suppliers', 'purchases',
             'transfers', 'stock_movements', 'sales', 'repairs',
-            'drawers', 'cash_movements', 'returns_log', 'supplier_payments', 'barcode_print_logs', 'audit_log',
+            'drawers', 'cash_movements', 'returns_log', 'supplier_payments', 'barcode_print_logs', 'audit_log', 'customer_wallet_logs',
         ];
         $counts = [];
         $totalPending = 0;
         if ($driver === 'sqlite') {
             foreach ($tables as $tbl) {
                 try {
-                    $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0 OR sync_uuid IS NULL OR sync_uuid = ''");
+                    $cnt = (int) BaseRepository::scalar("SELECT COUNT(*) FROM {$tbl} WHERE synced = 0" . ($tbl === 'users' ? '' : " OR sync_uuid IS NULL OR sync_uuid = ''"));
                 } catch (Throwable) {
                     $cnt = 0;
                 }
@@ -42,6 +49,9 @@ class CloudSyncService {
                 $counts[$tbl] = 0;
             }
         }
+        $pendingRoles = $driver === 'sqlite'
+            ? (int) BaseRepository::scalar('SELECT COUNT(*) FROM role_permission_sync WHERE pending_token IS NOT NULL')
+            : 0;
 
         return [
             'driver' => $driver,
@@ -54,6 +64,7 @@ class CloudSyncService {
             'auto_sync_enabled' => (bool) ($settings['auto_sync_enabled'] ?? 1),
             'sync_interval_minutes' => (int) ($settings['sync_interval_minutes'] ?? 15),
             'last_synced_at' => $settings['last_synced_at'] ?? null,
+            'unsynced_users' => $counts['users'],
             'unsynced_sales' => $counts['sales'],
             'unsynced_customers' => $counts['customers'],
             'unsynced_repairs' => $counts['repairs'],
@@ -69,7 +80,8 @@ class CloudSyncService {
             'unsynced_barcodes' => $counts['barcode_print_logs'],
             'unsynced_audits' => $counts['audit_log'],
             'total_sales' => (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales'),
-            'total_pending' => $totalPending,
+            'unsynced_roles' => $pendingRoles,
+            'total_pending' => $totalPending + $pendingRoles,
         ];
     }
 
@@ -83,7 +95,13 @@ class CloudSyncService {
                     if ($markPending) {
                         BaseRepository::run("UPDATE {$table} SET sync_uuid=?, synced=0 WHERE id=?", [$uuid, $row['id']]);
                     } else {
-                        BaseRepository::run("UPDATE {$table} SET sync_uuid=? WHERE id=?", [$uuid, $row['id']]);
+                        $changed = BaseRepository::run(
+                            "UPDATE {$table} SET sync_uuid=? WHERE id=? AND (sync_uuid IS NULL OR sync_uuid='')",
+                            [$uuid, $row['id']]
+                        )->rowCount();
+                        if (!$changed) {
+                            $row['sync_uuid'] = BaseRepository::scalar("SELECT sync_uuid FROM {$table} WHERE id=?", [$row['id']]) ?: $uuid;
+                        }
                     }
                 } catch (Throwable) {
                 }
@@ -132,24 +150,24 @@ class CloudSyncService {
             self::safeRows(
                 'SELECT u.*, COALESCE(b.name, "") AS branch_name
                  FROM users u LEFT JOIN branches b ON b.id=u.branch_id
-                 WHERE ' . $pendingWhere('u') . ' ORDER BY u.id ASC LIMIT 200'
+                 WHERE u.synced = 0 ORDER BY u.id ASC LIMIT 200'
             ),
             static fn($r) => strtolower(trim((string) ($r['email'] ?? '')))
         );
         $userBranchesPush = [];
         $userPermissionsPush = [];
         if (!empty($users)) {
-            $dirtyUserEmails = array_map(static fn($u) => (int) $u['id'], $users);
-            $inU = implode(',', array_unique(array_filter($dirtyUserEmails, static fn($v) => $v > 0)));
+            $dirtyUserIds = array_map(static fn($u) => (int) $u['id'], $users);
+            $inU = implode(',', array_unique(array_filter($dirtyUserIds, static fn($v) => $v > 0)));
             if ($inU !== '') {
-                $userBranchesPush = self::safeRows(
+                $userBranchesPush = BaseRepository::rows(
                     "SELECT u.email, b.name AS branch_name
                      FROM user_branches ub
                      JOIN users u ON u.id=ub.user_id
                      JOIN branches b ON b.id=ub.branch_id
                      WHERE ub.user_id IN ({$inU})"
                 );
-                $userPermissionsPush = self::safeRows(
+                $userPermissionsPush = BaseRepository::rows(
                     "SELECT u.email, up.permission, up.allowed
                      FROM user_permissions up
                      JOIN users u ON u.id=up.user_id
@@ -395,7 +413,21 @@ class CloudSyncService {
             static fn($r) => ($r['action'] ?? '') . '|' . ($r['user_id'] ?? 0) . '|' . ($r['created_at'] ?? '')
         );
 
-        if (empty($branches) && empty($users) && empty($products) && empty($customers) && empty($units)
+        $roleChanges = BaseRepository::rows('SELECT role, pending_token FROM role_permission_sync WHERE pending_token IS NOT NULL');
+        foreach ($roleChanges as &$change) {
+            $change['permissions'] = array_column(BaseRepository::rows(
+                'SELECT permission FROM role_permissions WHERE role=? ORDER BY permission', [$change['role']]
+            ), 'permission');
+        }
+        unset($change);
+        $walletLogs = self::ensureSyncUuids(
+            'customer_wallet_logs',
+            'WLT',
+            BaseRepository::rows(self::WALLET_LOG_QUERY . ' WHERE ' . $pendingWhere('w') . ' ORDER BY w.id LIMIT 150'),
+            static fn($row) => bin2hex(random_bytes(16))
+        );
+
+        if (empty($branches) && empty($users) && empty($roleChanges) && empty($walletLogs) && empty($products) && empty($customers) && empty($units)
             && empty($suppliers) && empty($purchases) && empty($transfers)
             && empty($repairs) && empty($salePayloads) && empty($movements)
             && empty($drawers) && empty($cashMovements) && empty($supplierPayments)
@@ -409,6 +441,8 @@ class CloudSyncService {
             'users' => $users,
             'user_branches' => $userBranchesPush,
             'user_permissions' => $userPermissionsPush,
+            'role_changes' => $roleChanges,
+            'customer_wallet_logs' => $walletLogs,
             'products' => $products,
             'customers' => $customers,
             'units' => $units,
@@ -429,7 +463,16 @@ class CloudSyncService {
     }
 
     private static function applyPushAcknowledgements(array $srv): array {
+        $acknowledgedRoles = 0;
+        foreach ($srv['synced_roles'] ?? [] as $change) {
+            $acknowledgedRoles += BaseRepository::run(
+                'UPDATE role_permission_sync SET pending_token=NULL WHERE role=? AND pending_token=?',
+                [$change['role'], $change['pending_token']]
+            )->rowCount();
+        }
         $counts = [
+            'synced_wallet_logs' => self::markSyncedIds('customer_wallet_logs', $srv['synced_wallet_logs'] ?? []),
+            'synced_roles' => $acknowledgedRoles,
             'synced_branches' => self::markSyncedIds('branches', $srv['synced_branches'] ?? []),
             'synced_users' => self::markSyncedIds('users', $srv['synced_users'] ?? []),
             'synced_products' => self::markSyncedIds('products', $srv['synced_products'] ?? []),
@@ -502,12 +545,12 @@ class CloudSyncService {
 
         $endpoint = BackupService::resolveCloudEndpoint($cloudUrl, 'sync.receive');
         $totals = [
-            'synced_branches' => 0, 'synced_products' => 0, 'synced_customers' => 0,
+            'synced_branches' => 0, 'synced_users' => 0, 'synced_roles' => 0, 'synced_products' => 0, 'synced_customers' => 0,
             'synced_units' => 0, 'synced_suppliers' => 0, 'synced_purchases' => 0,
             'synced_transfers' => 0, 'synced_repairs' => 0, 'synced_sales' => 0,
             'synced_movements' => 0, 'synced_drawers' => 0, 'synced_cash_movements' => 0,
             'synced_supplier_payments' => 0, 'synced_returns' => 0,
-            'synced_barcode_logs' => 0, 'synced_audit_logs' => 0, 'synced_count' => 0,
+            'synced_barcode_logs' => 0, 'synced_audit_logs' => 0, 'synced_wallet_logs' => 0, 'synced_count' => 0,
         ];
 
         for ($pass = 0; $pass < 10; $pass++) {
@@ -524,7 +567,7 @@ class CloudSyncService {
                 $totals[$k] += (int) ($ackRes[$k] ?? 0);
             }
             if ((int) ($ackRes['synced_count'] ?? 0) === 0) {
-                break;
+                return array_merge($totals, ['success' => false, 'error' => 'The server did not acknowledge the remaining changes. They are still pending locally.']);
             }
         }
 
@@ -586,11 +629,13 @@ class CloudSyncService {
             foreach ($data['branches'] ?? [] as $b) {
                 $name = trim((string) ($b['name'] ?? ''));
                 if ($name === '') continue;
-                $existingId = (int) BaseRepository::scalar('SELECT id FROM branches WHERE name=? LIMIT 1', [$name]);
+                $uuid = $b['sync_uuid'] ?? '';
+                $existingId = (int) (($uuid !== '' ? BaseRepository::scalar('SELECT id FROM branches WHERE sync_uuid=?', [$uuid]) : false)
+                    ?: BaseRepository::scalar('SELECT id FROM branches WHERE name=?', [$name]));
                 if ($existingId > 0) {
                     BaseRepository::run(
-                        'UPDATE branches SET phone=?, address=?, synced=1 WHERE id=? AND synced=1',
-                        [$b['phone'] ?? '', $b['address'] ?? '', $existingId]
+                        'UPDATE branches SET name=?, phone=?, address=?, sync_uuid=COALESCE(?, sync_uuid), synced=1 WHERE id=? AND synced=1',
+                        [$name, $b['phone'] ?? '', $b['address'] ?? '', $b['sync_uuid'] ?? null, $existingId]
                     );
                     $branchByName[$name] = $existingId;
                 } else {
@@ -612,99 +657,20 @@ class CloudSyncService {
             };
 
             // 2. Role permissions & Staff users (enables offline logins for staff created online)
-            if (!empty($data['role_permissions'])) {
-                BaseRepository::run('DELETE FROM role_permissions');
-                foreach ($data['role_permissions'] as $rp) {
-                    $sql = $isSqlite
-                        ? 'INSERT OR IGNORE INTO role_permissions (role, permission) VALUES (?,?)'
-                        : 'INSERT IGNORE INTO role_permissions (role, permission) VALUES (?,?)';
-                    BaseRepository::run($sql, [$rp['role'], $rp['permission']]);
+            if (is_array($data['role_permissions'] ?? null)) {
+                $permissions = [];
+                foreach ($data['role_permissions'] as $row) {
+                    $permissions[$row['role']][] = $row['permission'];
+                }
+                foreach (['manager', 'cashier', 'technician', 'stock'] as $role) {
+                    if (!BaseRepository::scalar('SELECT pending_token FROM role_permission_sync WHERE role=?', [$role])) {
+                        self::replaceRolePermissions($role, $permissions[$role] ?? []);
+                    }
                 }
             }
 
-            $userByEmail = [];
-            $dirtyUserIds = [];
-            foreach ($data['users'] ?? [] as $u) {
-                $email = strtolower(trim((string) ($u['email'] ?? '')));
-                if ($email === '' || empty($u['password_hash'])) continue;
-                $bId = empty($u['branch_name']) ? null : $resolveLocalBranch($u['branch_name'], (int) ($u['branch_id'] ?? 1));
-                $existingRow = BaseRepository::one('SELECT id, synced, badge_code FROM users WHERE email=? LIMIT 1', [$email]);
-                $existingId = (int) ($existingRow['id'] ?? 0);
-                if ($existingId > 0) {
-                    $badge = trim((string) ($u['badge_code'] ?? ($existingRow['badge_code'] ?? '')));
-                    if ($badge === '') {
-                        $badge = 'STF' . str_pad((string) $existingId, 5, '0', STR_PAD_LEFT);
-                    }
-                    if ((int) ($existingRow['synced'] ?? 1) === 0) {
-                        // Preserve pending local edits until pushed
-                        $dirtyUserIds[$existingId] = true;
-                        $userByEmail[$email] = $existingId;
-                        continue;
-                    }
-                    BaseRepository::run(
-                        'UPDATE users SET branch_id=?, name=?, password_hash=?, role=?, badge_code=?, active=?, synced=1 WHERE id=?',
-                        [$bId, $u['name'], $u['password_hash'], $u['role'], $badge, (int) ($u['active'] ?? 1), $existingId]
-                    );
-                    $userByEmail[$email] = $existingId;
-                } else {
-                    $badgeInput = trim((string) ($u['badge_code'] ?? ''));
-                    $newU = BaseRepository::insert(
-                        'INSERT INTO users (branch_id, name, email, password_hash, role, badge_code, active, synced) VALUES (?,?,?,?,?,?,?,1)',
-                        [$bId, $u['name'], $email, $u['password_hash'], $u['role'], $badgeInput !== '' ? $badgeInput : null, (int) ($u['active'] ?? 1)]
-                    );
-                    if ($badgeInput === '') {
-                        BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', ['STF' . str_pad((string) $newU, 5, '0', STR_PAD_LEFT), $newU]);
-                    }
-                    $userByEmail[$email] = $newU;
-                }
-            }
-            if (array_key_exists('user_branches', $data) && is_array($data['user_branches'])) {
-                try {
-                    $byEmailBranches = [];
-                    foreach ($data['user_branches'] as $ub) {
-                        $email = strtolower(trim((string) ($ub['email'] ?? '')));
-                        $branchName = trim((string) ($ub['branch_name'] ?? ''));
-                        if ($email === '' || $branchName === '' || !isset($userByEmail[$email])) continue;
-                        $localUId = $userByEmail[$email];
-                        $localBId = $resolveLocalBranch($branchName, 0);
-                        if ($localBId > 0) {
-                            $byEmailBranches[$localUId][$localBId] = $localBId;
-                        }
-                    }
-                    foreach ($userByEmail as $localUId) {
-                        if (!empty($dirtyUserIds[$localUId])) continue;
-                        BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$localUId]);
-                        foreach ($byEmailBranches[$localUId] ?? [] as $localBId) {
-                            BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$localUId, $localBId]);
-                        }
-                    }
-                } catch (\Throwable $ignore) {
-                }
-            }
-            if (array_key_exists('user_permissions', $data) && is_array($data['user_permissions'])) {
-                try {
-                    \Zeedat\Repositories\PermissionRepository::ensureTable();
-                    $byUserPerms = [];
-                    foreach ($data['user_permissions'] as $up) {
-                        $email = strtolower(trim((string) ($up['email'] ?? '')));
-                        $perm = trim((string) ($up['permission'] ?? ''));
-                        if ($email === '' || $perm === '' || !isset($userByEmail[$email])) continue;
-                        $localUId = $userByEmail[$email];
-                        $byUserPerms[$localUId][$perm] = (int) ($up['allowed'] ?? 1);
-                    }
-                    foreach ($userByEmail as $localUId) {
-                        if (!empty($dirtyUserIds[$localUId])) continue;
-                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$localUId]);
-                        foreach ($byUserPerms[$localUId] ?? [] as $perm => $allowed) {
-                            BaseRepository::run(
-                                'INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)',
-                                [$localUId, $perm, $allowed]
-                            );
-                        }
-                    }
-                } catch (\Throwable $ignore) {
-                }
-            }
+            [$userByEmail, $syncedUsers] = self::syncStaff($data, $resolveLocalBranch, true);
+            $stats['users_synced'] = count($syncedUsers);
             $defaultUserId = (int) (BaseRepository::scalar('SELECT id FROM users ORDER BY id ASC LIMIT 1') ?: 1);
             $resolveLocalUser = static fn(?string $email): int => ($email && isset($userByEmail[strtolower($email)]))
                 ? $userByEmail[strtolower($email)]
@@ -824,8 +790,8 @@ class CloudSyncService {
                 if ($existing) {
                     if ((int) ($existing['synced'] ?? 1) === 1) {
                         BaseRepository::run(
-                            'UPDATE customers SET name=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
-                            [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
+                            'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
+                            [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
                         );
                     }
                 } elseif ($isSqlite) {
@@ -1038,26 +1004,25 @@ class CloudSyncService {
                 $resolveLocalBranch,
                 $resolveLocalUser
             );
-
-            // 10.5 User permission overrides
-            if (array_key_exists('user_permissions', $data) && is_array($data['user_permissions'])) {
-                try {
-                    \Zeedat\Repositories\PermissionRepository::ensureTable();
-                    $byUserPerms = [];
-                    foreach ($data['user_permissions'] as $up) {
-                        $email = strtolower(trim((string) ($up['email'] ?? '')));
-                        $perm = (string) ($up['permission'] ?? '');
-                        if ($email === '' || $perm === '' || !isset($userByEmail[$email])) continue;
-                        $byUserPerms[$userByEmail[$email]][$perm] = !empty($up['allowed']) ? 1 : 0;
-                    }
-                    foreach ($userByEmail as $localUId) {
-                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$localUId]);
-                        foreach ($byUserPerms[$localUId] ?? [] as $perm => $allowed) {
-                            BaseRepository::run('INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)', [$localUId, $perm, $allowed]);
-                        }
-                    }
-                } catch (\Throwable) {
+            $stats['wallet_logs_synced'] = count(self::syncWalletLogs(
+                $data['customer_wallet_logs'] ?? [], $resolveLocalBranch, $resolveLocalUser
+            ));
+            $stats['stock_movements_synced'] = 0;
+            foreach ($data['stock_movements'] ?? [] as $movement) {
+                $id = $productBySku[$movement['product_sku']] ?? null;
+                $uuid = $movement['sync_uuid'] ?? '';
+                if (!$id || $uuid === '' || BaseRepository::scalar('SELECT id FROM stock_movements WHERE sync_uuid=?', [$uuid])) {
+                    continue;
                 }
+                BaseRepository::run(
+                    'INSERT INTO stock_movements (branch_id, product_id, user_id, qty, kind, reference, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,1,?)',
+                    [
+                        $resolveLocalBranch($movement['branch_name'], (int) $movement['branch_id']),
+                        $id, $resolveLocalUser($movement['user_email']), $movement['qty'], $movement['kind'],
+                        $movement['reference'], $uuid, $movement['created_at'],
+                    ]
+                );
+                $stats['stock_movements_synced']++;
             }
 
             // 11. Shop & receipt settings (preserve local cloud_backup_url/cloud_api_key/delete_pin_hash)
@@ -1090,9 +1055,118 @@ class CloudSyncService {
         ]);
     }
 
-    /**
-     * Resolves or provisions a cycle + drawer on the target database so offline sales never fail drawer_id FK.
-     */
+    private static function syncWalletLogs(array $rows, callable $resolveBranch, callable $resolveUser): array {
+        $acknowledged = [];
+        foreach ($rows as $row) {
+            $uuid = (string) ($row['sync_uuid'] ?? '');
+            if ($uuid === '') continue;
+            if (!BaseRepository::scalar('SELECT id FROM customer_wallet_logs WHERE sync_uuid=?', [$uuid])) {
+                $branch = $resolveBranch($row['branch_name'] ?? null, (int) ($row['branch_id'] ?? 1));
+                $customer = BaseRepository::scalar('SELECT id FROM customers WHERE sync_uuid=?', [$row['customer_sync_uuid'] ?? ''])
+                    ?: BaseRepository::scalar('SELECT id FROM customers WHERE branch_id=? AND phone=?', [$branch, $row['customer_phone'] ?? '']);
+                if (!$customer) continue;
+                $sale = empty($row['sale_sync_uuid']) ? null : BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid=?', [$row['sale_sync_uuid']]);
+                if ($sale === false) continue;
+                BaseRepository::run(
+                    'INSERT INTO customer_wallet_logs (branch_id, customer_id, user_id, sale_id, amount, points_delta, kind, method, reference, created_at, sync_uuid, synced) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)',
+                    [$branch, $customer, $resolveUser($row['user_email'] ?? null), $sale, $row['amount'], $row['points_delta'],
+                        $row['kind'], $row['method'], $row['reference'], $row['created_at'], $uuid]
+                );
+            }
+            $acknowledged[] = $row['id'];
+        }
+        return $acknowledged;
+    }
+
+    private static function replaceRolePermissions(string $role, array $permissions): void {
+        BaseRepository::run('DELETE FROM role_permissions WHERE role=?', [$role]);
+        foreach (array_intersect(array_keys(PermissionRepository::ALL_PERMISSIONS), $permissions) as $permission) {
+            BaseRepository::run('INSERT INTO role_permissions (role, permission) VALUES (?,?)', [$role, $permission]);
+        }
+        PermissionRepository::markRoleChanged($role, null);
+    }
+
+    private static function syncStaff(array $payload, callable $resolveBranch, bool $preservePending = false): array {
+        $usersByEmail = [];
+        $updatedUsers = [];
+        $acknowledged = [];
+
+        foreach ($payload['users'] ?? [] as $user) {
+            $email = strtolower(trim((string) ($user['email'] ?? '')));
+            if ($email === '' || empty($user['password_hash'])) continue;
+
+            $uuid = trim((string) ($user['sync_uuid'] ?? ''));
+            $existing = $uuid !== '' ? BaseRepository::one('SELECT * FROM users WHERE sync_uuid=?', [$uuid]) : null;
+            $existing ??= BaseRepository::one('SELECT * FROM users WHERE email=?', [$email]);
+            $id = (int) ($existing['id'] ?? 0);
+            if ($preservePending && $existing && (int) $existing['synced'] === 0) {
+                $usersByEmail[$email] = $id;
+                continue;
+            }
+            if ((!$preservePending || $uuid === '') && !empty($existing['sync_uuid'])) {
+                $uuid = $existing['sync_uuid'];
+            }
+            $branch = empty($user['branch_name']) ? null : $resolveBranch($user['branch_name'], (int) ($user['branch_id'] ?? 1));
+            $badge = trim((string) ($user['badge_code'] ?? $existing['badge_code'] ?? ''));
+            if ($badge === '' || BaseRepository::scalar('SELECT id FROM users WHERE badge_code=? AND id<>?', [$badge, $id])) {
+                $badge = 'STF-' . strtoupper(bin2hex(random_bytes(8)));
+            }
+            $fields = [$branch, $user['name'], $email, $user['password_hash'], $user['role'], $badge, (int) ($user['active'] ?? 1), $uuid ?: null];
+            if ($existing) {
+                BaseRepository::run(
+                    'UPDATE users SET branch_id=?, name=?, email=?, password_hash=?, role=?, badge_code=?, active=?, sync_uuid=?, synced=1 WHERE id=?',
+                    [...$fields, $id]
+                );
+            } else {
+                $id = BaseRepository::insert(
+                    'INSERT INTO users (branch_id, name, email, password_hash, role, badge_code, active, sync_uuid, synced) VALUES (?,?,?,?,?,?,?,?,1)',
+                    $fields
+                );
+            }
+            $usersByEmail[$email] = $updatedUsers[$email] = $id;
+            $acknowledged[] = $user['id'] ?? $id;
+        }
+
+        if (is_array($payload['user_branches'] ?? null)) {
+            $branches = [];
+            foreach ($payload['user_branches'] as $row) {
+                $email = strtolower(trim((string) ($row['email'] ?? '')));
+                $name = trim((string) ($row['branch_name'] ?? ''));
+                if ($name === '' || !isset($updatedUsers[$email])) continue;
+                $branchId = (int) BaseRepository::scalar('SELECT id FROM branches WHERE name=?', [$name]);
+                if ($branchId === 0) {
+                    throw new \RuntimeException('A staff assignment references a branch that has not synced.');
+                }
+                $branches[$email][$branchId] = $branchId;
+            }
+            foreach ($updatedUsers as $email => $id) {
+                BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$id]);
+                foreach ($branches[$email] ?? [] as $branchId) {
+                    BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$id, $branchId]);
+                }
+            }
+        }
+
+        if (is_array($payload['user_permissions'] ?? null)) {
+            $permissions = [];
+            foreach ($payload['user_permissions'] as $row) {
+                $email = strtolower(trim((string) ($row['email'] ?? '')));
+                $permission = trim((string) ($row['permission'] ?? ''));
+                if ($permission === '' || !isset($updatedUsers[$email])) continue;
+                $permissions[$email][$permission] = (int) ($row['allowed'] ?? 1);
+            }
+            foreach ($updatedUsers as $email => $id) {
+                BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$id]);
+                foreach ($permissions[$email] ?? [] as $permission => $allowed) {
+                    BaseRepository::run('INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)', [$id, $permission, $allowed]);
+                }
+            }
+        }
+
+        return [$usersByEmail, $acknowledged];
+    }
+
+    /** Resolves or provisions the drawer for a synced sale. */
     private static function ensureSyncDrawer(int $branchId, int $userId, string $businessDate): int {
         $existingOpen = BaseRepository::scalar('SELECT id FROM drawers WHERE branch_id=? AND closed_at IS NULL ORDER BY id DESC LIMIT 1', [$branchId]);
         if ($existingOpen) {
@@ -1535,6 +1609,7 @@ class CloudSyncService {
 
         $isSqlite = Database::isSqlite();
         $acked = [
+            'synced_roles' => [],
             'synced_branches' => [],
             'synced_users' => [],
             'synced_products' => [],
@@ -1593,82 +1668,28 @@ class CloudSyncService {
             foreach ($payload['branches'] ?? [] as $b) {
                 $name = trim((string) ($b['name'] ?? ''));
                 if ($name === '') continue;
-                $existing = BaseRepository::scalar('SELECT id FROM branches WHERE name=? LIMIT 1', [$name]);
+                $uuid = $b['sync_uuid'] ?? '';
+                $existing = ($uuid !== '' ? BaseRepository::scalar('SELECT id FROM branches WHERE sync_uuid=?', [$uuid]) : false)
+                    ?: BaseRepository::scalar('SELECT id FROM branches WHERE name=?', [$name]);
                 if ($existing) {
-                    BaseRepository::run('UPDATE branches SET phone=?, address=?, sync_uuid=?, synced=1 WHERE id=?', [$b['phone'] ?? '', $b['address'] ?? '', $b['sync_uuid'] ?? null, $existing]);
+                    BaseRepository::run('UPDATE branches SET name=?, phone=?, address=?, sync_uuid=COALESCE(sync_uuid, ?), synced=1 WHERE id=?', [$name, $b['phone'] ?? '', $b['address'] ?? '', $b['sync_uuid'] ?? null, $existing]);
                 } else {
                     BaseRepository::run('INSERT INTO branches (name, phone, address, sync_uuid, synced) VALUES (?,?,?,?,1)', [$name, $b['phone'] ?? '', $b['address'] ?? '', $b['sync_uuid'] ?? null]);
                 }
                 $acked['synced_branches'][] = $b['id'];
             }
 
-            // 1b. Users / Staff (sync offline-created or updated staff, branches, and permissions)
-            $pushedUsersByEmail = [];
-            foreach ($payload['users'] ?? [] as $u) {
-                $email = strtolower(trim((string) ($u['email'] ?? '')));
-                if ($email === '' || empty($u['password_hash'])) continue;
-                $bId = empty($u['branch_name']) ? null : $resolveBranch($u['branch_name'], (int) ($u['branch_id'] ?? $defaultBranchId));
-                $existingId = (int) BaseRepository::scalar('SELECT id FROM users WHERE email=? LIMIT 1', [$email]);
-                $badgeInput = trim((string) ($u['badge_code'] ?? ''));
-                if ($existingId > 0) {
-                    $badge = $badgeInput !== '' ? $badgeInput : 'STF' . str_pad((string) $existingId, 5, '0', STR_PAD_LEFT);
-                    BaseRepository::run(
-                        'UPDATE users SET branch_id=?, name=?, password_hash=?, role=?, badge_code=?, active=?, sync_uuid=?, synced=1 WHERE id=?',
-                        [$bId, $u['name'], $u['password_hash'], $u['role'], $badge, (int) ($u['active'] ?? 1), $u['sync_uuid'] ?? null, $existingId]
-                    );
-                    $pushedUsersByEmail[$email] = $existingId;
-                } else {
-                    $newUId = BaseRepository::insert(
-                        'INSERT INTO users (branch_id, name, email, password_hash, role, badge_code, active, sync_uuid, synced) VALUES (?,?,?,?,?,?,?,?,1)',
-                        [$bId, $u['name'], $email, $u['password_hash'], $u['role'], $badgeInput !== '' ? $badgeInput : null, (int) ($u['active'] ?? 1), $u['sync_uuid'] ?? null]
-                    );
-                    if ($badgeInput === '') {
-                        BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', ['STF' . str_pad((string) $newUId, 5, '0', STR_PAD_LEFT), $newUId]);
-                    }
-                    $pushedUsersByEmail[$email] = $newUId;
+            [, $acked['synced_users']] = self::syncStaff($payload, $resolveBranch);
+            foreach ($payload['role_changes'] ?? [] as $change) {
+                $role = $change['role'] ?? '';
+                $token = $change['pending_token'] ?? '';
+                if (!in_array($role, ['manager', 'cashier', 'technician', 'stock'], true)
+                    || !is_string($token) || !preg_match('/^[a-f0-9]{32}$/D', $token)
+                    || !is_array($change['permissions'] ?? null)) {
+                    continue;
                 }
-                $acked['synced_users'][] = $u['id'];
-            }
-            if (!empty($pushedUsersByEmail) && is_array($payload['user_branches'] ?? null)) {
-                try {
-                    $byUserBr = [];
-                    foreach ($payload['user_branches'] as $ub) {
-                        $email = strtolower(trim((string) ($ub['email'] ?? '')));
-                        $branchName = trim((string) ($ub['branch_name'] ?? ''));
-                        if ($email === '' || $branchName === '' || !isset($pushedUsersByEmail[$email])) continue;
-                        $uid = $pushedUsersByEmail[$email];
-                        $bid = $resolveBranch($branchName, 0);
-                        if ($bid > 0) $byUserBr[$uid][$bid] = $bid;
-                    }
-                    foreach ($pushedUsersByEmail as $uid) {
-                        if (!isset($byUserBr[$uid])) continue;
-                        BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$uid]);
-                        foreach ($byUserBr[$uid] as $bid) {
-                            BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$uid, $bid]);
-                        }
-                    }
-                } catch (\Throwable $ignore) {
-                }
-            }
-            if (!empty($pushedUsersByEmail) && is_array($payload['user_permissions'] ?? null)) {
-                try {
-                    \Zeedat\Repositories\PermissionRepository::ensureTable();
-                    $byUserPerm = [];
-                    foreach ($payload['user_permissions'] as $up) {
-                        $email = strtolower(trim((string) ($up['email'] ?? '')));
-                        $perm = trim((string) ($up['permission'] ?? ''));
-                        if ($email === '' || $perm === '' || !isset($pushedUsersByEmail[$email])) continue;
-                        $uid = $pushedUsersByEmail[$email];
-                        $byUserPerm[$uid][$perm] = (int) ($up['allowed'] ?? 1);
-                    }
-                    foreach ($pushedUsersByEmail as $uid) {
-                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$uid]);
-                        foreach ($byUserPerm[$uid] ?? [] as $perm => $allowed) {
-                            BaseRepository::run('INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)', [$uid, $perm, $allowed]);
-                        }
-                    }
-                } catch (\Throwable $ignore) {
-                }
+                self::replaceRolePermissions($role, $change['permissions']);
+                $acked['synced_roles'][] = ['role' => $role, 'pending_token' => $token];
             }
 
             // 2. Products
@@ -1718,8 +1739,8 @@ class CloudSyncService {
                 );
                 if ($existing) {
                     BaseRepository::run(
-                        'UPDATE customers SET name=?, email=?, notes=?, loyalty_points=GREATEST(COALESCE(loyalty_points,0), ?), wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
-                        [$c['name'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
+                        'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
+                        [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
                     );
                 } elseif ($isSqlite) {
                     BaseRepository::run(
@@ -1995,6 +2016,9 @@ class CloudSyncService {
                 $resolveBranch,
                 $resolveUser
             );
+            $acked['synced_wallet_logs'] = self::syncWalletLogs(
+                $payload['customer_wallet_logs'] ?? [], $resolveBranch, $resolveUser
+            );
         });
 
         return array_merge($acked, [
@@ -2033,7 +2057,7 @@ class CloudSyncService {
                  JOIN branches b ON b.id=d.branch_id
                  LEFT JOIN users u ON u.id=d.user_id
                  LEFT JOIN cycles c ON c.id=d.cycle_id
-                 ORDER BY d.id DESC LIMIT 200"
+                 ORDER BY d.id DESC"
             ),
             static fn($r) => ($r['branch_id'] ?? 1) . '|' . ($r['business_date'] ?? '') . '|' . ($r['created_at'] ?? ''),
             false
@@ -2051,22 +2075,28 @@ class CloudSyncService {
                  LEFT JOIN drawers d ON d.id=s.drawer_id
                  LEFT JOIN users u ON u.id=s.user_id
                  LEFT JOIN customers c ON c.id=s.customer_id
-                 ORDER BY s.id DESC LIMIT 200"
+                 ORDER BY s.id DESC"
             ),
             static fn($r) => ($r['created_at'] ?? '') . '|' . ($r['total'] ?? 0) . '|' . ($r['branch_id'] ?? 1),
             false
         );
+        $itemsBySale = [];
+        foreach (BaseRepository::rows(
+            "SELECT si.*, p.sku AS product_sku, COALESCE(un.code, '') AS unit_code
+             FROM sale_items si JOIN products p ON p.id=si.product_id LEFT JOIN units un ON un.id=si.unit_id ORDER BY si.id"
+        ) as $item) {
+            $itemsBySale[$item['sale_id']][] = $item;
+        }
+        $paymentsBySale = [];
+        foreach (BaseRepository::rows('SELECT * FROM payments ORDER BY id') as $payment) {
+            $paymentsBySale[$payment['sale_id']][] = $payment;
+        }
         $saleEntries = [];
-        foreach ($sales as $s) {
+        foreach ($sales as $sale) {
             $saleEntries[] = [
-                'sale' => $s,
-                'items' => BaseRepository::rows(
-                    "SELECT si.*, p.sku AS product_sku, COALESCE(un.code, '') AS unit_code
-                     FROM sale_items si JOIN products p ON p.id=si.product_id LEFT JOIN units un ON un.id=si.unit_id
-                     WHERE si.sale_id=?",
-                    [$s['id']]
-                ),
-                'payments' => BaseRepository::rows('SELECT * FROM payments WHERE sale_id=?', [$s['id']]),
+                'sale' => $sale,
+                'items' => $itemsBySale[$sale['id']] ?? [],
+                'payments' => $paymentsBySale[$sale['id']] ?? [],
             ];
         }
 
@@ -2081,7 +2111,7 @@ class CloudSyncService {
                  JOIN branches b ON b.id=d.branch_id
                  LEFT JOIN cycles c ON c.id=d.cycle_id
                  LEFT JOIN users u ON u.id=cm.user_id
-                 ORDER BY cm.id DESC LIMIT 500"
+                 ORDER BY cm.id DESC"
             ),
             static fn($r) => ($r['drawer_id'] ?? 1) . '|' . ($r['amount'] ?? 0) . '|' . ($r['kind'] ?? '') . '|' . ($r['reference'] ?? '') . '|' . ($r['created_at'] ?? ''),
             false
@@ -2101,7 +2131,7 @@ class CloudSyncService {
                  JOIN products p ON p.id=pu.product_id
                  LEFT JOIN drawers d ON d.id=sp.drawer_id
                  LEFT JOIN users u ON u.id=sp.user_id
-                 ORDER BY sp.id DESC LIMIT 200"
+                 ORDER BY sp.id DESC"
             ),
             static fn($r) => ($r['purchase_id'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? ''),
             false
@@ -2119,7 +2149,7 @@ class CloudSyncService {
                  JOIN sales s ON s.id=si.sale_id
                  JOIN products p ON p.id=si.product_id
                  LEFT JOIN drawers d ON d.id=rl.processed_drawer_id
-                 ORDER BY rl.id DESC LIMIT 200"
+                 ORDER BY rl.id DESC"
             ),
             static fn($r) => ($r['sale_item_id'] ?? 0) . '|' . ($r['qty'] ?? 0) . '|' . ($r['amount'] ?? 0) . '|' . ($r['created_at'] ?? ''),
             false
@@ -2147,7 +2177,7 @@ class CloudSyncService {
                  LEFT JOIN branches b ON b.id=bp.branch_id
                  LEFT JOIN products p ON p.id=bp.product_id
                  LEFT JOIN users u ON u.id=bp.user_id
-                 ORDER BY bp.id DESC LIMIT 200"
+                 ORDER BY bp.id DESC"
             ),
             static fn($r) => ($r['product_id'] ?? 0) . '|' . ($r['copies'] ?? 1) . '|' . ($r['created_at'] ?? ''),
             false
@@ -2161,45 +2191,41 @@ class CloudSyncService {
                  FROM audit_log a
                  LEFT JOIN branches b ON b.id=a.branch_id
                  LEFT JOIN users u ON u.id=a.user_id
-                 ORDER BY a.id DESC LIMIT 200"
+                 ORDER BY a.id DESC"
             ),
             static fn($r) => ($r['action'] ?? '') . '|' . ($r['user_id'] ?? 0) . '|' . ($r['created_at'] ?? ''),
             false
         );
 
-        $userBranches = [];
-        try {
-            $userBranches = BaseRepository::rows(
-                "SELECT u.email, b.name AS branch_name
-                 FROM user_branches ub
-                 JOIN users u ON u.id=ub.user_id
-                 JOIN branches b ON b.id=ub.branch_id
-                 ORDER BY ub.user_id ASC, ub.branch_id ASC"
-            );
-        } catch (\Throwable $ignore) {
-        }
-
-        $userPermissions = [];
-        try {
-            \Zeedat\Repositories\PermissionRepository::ensureTable();
-            $userPermissions = BaseRepository::rows(
-                "SELECT u.email, up.permission, up.allowed
-                 FROM user_permissions up
-                 JOIN users u ON u.id=up.user_id
-                 ORDER BY up.user_id ASC, up.permission ASC"
-            );
-        } catch (\Throwable $ignore) {
-        }
+        $users = self::ensureSyncUuids(
+            'users',
+            'USR',
+            BaseRepository::rows(
+                "SELECT u.id, u.branch_id, COALESCE(b.name, '') AS branch_name, u.name, u.email,
+                        u.password_hash, u.role, u.badge_code, u.active, u.sync_uuid
+                 FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id ASC"
+            ),
+            static fn($u) => strtolower(trim((string) $u['email'])),
+            false
+        );
+        $userBranches = BaseRepository::rows(
+            'SELECT u.email, b.name AS branch_name
+             FROM user_branches ub JOIN users u ON u.id=ub.user_id JOIN branches b ON b.id=ub.branch_id'
+        );
+        $userPermissions = BaseRepository::rows(
+            'SELECT u.email, up.permission, up.allowed
+             FROM user_permissions up JOIN users u ON u.id=up.user_id'
+        );
 
         return [
             'success' => true,
             'count' => count($products),
-            'branches' => BaseRepository::rows('SELECT id, name, phone, address, sync_uuid FROM branches ORDER BY id ASC'),
-            'role_permissions' => BaseRepository::rows('SELECT role, permission FROM role_permissions'),
-            'users' => BaseRepository::rows(
-                "SELECT u.id, u.branch_id, COALESCE(b.name, '') AS branch_name, u.name, u.email, u.password_hash, u.role, u.badge_code, u.active
-                 FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id ASC"
+            'branches' => self::ensureSyncUuids(
+                'branches', 'BR', BaseRepository::rows('SELECT id, name, phone, address, sync_uuid FROM branches ORDER BY id ASC'),
+                static fn($row) => (string) $row['name'], false
             ),
+            'role_permissions' => BaseRepository::rows('SELECT role, permission FROM role_permissions'),
+            'users' => $users,
             'user_branches' => $userBranches,
             'user_permissions' => $userPermissions,
             'products' => $products,
@@ -2218,18 +2244,18 @@ class CloudSyncService {
             'purchases' => BaseRepository::rows(
                 "SELECT pu.*, b.name AS branch_name, sp.name AS supplier_name, p.sku AS product_sku
                  FROM purchases pu JOIN branches b ON b.id=pu.branch_id JOIN suppliers sp ON sp.id=pu.supplier_id JOIN products p ON p.id=pu.product_id
-                 ORDER BY pu.id DESC LIMIT 200"
+                 ORDER BY pu.id DESC"
             ),
             'transfers' => BaseRepository::rows(
                 "SELECT t.*, fb.name AS from_branch_name, tb.name AS to_branch_name, p.sku AS product_sku, COALESCE(un.code, '') AS unit_code
                  FROM transfers t JOIN branches fb ON fb.id=t.from_branch JOIN branches tb ON tb.id=t.to_branch
-                 JOIN products p ON p.id=t.product_id LEFT JOIN units un ON un.id=t.unit_id ORDER BY t.id DESC LIMIT 200"
+                 JOIN products p ON p.id=t.product_id LEFT JOIN units un ON un.id=t.unit_id ORDER BY t.id DESC"
             ),
             'repairs' => BaseRepository::rows(
                 "SELECT r.*, b.name AS branch_name, COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone,
                         COALESCE(t.email, '') AS technician_email
                  FROM repairs r JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=r.customer_id
-                 LEFT JOIN users t ON t.id=r.technician_id ORDER BY r.id DESC LIMIT 200"
+                 LEFT JOIN users t ON t.id=r.technician_id ORDER BY r.id DESC"
             ),
             'drawers' => $drawers,
             'sales' => $saleEntries,
@@ -2238,6 +2264,19 @@ class CloudSyncService {
             'returns_log' => $returnsRaw,
             'barcode_print_logs' => $barcodeLogs,
             'audit_log' => $auditLogs,
+            'customer_wallet_logs' => self::ensureSyncUuids(
+                'customer_wallet_logs', 'WLT', BaseRepository::rows(self::WALLET_LOG_QUERY . ' ORDER BY w.id'),
+                static fn($row) => bin2hex(random_bytes(16)), false
+            ),
+            'stock_movements' => self::ensureSyncUuids(
+                'stock_movements', 'MV', BaseRepository::rows(
+                    "SELECT m.*, b.name AS branch_name, p.sku AS product_sku, u.email AS user_email
+                     FROM stock_movements m JOIN branches b ON b.id=m.branch_id
+                     JOIN products p ON p.id=m.product_id LEFT JOIN users u ON u.id=m.user_id ORDER BY m.id"
+                ),
+                static fn($row) => ($row['branch_id'] ?? 1) . '|' . ($row['product_sku'] ?? '') . '|' . ($row['kind'] ?? '') . '|' . ($row['reference'] ?? '') . '|' . ($row['created_at'] ?? ''),
+                false
+            ),
             'settings' => [
                 'shop_name' => $settings['shop_name'] ?? 'ZEEDAT POS',
                 'shop_phone' => $settings['shop_phone'] ?? '',

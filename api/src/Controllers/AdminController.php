@@ -190,35 +190,13 @@ class AdminController
             throw new ApiError('You cannot delete your own active account.', 400);
         }
 
-        // Check for historical financial / operational records
-        $salesCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE user_id=?', [$id]);
-        $drawersCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM drawers WHERE user_id=?', [$id]);
-        $repairsCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE technician_id=?', [$id]);
-
-        if ($salesCount > 0 || $drawersCount > 0 || $repairsCount > 0) {
-            // Soft delete/deactivate to prevent FK constraint errors and preserve audit history
-            BaseRepository::run('UPDATE users SET active=0, synced=0 WHERE id=?', [$id]);
-            UserRepository::logAudit((int) $user['id'], null, 'staff.deactivate', ['id' => $id, 'name' => $target['name'], 'reason' => 'deleted_with_history']);
-            return [
-                'id' => $id,
-                'deleted' => false,
-                'deactivated' => true,
-                'message' => "Account deactivated. Past financial and repair history preserved.",
-            ];
-        }
-
-        // Hard delete if no transactions are linked
-        BaseRepository::run('DELETE FROM requests WHERE user_id=?', [$id]);
-        BaseRepository::run('DELETE FROM drafts WHERE user_id=?', [$id]);
-        BaseRepository::run('DELETE FROM audit_log WHERE user_id=?', [$id]);
-        BaseRepository::run('DELETE FROM users WHERE id=?', [$id]);
-
-        UserRepository::logAudit((int) $user['id'], null, 'staff.delete', ['id' => $id, 'name' => $target['name']]);
-
+        BaseRepository::run('UPDATE users SET active=0, synced=0 WHERE id=?', [$id]);
+        UserRepository::logAudit((int) $user['id'], null, 'staff.deactivate', ['id' => $id, 'name' => $target['name']]);
         return [
             'id' => $id,
-            'deleted' => true,
-            'message' => "Staff member '{$target['name']}' has been permanently removed.",
+            'deleted' => false,
+            'deactivated' => true,
+            'message' => 'Account deactivated. Past activity is preserved.',
         ];
     }
 
@@ -370,7 +348,7 @@ class AdminController
         }
 
         BaseRepository::run(
-            'UPDATE users SET password_hash=? WHERE id=?',
+            'UPDATE users SET password_hash=?, synced=0 WHERE id=?',
             [password_hash($next, PASSWORD_DEFAULT), $user['id']]
         );
         UserRepository::logAudit((int) $user['id'], null, 'profile.password', ['status' => 'changed']);

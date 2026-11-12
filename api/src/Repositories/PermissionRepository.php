@@ -113,40 +113,52 @@ class PermissionRepository extends BaseRepository {
         ],
     ];
 
-    private static bool $initialized = false;
+    private static ?\WeakMap $initialized = null;
 
-    public static function ensureTable(): void {
-        if (self::$initialized) {
+    public static function ensureTable(?\PDO $db = null): void {
+        $db ??= self::db();
+        self::$initialized ??= new \WeakMap();
+        if (isset(self::$initialized[$db])) {
             return;
         }
+        $engine = $db->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' ENGINE=InnoDB';
 
-        self::run("CREATE TABLE IF NOT EXISTS role_permissions (
+        $db->exec("CREATE TABLE IF NOT EXISTS role_permissions (
             role VARCHAR(40) NOT NULL,
             permission VARCHAR(60) NOT NULL,
             PRIMARY KEY(role, permission)
-        ) ENGINE=InnoDB");
+        ){$engine}");
 
-        self::run("CREATE TABLE IF NOT EXISTS user_permissions (
+        $db->exec("CREATE TABLE IF NOT EXISTS user_permissions (
             user_id INT NOT NULL,
             permission VARCHAR(60) NOT NULL,
             allowed TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY(user_id, permission)
-        ) ENGINE=InnoDB");
+        ){$engine}");
+        $db->exec("CREATE TABLE IF NOT EXISTS role_permission_sync (
+            role VARCHAR(40) NOT NULL PRIMARY KEY,
+            pending_token VARCHAR(32) NULL
+        ){$engine}");
 
-        $count = (int) self::scalar("SELECT COUNT(*) FROM role_permissions");
-        if ($count === 0) {
-            self::seedDefaults();
+        if (!(int) $db->query('SELECT COUNT(*) FROM role_permissions')->fetchColumn()
+            && !(int) $db->query('SELECT COUNT(*) FROM role_permission_sync')->fetchColumn()) {
+            self::insertDefaults($db);
         }
 
-        self::$initialized = true;
+        self::$initialized[$db] = true;
     }
 
-    public static function seedDefaults(): void {
-        self::run("DELETE FROM role_permissions");
-        $insertSql = Database::isSqlite() 
+    public static function seedDefaults(?\PDO $db = null): void {
+        $db ??= self::db();
+        $db->exec('DELETE FROM role_permissions');
+        self::insertDefaults($db);
+    }
+
+    private static function insertDefaults(\PDO $db): void {
+        $insertSql = $db->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
             ? "INSERT OR IGNORE INTO role_permissions (role, permission) VALUES (?, ?)"
             : "INSERT IGNORE INTO role_permissions (role, permission) VALUES (?, ?)";
-        $stmt = self::db()->prepare($insertSql);
+        $stmt = $db->prepare($insertSql);
         foreach (self::DEFAULT_ROLE_PERMISSIONS as $role => $perms) {
             foreach ($perms as $perm) {
                 if (isset(self::ALL_PERMISSIONS[$perm])) {
@@ -154,6 +166,13 @@ class PermissionRepository extends BaseRepository {
                 }
             }
         }
+    }
+
+    public static function markRoleChanged(string $role, ?string $token): void {
+        $sql = Database::isSqlite()
+            ? 'INSERT INTO role_permission_sync (role, pending_token) VALUES (?,?) ON CONFLICT(role) DO UPDATE SET pending_token=excluded.pending_token'
+            : 'INSERT INTO role_permission_sync (role, pending_token) VALUES (?,?) ON DUPLICATE KEY UPDATE pending_token=VALUES(pending_token)';
+        self::run($sql, [$role, $token]);
     }
 
     public static function getPermissionsByRole(): array {
@@ -229,6 +248,7 @@ class PermissionRepository extends BaseRepository {
                             $stmt->execute([$role, $perm]);
                         }
                     }
+                    self::markRoleChanged($role, Database::isSqlite() ? bin2hex(random_bytes(16)) : null);
                 }
             }
 
@@ -248,6 +268,9 @@ class PermissionRepository extends BaseRepository {
 
         self::transaction(function () use ($adminUserId) {
             self::seedDefaults();
+            foreach (['manager', 'cashier', 'technician', 'stock'] as $role) {
+                self::markRoleChanged($role, Database::isSqlite() ? bin2hex(random_bytes(16)) : null);
+            }
             UserRepository::logAudit(
                 $adminUserId,
                 null,

@@ -238,7 +238,7 @@ export function BackupSyncManager({ ctx }) {
             (pushRes?.synced_returns ?? 0));
         setMessage({
           type: 'success',
-          text: `Two-Way Sync Complete! Pushed ${pushedTotal} local record(s). Pulled ${pullRes?.branches_synced ?? 0} branch(es), ${pullRes?.products_synced ?? 0} product(s), ${pullRes?.stock_synced ?? 0} stock, ${pullRes?.customers_synced ?? 0} customer(s), ${pullRes?.units_synced ?? 0} unit(s), ${pullRes?.sales_synced ?? 0} sale(s), ${pullRes?.drawers_synced ?? 0} drawer(s), ${pullRes?.cash_movements_synced ?? 0} cashbook entry(s), and ${pullRes?.returns_synced ?? 0} return(s).`,
+          text: `Two-way sync complete. Pushed ${pushedTotal} local record(s). Pulled ${pullRes?.users_synced ?? 0} staff account(s), ${pullRes?.branches_synced ?? 0} branch(es), ${pullRes?.products_synced ?? 0} product(s), ${pullRes?.customers_synced ?? 0} customer(s), ${pullRes?.sales_synced ?? 0} sale(s), and ${pullRes?.returns_synced ?? 0} return(s).`,
         });
         window.dispatchEvent(new Event('zeedat-sync-complete'));
       }

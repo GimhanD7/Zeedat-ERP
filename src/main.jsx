@@ -277,6 +277,7 @@ function Workspace({ session, onLogout }) {
           (res?.push?.synced_customers ?? 0) +
           (res?.push?.synced_repairs ?? 0));
       const pulledCount =
+        (res?.pull?.users_synced ?? 0) +
         (res?.pull?.products_synced ?? 0) +
         (res?.pull?.stock_synced ?? 0) +
         (res?.pull?.customers_synced ?? 0) +
@@ -286,11 +287,15 @@ function Workspace({ session, onLogout }) {
         (res?.pull?.returns_synced ?? 0) +
         (res?.pull?.supplier_payments_synced ?? 0) +
         (res?.pull?.barcode_logs_synced ?? 0) +
-        (res?.pull?.audit_logs_synced ?? 0);
+        (res?.pull?.audit_logs_synced ?? 0) +
+        (res?.pull?.wallet_logs_synced ?? 0) +
+        (res?.pull?.stock_movements_synced ?? 0);
       const backedUp =
         res?.backup?.status === 'synced' || (res?.pending_backups?.uploaded ?? 0) > 0;
       if (pushedCount > 0 || pulledCount > 0 || backedUp) {
-        setNotice('Online: synced all offline & server data.');
+        if (res?.push?.success !== false && res?.pull?.success !== false) {
+          setNotice('Online sync completed.');
+        }
         window.dispatchEvent(new Event('zeedat-sync-complete'));
       }
     };

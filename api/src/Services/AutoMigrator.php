@@ -9,7 +9,7 @@ use Zeedat\Repositories\PermissionRepository;
 
 class AutoMigrator
 {
-    private static bool $migrated = false;
+    private static ?\WeakMap $migrated = null;
 
     /**
      * Automatically verifies and migrates the database schema and default seeds.
@@ -17,11 +17,12 @@ class AutoMigrator
      */
     public static function run(PDO $db, string $driver): void
     {
-        if (self::$migrated) {
+        self::$migrated ??= new \WeakMap();
+        if (isset(self::$migrated[$db])) {
             return;
         }
 
-        self::$migrated = true;
+        self::$migrated[$db] = true;
 
         try {
             $hasUsers = false;
@@ -101,7 +102,7 @@ class AutoMigrator
         $userStmt->execute([$hash]);
 
         // Seed Role Permissions
-        PermissionRepository::seedDefaults();
+        PermissionRepository::seedDefaults($db);
 
         // Seed Products and Customers from backup file if enabled & available
         if (\Zeedat\Config\Database::env('SEED_DEMO', '1') === '1') {
@@ -195,7 +196,7 @@ class AutoMigrator
     private static function runIncrementalMigrations(PDO $db, string $driver): void
     {
         // Ensure role_permissions table exists
-        PermissionRepository::ensureTable();
+        PermissionRepository::ensureTable($db);
 
         // Ensure settings has cloud sync columns
         try {
@@ -687,6 +688,16 @@ class AutoMigrator
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     INDEX(customer_id, created_at)
                 ) ENGINE=InnoDB");
+            }
+
+            $walletColumns = $driver === 'sqlite'
+                ? array_column($db->query('PRAGMA table_info(customer_wallet_logs)')->fetchAll(), 'name')
+                : array_column($db->query('SHOW COLUMNS FROM customer_wallet_logs')->fetchAll(), 'Field');
+            if (!in_array('sync_uuid', $walletColumns, true)) {
+                $db->exec('ALTER TABLE customer_wallet_logs ADD COLUMN sync_uuid VARCHAR(64) NULL');
+            }
+            if (!in_array('synced', $walletColumns, true)) {
+                $db->exec('ALTER TABLE customer_wallet_logs ADD COLUMN synced INTEGER NOT NULL DEFAULT 0');
             }
 
             // Backfill staff badge_code (STF00001...) for any users missing one
