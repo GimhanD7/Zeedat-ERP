@@ -442,27 +442,9 @@ export function StaffPage({ ctx }) {
                             >
                               Badge
                             </Button>
-                            <Button
-                              icon={Eye}
-                              aria-label={`View details of ${s.name}`}
-                              variant="outline"
-                              onClick={() => setProfileModalMember(s)}
-                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}
-                            >
-                              Profile
-                            </Button>
 
                             {s.role !== 'owner' && (
                               <>
-                                <Button
-                                  icon={Building2}
-                                  aria-label={`Assign branches for ${s.name}`}
-                                  variant="outline"
-                                  onClick={() => openBranchAssignModal(s)}
-                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem' }}
-                                >
-                                  Branches
-                                </Button>
                                 <Button
                                   icon={ShieldCheck}
                                   aria-label={`Manage permissions for ${s.name}`}
