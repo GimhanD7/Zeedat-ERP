@@ -877,4 +877,133 @@ class InventoryService {
             ];
         });
     }
+
+    public static function importProducts(array $user, int $branch, array $body): array {
+        if ($branch <= 0) {
+            throw new ApiError('Select a branch to receive imported stock.');
+        }
+        $rows = $body['items'] ?? null;
+        if (!is_array($rows) || empty($rows)) {
+            throw new ApiError('No items provided for import.');
+        }
+        if (count($rows) > 1000) {
+            throw new ApiError('Import up to 1,000 rows per batch.');
+        }
+
+        $mode = ($body['mode'] ?? 'add') === 'set' ? 'set' : 'add';
+        $allowedCategories = ['Phones', 'Accessories', 'Repair Parts', 'Services'];
+
+        return BaseRepository::transaction(function () use ($user, $branch, $rows, $mode, $allowedCategories) {
+            $created = 0;
+            $updated = 0;
+            $stockAdjusted = 0;
+            $skipped = 0;
+            $batchRef = 'XLS-' . date('YmdHis');
+
+            foreach ($rows as $raw) {
+                if (!is_array($raw)) {
+                    $skipped++;
+                    continue;
+                }
+                $name = trim((string) ($raw['name'] ?? ''));
+                if ($name === '') {
+                    $skipped++;
+                    continue;
+                }
+                if (mb_strlen($name) > 120) {
+                    $name = mb_substr($name, 0, 120);
+                }
+
+                $rawCat = trim((string) ($raw['category'] ?? 'Accessories'));
+                $category = 'Accessories';
+                foreach ($allowedCategories as $validCat) {
+                    if (strcasecmp($rawCat, $validCat) === 0) {
+                        $category = $validCat;
+                        break;
+                    }
+                }
+
+                $brand = mb_substr(trim((string) ($raw['brand'] ?? '')), 0, 60);
+                $barcode = $category === 'Services' ? '' : mb_substr(trim((string) ($raw['barcode'] ?? '')), 0, 40);
+                $skuInput = trim((string) ($raw['sku'] ?? ''));
+
+                $cost = max(0, (int) ($raw['cost'] ?? 0));
+                $price = max(0, (int) ($raw['price'] ?? 0));
+                $qty = max(0, (int) ($raw['qty'] ?? 0));
+                $reorder = max(0, (int) ($raw['reorder_level'] ?? 0));
+                $commType = strtolower(trim((string) ($raw['commission_type'] ?? 'fixed'))) === 'percent' ? 'percent' : 'fixed';
+                $commVal = max(0, (int) ($raw['commission_value'] ?? 0));
+                if ($commType === 'percent' && $commVal > 10000) {
+                    $commVal = 10000;
+                }
+
+                // Match existing product by SKU -> Barcode -> exact Name
+                $existing = null;
+                if ($skuInput !== '') {
+                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE UPPER(sku)=UPPER(?) LIMIT 1', [$skuInput]);
+                }
+                if (!$existing && $barcode !== '') {
+                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE barcode=? LIMIT 1', [$barcode]);
+                }
+                if (!$existing) {
+                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE LOWER(name)=LOWER(?) LIMIT 1', [$name]);
+                }
+
+                if ($existing) {
+                    $pid = (int) $existing['id'];
+                    if ($barcode !== '') {
+                        $holder = (int) BaseRepository::scalar('SELECT id FROM products WHERE barcode=? AND id!=?', [$barcode, $pid]);
+                        if ($holder > 0) {
+                            $barcode = (string) ($existing['barcode'] ?? '');
+                        }
+                    } else {
+                        $barcode = (string) ($existing['barcode'] ?? '');
+                    }
+                    BaseRepository::run(
+                        'UPDATE products SET barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=?, active=1, synced=0 WHERE id=?',
+                        [$barcode !== '' ? $barcode : null, $name, $brand, $category, $cost, $price, $reorder, $commType, $commVal, $pid]
+                    );
+                    $updated++;
+                } else {
+                    $sku = self::generateUniqueSku($category);
+                    if ($barcode !== '') {
+                        $holder = (int) BaseRepository::scalar('SELECT id FROM products WHERE barcode=?', [$barcode]);
+                        if ($holder > 0) {
+                            $barcode = '';
+                        }
+                    }
+                    $pid = BaseRepository::insert(
+                        'INSERT INTO products(sku, barcode, name, brand, category, cost, price, reorder_level, serialized, commission_type, commission_value, image_path, synced) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,0)',
+                        [$sku, $barcode !== '' ? $barcode : null, $name, $brand, $category, $cost, $price, $reorder, $commType, $commVal, '']
+                    );
+                    $created++;
+                }
+
+                if ($category !== 'Services' && empty($existing['serialized'])) {
+                    $currentQty = (int) BaseRepository::scalar('SELECT COALESCE(qty, 0) FROM stock WHERE branch_id=? AND product_id=?', [$branch, $pid]);
+                    $delta = $mode === 'set' ? ($qty - $currentQty) : $qty;
+                    if ($delta !== 0) {
+                        ProductRepository::adjustStock(
+                            $branch,
+                            $pid,
+                            $delta,
+                            'Excel Import',
+                            $batchRef,
+                            (int) ($user['id'] ?? 1)
+                        );
+                        $stockAdjusted++;
+                    }
+                }
+            }
+
+            return [
+                'created' => $created,
+                'updated' => $updated,
+                'stock_adjusted' => $stockAdjusted,
+                'skipped' => $skipped,
+                'total_processed' => $created + $updated,
+                'batch_ref' => $batchRef,
+            ];
+        });
+    }
 }

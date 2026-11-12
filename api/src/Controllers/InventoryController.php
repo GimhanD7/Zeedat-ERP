@@ -99,4 +99,8 @@ class InventoryController {
     public static function deleteProduct(array $user, array $body): array {
         return InventoryService::deleteProduct($user, $body);
     }
+
+    public static function importProducts(array $user, int $branch, array $body): array {
+        return InventoryService::importProducts($user, $branch, $body);
+    }
 }

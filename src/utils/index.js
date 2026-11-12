@@ -3,3 +3,4 @@ export * from './formatters';
 export * from './receiptPrint';
 export * from './imageCompress';
 export * from './imageMode';
+export * from './spreadsheetImport';

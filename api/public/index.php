@@ -181,6 +181,10 @@ try {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::saveProduct($user, $body);
                 })(),
+                'product.import' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'inventory');
+                    return InventoryController::importProducts($user, $branch, $body);
+                })(),
                 'product.barcode' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::updateBarcode($user, $body);

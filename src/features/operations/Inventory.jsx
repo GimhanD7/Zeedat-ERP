@@ -7,6 +7,7 @@ import {
   Box,
   Building2,
   DollarSign,
+  FileSpreadsheet,
   History,
   Layers3,
   Lock,
@@ -36,6 +37,7 @@ import { DataView } from '../../components/feedback';
 import { BarcodeLabelModal } from './BarcodeLabelModal';
 import { BatchBarcodeModal } from './BatchBarcodeModal';
 import { StockAdjustModal } from './StockAdjustModal';
+import { StockImportModal } from './StockImportModal';
 import { BranchStocksTab } from './BranchStocksTab';
 import { DeviceUnitsTab } from './DeviceUnitsTab';
 import { StockHistoryTab } from './StockHistoryTab';
@@ -94,6 +96,7 @@ export function Inventory({ ctx }) {
   const [labelProduct, setLabelProduct] = useState(null);
   const [batchModal, setBatchModal] = useState(false);
   const [adjustModal, setAdjustModal] = useState(null); // null | { product, branch }
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -415,6 +418,9 @@ export function Inventory({ ctx }) {
               title="Products & Inventory"
               description="Manage your catalog, branch-wise stocks, barcodes, pricing and device units."
             >
+              <Button icon={FileSpreadsheet} onClick={() => setImportModalOpen(true)}>
+                Import Excel / CSV
+              </Button>
               <Button icon={Barcode} onClick={() => ctx.navigate('barcodes')}>
                 Barcode
               </Button>
@@ -812,6 +818,19 @@ export function Inventory({ ctx }) {
                 onClose={() => setAdjustModal(null)}
                 onSuccess={() => {
                   setAdjustModal(null);
+                  state.refresh();
+                }}
+              />
+            )}
+
+            {/* Excel / CSV Bulk Stock Import Modal */}
+            {importModalOpen && (
+              <StockImportModal
+                ctx={ctx}
+                defaultBranch={selectedBranch}
+                onClose={() => setImportModalOpen(false)}
+                onSuccess={() => {
+                  setImportModalOpen(false);
                   state.refresh();
                 }}
               />
