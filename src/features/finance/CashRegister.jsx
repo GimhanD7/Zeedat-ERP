@@ -1448,73 +1448,167 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
               No categorized cashbook transactions match this filter.
             </div>
           ) : (
-            <div className="zk-cb-cat-grid">
-              {filteredCategories.map((c, idx) => {
-                const isNeg = c.total < 0;
-                const absVal = Math.abs(c.total);
-                const shareBase = isNeg ? Math.max(1, totalCatOutflow) : Math.max(1, totalCatInflow);
-                const sharePct = Math.round((absVal / shareBase) * 100);
-                const barPct = Math.min(100, Math.round((absVal / maxCatVal) * 100));
-                const avg = Math.round(absVal / Math.max(1, c.count));
-
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    className="zk-cb-cat-card clickable"
-                    style={{ background: isNeg ? '#fffafa' : '#f8fdfb', textAlign: 'left' }}
-                    onClick={() => {
-                      setLedgerSearch(c.name);
-                      setLedgerFilter('all');
-                      setActiveTab('ledger');
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>
-                        {isNeg ? <TrendingDown size={15} style={{ color: '#dc2626' }} /> : <TrendingUp size={15} style={{ color: '#15803d' }} />}
-                        {c.name}
-                      </span>
-                      <Badge tone={isNeg ? 'red' : 'green'}>{c.count} txns</Badge>
-                    </div>
-
-                    <div
-                      className="mono"
+            <div
+              style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
+              }}
+            >
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr
                       style={{
-                        fontSize: '19px',
-                        fontWeight: 800,
-                        marginTop: '10px',
-                        color: isNeg ? '#dc2626' : '#15803d',
+                        background: '#f8fafc',
+                        borderBottom: '1px solid #e2e8f0',
+                        color: '#475569',
+                        fontSize: '11.5px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
                       }}
                     >
-                      {isNeg ? `− ${money(absVal)}` : `+ ${money(absVal)}`}
-                    </div>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700 }}>
+                        Category / Account
+                      </th>
+                      <th style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700 }}>
+                        Type
+                      </th>
+                      <th style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                        Txns
+                      </th>
+                      <th style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
+                        Avg / Txn
+                      </th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, minWidth: '180px' }}>
+                        Share &amp; Volume
+                      </th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700 }}>
+                        Total Amount
+                      </th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700 }}>
+                        Ledger
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCategories.map((c, idx) => {
+                      const isNeg = c.total < 0;
+                      const absVal = Math.abs(c.total);
+                      const shareBase = isNeg ? Math.max(1, totalCatOutflow) : Math.max(1, totalCatInflow);
+                      const sharePct = Math.round((absVal / shareBase) * 100);
+                      const barPct = Math.min(100, Math.round((absVal / maxCatVal) * 100));
+                      const avg = Math.round(absVal / Math.max(1, c.count));
 
-                    <div className="zk-cb-cat-submeta">
-                      <span>Avg: {money(avg)}</span>
-                      <span>{sharePct}% of {isNeg ? 'outflows' : 'inflows'}</span>
-                    </div>
-
-                    <div
-                      style={{
-                        height: '6px',
-                        background: '#e2e8f0',
-                        borderRadius: '4px',
-                        marginTop: '8px',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${barPct}%`,
-                          height: '100%',
-                          background: isNeg ? '#ef4444' : '#10b981',
-                          borderRadius: '4px',
-                        }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
+                      return (
+                        <tr
+                          key={idx}
+                          onClick={() => {
+                            setLedgerSearch(c.name);
+                            setLedgerFilter('all');
+                            setActiveTab('ledger');
+                          }}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            cursor: 'pointer',
+                            transition: 'background 0.15s ease',
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = '#f8fafc';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span
+                                style={{
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '8px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: isNeg ? '#fef2f2' : '#ecfdf5',
+                                  color: isNeg ? '#dc2626' : '#15803d',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {isNeg ? <TrendingDown size={15} /> : <TrendingUp size={15} />}
+                              </span>
+                              <strong style={{ color: '#0f172a', fontWeight: 600 }}>{c.name}</strong>
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 14px' }}>
+                            <Badge tone={isNeg ? 'red' : 'green'}>
+                              {isNeg ? 'Outflow (Cr)' : 'Inflow (Dr)'}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: '12px 14px', textAlign: 'right', color: '#475569', fontWeight: 600 }}>
+                            {c.count}
+                          </td>
+                          <td className="mono" style={{ padding: '12px 14px', textAlign: 'right', color: '#475569' }}>
+                            {money(avg)}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div
+                                style={{
+                                  flex: 1,
+                                  height: '7px',
+                                  background: '#e2e8f0',
+                                  borderRadius: '999px',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${barPct}%`,
+                                    height: '100%',
+                                    background: isNeg ? '#ef4444' : '#10b981',
+                                    borderRadius: '999px',
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#64748b', minWidth: '34px', textAlign: 'right' }}>
+                                {sharePct}%
+                              </span>
+                            </div>
+                          </td>
+                          <td
+                            className="mono"
+                            style={{
+                              padding: '12px 16px',
+                              textAlign: 'right',
+                              fontWeight: 700,
+                              color: isNeg ? '#dc2626' : '#15803d',
+                            }}
+                          >
+                            {isNeg ? `− ${money(absVal)}` : `+ ${money(absVal)}`}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: '#0d9488',
+                              }}
+                            >
+                              View <ArrowRight size={13} />
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
