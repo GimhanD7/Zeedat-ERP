@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('owner','manager','cashier','technician','stock')),
+  badge_code TEXT NULL,
   active INTEGER NOT NULL DEFAULT 1,
   FOREIGN KEY (branch_id) REFERENCES branches(id)
 );

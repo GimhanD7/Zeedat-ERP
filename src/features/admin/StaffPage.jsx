@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { 
+  Barcode,
   Building2,
   CheckCircle2,
   Eye,
@@ -7,6 +8,7 @@ import {
   Mail,
   Pencil, 
   Plus, 
+  Printer,
   Shield, 
   ShieldCheck, 
   ShoppingCart, 
@@ -22,6 +24,7 @@ import {
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BarcodeSvg,
   Button,
   FilterTabs,
   Heading,
@@ -33,8 +36,9 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { initials, money, options, roles } from '../../utils';
+import { initials, money, options, printHtmlDocument, roles } from '../../utils';
 import { RolePermissionsManager } from './RolePermissionsManager';
+import { buildStaffBadgesPrintHtml, getStaffBadgeCode } from './staffBadgePrint';
 
 export function StaffPage({ ctx }) {
   const state = useData(ctx, { staff: 'staff', permissionsData: 'permissions' });
@@ -44,6 +48,7 @@ export function StaffPage({ ctx }) {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [profileModalMember, setProfileModalMember] = useState(null);
+  const [badgeModalMember, setBadgeModalMember] = useState(null);
   const [permStaffId, setPermStaffId] = useState(null);
   const [branchModalMember, setBranchModalMember] = useState(null);
   const [selectedBranchIds, setSelectedBranchIds] = useState([]);
@@ -216,12 +221,21 @@ export function StaffPage({ ctx }) {
           <>
             <Heading
               title="Staff & Access Control"
-              description="Manage employee accounts, assign branches, track staff activity, and customize role permissions."
+              description="Manage employee accounts, ID barcode badges, branch access, and role permissions."
             >
               {tab === 'Staff accounts' && (
-                <Button icon={Plus} variant="primary" onClick={() => openStaffForm()}>
-                  Add Staff Member
-                </Button>
+                <>
+                  <Button
+                    icon={Printer}
+                    variant="soft"
+                    onClick={() => printHtmlDocument(buildStaffBadgesPrintHtml(staff.filter(s => s.active)))}
+                  >
+                    Print All Badges
+                  </Button>
+                  <Button icon={Plus} variant="primary" onClick={() => openStaffForm()}>
+                    Add Staff Member
+                  </Button>
+                </>
               )}
             </Heading>
 
@@ -336,7 +350,9 @@ export function StaffPage({ ctx }) {
                             <span className="avatar mini">{initials(s.name)}</span>
                             <span>
                               <strong>{s.name}</strong>
-                              <small className="subtext">{s.email}</small>
+                              <small className="subtext">
+                                #{s.id} · {getStaffBadgeCode(s)} · {s.email}
+                              </small>
                             </span>
                           </div>
                         ),
@@ -417,6 +433,15 @@ export function StaffPage({ ctx }) {
                         'Actions',
                         s => (
                           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                            <Button
+                              icon={Barcode}
+                              aria-label={`View ID barcode badge for ${s.name}`}
+                              variant="outline"
+                              onClick={() => setBadgeModalMember(s)}
+                              style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', color: '#0f766e' }}
+                            >
+                              Badge
+                            </Button>
                             <Button
                               icon={Eye}
                               aria-label={`View details of ${s.name}`}
@@ -565,7 +590,22 @@ export function StaffPage({ ctx }) {
                     </div>
                   </div>
 
+                  <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '0.75rem', marginBottom: '1rem', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                      <span>STAFF ID BARCODE BADGE</span>
+                      <span>ID #{profileModalMember.id} · {getStaffBadgeCode(profileModalMember)}</span>
+                    </div>
+                    <BarcodeSvg value={getStaffBadgeCode(profileModalMember)} height={44} />
+                  </div>
+
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                    <Button
+                      icon={Printer}
+                      variant="soft"
+                      onClick={() => printHtmlDocument(buildStaffBadgesPrintHtml([profileModalMember]))}
+                    >
+                      Print Badge
+                    </Button>
                     <Button variant="outline" onClick={() => setProfileModalMember(null)}>
                       Close
                     </Button>
@@ -595,6 +635,48 @@ export function StaffPage({ ctx }) {
                         </Button>
                       </>
                     )}
+                  </div>
+                </div>
+              </Modal>
+            )}
+
+            {/* STAFF BARCODE BADGE MODAL */}
+            {badgeModalMember && (
+              <Modal
+                title={`Staff Barcode Badge · ${badgeModalMember.name}`}
+                description={`ID #${badgeModalMember.id} · ${roles[badgeModalMember.role] || badgeModalMember.role} · Scan or enter at POS to credit sales commission`}
+                onClose={() => setBadgeModalMember(null)}
+              >
+                <div style={{ padding: '0.5rem', display: 'grid', gap: '1rem' }}>
+                  <div style={{ border: '1.5px solid #0d9488', borderRadius: '12px', padding: '1rem 1.25rem', background: '#ffffff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.6rem', marginBottom: '0.8rem' }}>
+                      <strong style={{ color: '#0f766e', letterSpacing: '0.5px', fontSize: '0.85rem' }}>ZEEDAT STAFF BADGE</strong>
+                      <Badge tone="blue">ID #{badgeModalMember.id}</Badge>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '0.9rem' }}>
+                      <span className="avatar" style={{ width: '44px', height: '44px', fontSize: '1rem' }}>
+                        {initials(badgeModalMember.name)}
+                      </span>
+                      <div>
+                        <strong style={{ fontSize: '1.05rem', display: 'block' }}>{badgeModalMember.name}</strong>
+                        <span className="muted" style={{ fontSize: '0.85rem' }}>
+                          {roles[badgeModalMember.role] || badgeModalMember.role} · {badgeModalMember.branch || 'All Branches'}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '0.75rem' }}>
+                      <BarcodeSvg value={getStaffBadgeCode(badgeModalMember)} height={54} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                    <Button variant="outline" onClick={() => setBadgeModalMember(null)}>Close</Button>
+                    <Button
+                      icon={Printer}
+                      variant="primary"
+                      onClick={() => printHtmlDocument(buildStaffBadgesPrintHtml([badgeModalMember]))}
+                    >
+                      Print Staff Badge
+                    </Button>
                   </div>
                 </div>
               </Modal>

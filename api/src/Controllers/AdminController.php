@@ -161,11 +161,14 @@ class AdminController
                 'INSERT INTO users(branch_id, name, email, role, password_hash, active) VALUES (?,?,?,?,?,1)',
                 [$branch, $name, $email, $role, password_hash($password, PASSWORD_DEFAULT)]
             );
+            $badgeCode = UserRepository::formatBadgeCode((int) $id);
+            BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', [$badgeCode, $id]);
         }
 
         $synced = self::syncUserBranches((int) $id, $branchIds);
+        $badgeCode = UserRepository::formatBadgeCode((int) $id, (string) (BaseRepository::scalar('SELECT badge_code FROM users WHERE id=?', [$id]) ?: ''));
 
-        return ['id' => $id, 'name' => $name, 'email' => $email, 'role' => $role, 'branch_ids' => $synced['branch_ids']];
+        return ['id' => $id, 'badge_code' => $badgeCode, 'name' => $name, 'email' => $email, 'role' => $role, 'branch_ids' => $synced['branch_ids']];
     }
 
     public static function deleteStaff(array $user, array $body): array

@@ -22,9 +22,15 @@ class UserRepository extends BaseRepository {
         return array_values(array_unique($ids));
     }
 
+    public static function formatBadgeCode(int $id, ?string $badgeCode = null): string {
+        $clean = strtoupper(trim((string) $badgeCode));
+        return $clean !== '' ? $clean : 'STF' . str_pad((string) $id, 5, '0', STR_PAD_LEFT);
+    }
+
     public static function findActiveById(int $id): ?array {
-        $user = self::one('SELECT id, branch_id, name, email, role FROM users WHERE id=? AND active=1', [$id]);
+        $user = self::one('SELECT id, branch_id, name, email, role, badge_code FROM users WHERE id=? AND active=1', [$id]);
         if ($user) {
+            $user['badge_code'] = self::formatBadgeCode((int) $user['id'], $user['badge_code'] ?? null);
             $user['branch_ids'] = self::assignedBranchIds((int) $user['id'], $user['branch_id'] ? (int) $user['branch_id'] : null);
             $user['permissions'] = PermissionRepository::getEffectivePermissionsForUser((int) $user['id'], $user['role']);
         }
@@ -42,6 +48,7 @@ class UserRepository extends BaseRepository {
             u.name, 
             u.email, 
             u.role, 
+            u.badge_code,
             u.active, 
             b.name AS branch,
             COALESCE(s.sales_count, 0) AS sales_count,
@@ -82,6 +89,7 @@ class UserRepository extends BaseRepository {
 
         foreach ($staff as &$member) {
             $uid = (int) $member['id'];
+            $member['badge_code'] = self::formatBadgeCode($uid, $member['badge_code'] ?? null);
             $primaryId = $member['branch_id'] ? (int) $member['branch_id'] : 0;
             $ids = $byUser[$uid]['ids'] ?? ($primaryId > 0 ? [$primaryId] : []);
             $names = $byUser[$uid]['names'] ?? (!empty($member['branch']) ? [(string) $member['branch']] : []);

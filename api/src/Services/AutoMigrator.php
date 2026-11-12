@@ -642,6 +642,10 @@ class AutoMigrator
                         $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
                     }
                 }
+                $existingUsers = array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+                if (!in_array('badge_code', $existingUsers, true)) {
+                    $db->exec('ALTER TABLE users ADD COLUMN badge_code TEXT NULL');
+                }
                 $db->exec("CREATE TABLE IF NOT EXISTS customer_wallet_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     branch_id INTEGER NOT NULL DEFAULT 0,
@@ -666,6 +670,9 @@ class AutoMigrator
                         $db->exec("ALTER TABLE sales ADD COLUMN {$col} {$def}");
                     }
                 }
+                if (empty($db->query("SHOW COLUMNS FROM users LIKE 'badge_code'")->fetchAll())) {
+                    $db->exec('ALTER TABLE users ADD COLUMN badge_code VARCHAR(32) NULL');
+                }
                 $db->exec("CREATE TABLE IF NOT EXISTS customer_wallet_logs (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     branch_id INT NOT NULL DEFAULT 0,
@@ -680,6 +687,15 @@ class AutoMigrator
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     INDEX(customer_id, created_at)
                 ) ENGINE=InnoDB");
+            }
+
+            // Backfill staff badge_code (STF00001...) for any users missing one
+            $missingBadges = $db->query("SELECT id FROM users WHERE COALESCE(badge_code, '') = ''")->fetchAll(PDO::FETCH_COLUMN);
+            if (!empty($missingBadges)) {
+                $badgeStmt = $db->prepare('UPDATE users SET badge_code=? WHERE id=?');
+                foreach ($missingBadges as $uid) {
+                    $badgeStmt->execute(['STF' . str_pad((string) ((int) $uid), 5, '0', STR_PAD_LEFT), (int) $uid]);
+                }
             }
         } catch (Throwable) {
         }

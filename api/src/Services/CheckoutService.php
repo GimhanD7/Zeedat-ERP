@@ -83,10 +83,21 @@ class CheckoutService {
             throw new ApiError('Prices changed. Refresh the bill before completing it.', 409);
         }
 
-        $staffId = !empty($body['staff_id']) ? Validator::integer($body['staff_id'], 'Staff ID') : (int) $user['id'];
-        $commissionUser = BaseRepository::one('SELECT id, name, role FROM users WHERE id=? AND active=1', [$staffId]);
+        $rawStaff = trim((string) ($body['staff_code'] ?? $body['staff_id'] ?? ''));
+        if ($rawStaff === '') {
+            $commissionUser = BaseRepository::one('SELECT id, name, role FROM users WHERE id=? AND active=1', [(int) $user['id']]);
+        } elseif (ctype_digit($rawStaff)) {
+            $staffId = Validator::integer($rawStaff, 'Staff ID');
+            $commissionUser = BaseRepository::one('SELECT id, name, role FROM users WHERE id=? AND active=1', [$staffId]);
+        } else {
+            $upperBadge = strtoupper($rawStaff);
+            $commissionUser = BaseRepository::one("SELECT id, name, role FROM users WHERE UPPER(COALESCE(badge_code, ''))=? AND active=1", [$upperBadge]);
+            if (!$commissionUser && preg_match('/^STF0*(\d+)$/i', $upperBadge, $m)) {
+                $commissionUser = BaseRepository::one('SELECT id, name, role FROM users WHERE id=? AND active=1', [(int) $m[1]]);
+            }
+        }
         if (!$commissionUser) {
-            throw new ApiError("Staff User ID #{$staffId} was not found or is inactive.", 404);
+            throw new ApiError("Staff badge/ID '{$rawStaff}' was not found or is inactive.", 404);
         }
         $commissionUserId = (int) $commissionUser['id'];
 

@@ -225,15 +225,39 @@ function BillingView({ ctx, data, onRefresh }) {
     return product ? [{ ...line, product, id: lineKey(line.product_id, line.unit_id) }] : [];
   });
 
-  const parsedStaffId = parseInt(String(staffIdInput || '').trim(), 10) || 0;
+  const getStaffBadgeCode = s => {
+    const clean = String(s?.badge_code || '').trim().toUpperCase();
+    if (clean) return clean;
+    const idNum = Number(s?.id || 0);
+    return idNum > 0 ? `STF${String(idNum).padStart(5, '0')}` : '';
+  };
+
+  const rawStaffQuery = String(staffIdInput || '').trim();
   const resolvedStaff = useMemo(() => {
-    if (!parsedStaffId) return null;
-    return (
-      staffList.find(s => Number(s.id) === parsedStaffId) ||
-      (Number(ctx.user?.id) === parsedStaffId ? ctx.user : null)
-    );
-  }, [parsedStaffId, staffList, ctx.user]);
-  const staffInvalid = String(staffIdInput || '').trim() !== '' && !resolvedStaff;
+    if (!rawStaffQuery) return null;
+    const upper = rawStaffQuery.toUpperCase();
+    const numericMatch = upper.match(/^#?(\d+)$/);
+    if (numericMatch) {
+      const pid = Number(numericMatch[1]);
+      return (
+        staffList.find(s => Number(s.id) === pid) ||
+        (Number(ctx.user?.id) === pid ? ctx.user : null)
+      );
+    }
+    const badgeHit = staffList.find(s => getStaffBadgeCode(s) === upper);
+    if (badgeHit) return badgeHit;
+    if (ctx.user && getStaffBadgeCode(ctx.user) === upper) return ctx.user;
+    const stfDigits = upper.match(/^STF0*(\d+)$/);
+    if (stfDigits) {
+      const pid = Number(stfDigits[1]);
+      return (
+        staffList.find(s => Number(s.id) === pid) ||
+        (Number(ctx.user?.id) === pid ? ctx.user : null)
+      );
+    }
+    return null;
+  }, [rawStaffQuery, staffList, ctx.user]);
+  const staffInvalid = rawStaffQuery !== '' && !resolvedStaff;
 
   const subtotal = lines.reduce((sum, r) => sum + r.qty * r.product.price, 0);
   const maxFixedDiscount =
@@ -326,6 +350,19 @@ function BillingView({ ctx, data, onRefresh }) {
     if (e.key !== 'Enter') return;
     const value = query.trim().toLowerCase();
     if (!value) return;
+
+    const upper = value.toUpperCase();
+    const matchedStaff =
+      staffList.find(s => getStaffBadgeCode(s) === upper) ||
+      (ctx.user && getStaffBadgeCode(ctx.user) === upper ? ctx.user : null);
+    if (matchedStaff) {
+      e.preventDefault();
+      setStaffIdInput(getStaffBadgeCode(matchedStaff));
+      setQuery('');
+      ctx.setNotice(`Bill maker set to #${matchedStaff.id} · ${matchedStaff.name} (${getStaffBadgeCode(matchedStaff)})`);
+      return;
+    }
+
     const unit = branchUnits.find(
       u => [u.code, u.imei].some(s => s?.toLowerCase() === value)
     );
@@ -826,25 +863,26 @@ function BillingView({ ctx, data, onRefresh }) {
                 <div className="zk-pos-staff-row">
                   <label className="inline-field" style={{ gap: '6px' }}>
                     <UserRound size={14} />
-                    <span>Staff ID</span>
+                    <span>Staff ID / Badge</span>
                     <input
-                      aria-label="Bill maker staff user ID"
-                      type="number"
-                      min="1"
-                      step="1"
+                      aria-label="Bill maker staff ID or barcode badge"
+                      type="text"
                       value={staffIdInput}
                       onChange={e => setStaffIdInput(e.target.value)}
-                      placeholder={String(ctx.user?.id || '')}
-                      style={{ width: '68px' }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') e.preventDefault();
+                      }}
+                      placeholder={`${ctx.user?.id || '1'} or STF00001`}
+                      style={{ width: '108px' }}
                     />
                   </label>
                   <div className="zk-pos-staff-status">
                     {resolvedStaff ? (
                       <Badge tone="green">
-                        #{resolvedStaff.id} · {resolvedStaff.name}
+                        #{resolvedStaff.id} · {resolvedStaff.name} ({getStaffBadgeCode(resolvedStaff)})
                       </Badge>
                     ) : staffInvalid ? (
-                      <Badge tone="red">User ID not found</Badge>
+                      <Badge tone="red">Staff ID / Badge not found</Badge>
                     ) : (
                       <Badge tone="slate">
                         #{ctx.user?.id} · {ctx.user?.name} (Self)

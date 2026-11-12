@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
  id INT AUTO_INCREMENT PRIMARY KEY, branch_id INT NULL, name VARCHAR(100) NOT NULL,
  email VARCHAR(150) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL,
  role ENUM('owner','manager','cashier','technician','stock') NOT NULL,
+ badge_code VARCHAR(32) NULL UNIQUE,
  active BOOLEAN NOT NULL DEFAULT TRUE,
  FOREIGN KEY (branch_id) REFERENCES branches(id)
 ) ENGINE=InnoDB;
