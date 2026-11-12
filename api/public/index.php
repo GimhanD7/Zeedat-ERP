@@ -151,7 +151,7 @@ try {
                 })(),
                 'return.request' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'returns');
-                    return ReturnController::request($branch, $body);
+                    return ReturnController::request($user, $branch, $body);
                 })(),
                 'return.resolve' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowPermission($user, 'returns');
@@ -464,11 +464,16 @@ try {
             return SaleController::getDrafts($branch, $user);
         })(),
         'sales' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
             return SaleController::getSales($branch);
         })(),
+        'sales.search' => (function () use ($user, $branch) {
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
+            $q = trim((string) ($_GET['q'] ?? ''));
+            return SaleController::searchSales($branch, $q);
+        })(),
         'invoice' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
             return SaleController::getInvoice($branch, $_GET);
         })(),
         'drawer' => (function () use ($user, $branch) {

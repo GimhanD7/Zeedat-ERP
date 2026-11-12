@@ -39,8 +39,8 @@ class ReturnService {
             throw new ApiError('Quantity exceeds the available return balance.', 409);
         }
 
-        $method = $body['method'] ?? '';
-        if (!in_array($method, Constants::TENDERS, true)) {
+        $method = $body['method'] ?? 'Cash';
+        if ($method !== 'Wallet' && !in_array($method, Constants::TENDERS, true)) {
             throw new ApiError('Invalid payment method.');
         }
 
@@ -53,9 +53,6 @@ class ReturnService {
         );
 
         if (!empty($body['replacement_product_id'])) {
-            if ($method !== 'Cash') {
-                throw new ApiError('Exchanges require an original cash tender.');
-            }
             $replacement = BaseRepository::one(
                 'SELECT p.*, s.qty available FROM products p JOIN stock s ON s.product_id=p.id WHERE p.id=? AND s.branch_id=?',
                 [Validator::integer($body['replacement_product_id'], 'Replacement product'), $branch]
@@ -114,7 +111,7 @@ class ReturnService {
         }
 
         $drawer = null;
-        if ($row['method'] === 'Cash') {
+        if ($row['method'] === 'Cash' || !empty($row['replacement_product_id'])) {
             $drawer = DrawerService::openDrawer($user, $branch);
         }
 
@@ -176,7 +173,7 @@ class ReturnService {
             BaseRepository::run('UPDATE exchanges SET replacement_sale_id=? WHERE return_id=?', [$replacementSaleId, $id]);
 
             $diff = $total - (int) $row['amount'];
-            if ($diff !== 0) {
+            if ($diff !== 0 && $drawer) {
                 DrawerRepository::addCashMovement(
                     $user['id'],
                     $drawer,
@@ -193,6 +190,9 @@ class ReturnService {
                 'Cash Refund',
                 Helpers::ref('RET', $id)
             );
+        } elseif ($row['method'] === 'Wallet' && !empty($row['customer_id'])) {
+            BaseRepository::run('UPDATE customers SET wallet_balance=wallet_balance+?, synced=0 WHERE id=?', [(int) $row['amount'], (int) $row['customer_id']]);
+            CustomerWallet::entry($user, $branch, (int) $row['customer_id'], (int) $row['amount'], 'Return refund', 'Wallet', Helpers::ref('RET', $id));
         }
 
         BaseRepository::run(
@@ -200,11 +200,17 @@ class ReturnService {
             [$drawer['id'] ?? null, $reference, $id]
         );
 
+        $replacementInvoice = null;
+        if ($replacementSaleId) {
+            $replacementInvoice = SaleRepository::invoiceDetails($replacementSaleId, $branch);
+        }
+
         return [
             'id' => $id,
             'status' => 'Completed',
             'amount' => (int) $row['amount'],
             'replacement_sale_id' => $replacementSaleId,
+            'replacement_invoice' => $replacementInvoice,
         ];
     }
 }
