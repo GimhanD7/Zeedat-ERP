@@ -249,7 +249,7 @@ td code { overflow-wrap:anywhere; }
 .note-strip { margin:0 14px 11px; background:#edf4f9; border:1px solid #e0ebf3; border-radius:7px; color:#405874; padding:8px 10px; font-size:12px; }
 .inset { padding:0 14px; }
 
-.modal-backdrop { display:grid; place-items:center; position:fixed; inset:0; z-index:7; background:#0b162e82; backdrop-filter:blur(3px); padding:16px; overflow:auto; }
+.modal-backdrop { display:grid; place-items:center; position:fixed; inset:0; z-index:1000; background:#0b162e82; backdrop-filter:blur(3px); padding:16px; overflow:auto; }
 .modal { background:#fff; width:min(100%,530px); max-height:calc(100dvh - 32px); overflow:auto; border:1px solid #d7e2ed; border-radius:16px; box-shadow:0 15px 55px #0d1a3559; animation:enter .16s ease-out both; }
 .modal.wide { width:min(100%,870px); }
 .modal-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:15px 17px; border-bottom:1px solid var(--line); background:#f7fafc; }

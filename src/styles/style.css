@@ -5328,4 +5328,14 @@
   border-color: #fde68a;
 }
 
+/* Modal backdrop & Dialog stack elevation */
+.modal-backdrop {
+  z-index: 1000 !important;
+}
+
+.modal {
+  position: relative;
+  z-index: 1001 !important;
+}
+
 

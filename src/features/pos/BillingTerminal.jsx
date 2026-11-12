@@ -232,6 +232,7 @@ function BillingView({ ctx, data, onRefresh }) {
 
   const openQuickAddCustomer = (prefillText = '') => {
     setCustDropdownOpen(false);
+    setCustQuery('');
     const clean = prefillText.trim();
     const looksPhone = /^[0-9+\-\s]{4,}$/.test(clean);
     ctx.setDialog({
@@ -759,7 +760,11 @@ function BillingView({ ctx, data, onRefresh }) {
                     <Button
                       icon={UserPlus}
                       variant="soft"
-                      onClick={() => openQuickAddCustomer(custQuery)}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setCustDropdownOpen(false);
+                        openQuickAddCustomer(custQuery);
+                      }}
                       title="Add new customer to database"
                     >
                       New
@@ -829,7 +834,11 @@ function BillingView({ ctx, data, onRefresh }) {
                           <Button
                             icon={UserPlus}
                             variant="primary"
-                            onClick={() => openQuickAddCustomer(custQuery)}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setCustDropdownOpen(false);
+                              openQuickAddCustomer(custQuery);
+                            }}
                           >
                             Add "{custQuery.trim()}" to Database
                           </Button>
@@ -1465,6 +1474,7 @@ function BillingView({ ctx, data, onRefresh }) {
           customers={customers}
           products={products}
           units={units}
+          reservations={reservations}
           taxBps={settings.tax_bps}
           initialCustomer={reservationEntry.customerId}
           initialProduct={reservationEntry.productId}
