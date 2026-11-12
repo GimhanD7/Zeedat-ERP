@@ -1,11 +1,10 @@
 import { Button, Table } from '../../components/common';
 import { cents, money, ref, tenders } from '../../utils';
 
-const paymentMethods = [...tenders, 'Wallet'];
+export const reservationPaymentMethods = [...tenders, 'Wallet'];
 const balance = reservation => Math.max(0, Number(reservation.total) - Number(reservation.paid));
 
-export function openReserveItem(ctx, customer, products, units, { productId, onSuccess } = {}) {
-  const branch = Number(customer.branch_id);
+export function reservationStock(products, units, branch) {
   const quantity = product => Number(
     product.branch_stocks?.find(stock => Number(stock.branch_id) === branch)?.available_qty ?? product.qty
   );
@@ -17,6 +16,12 @@ export function openReserveItem(ctx, customer, products, units, { productId, onS
     product.category !== 'Services' && quantity(product) > 0 &&
     (!Number(product.serialized) || availableUnits(product).length > 0)
   );
+  return { available, availableUnits, quantity };
+}
+
+export function openReserveItem(ctx, customer, products, units, { productId, onSuccess } = {}) {
+  const branch = Number(customer.branch_id);
+  const { available, availableUnits, quantity } = reservationStock(products, units, branch);
   if (!available.length) {
     ctx.setNotice('There are no items available to reserve at this branch.');
     return;
@@ -42,7 +47,7 @@ export function openReserveItem(ctx, customer, products, units, { productId, onS
           ? { name: 'unit_id', label: 'Device Unit', choices: availableUnits(product).map(unit => [unit.id, unit.code]) }
           : { name: 'qty', label: 'Quantity', type: 'number', min: 1, max: product ? quantity(product) : undefined },
         { name: 'amount', label: 'Deposit (LKR)', type: 'money', min: 0.01 },
-        { name: 'method', label: 'Payment Method', choices: paymentMethods },
+        { name: 'method', label: 'Payment Method', choices: reservationPaymentMethods },
       ];
     },
     transform: values => ({
@@ -67,7 +72,7 @@ export function openReservationAction(ctx, reservation, action, onSuccess) {
     values: { id: reservation.id, branch: reservation.branch_id, amount: due / 100, method: 'Cash' },
     fields: action === 'pay' ? [
       { name: 'amount', label: 'Payment Amount (LKR)', type: 'money', min: 0.01, max: due / 100 },
-      { name: 'method', label: 'Payment Method', choices: paymentMethods },
+      { name: 'method', label: 'Payment Method', choices: reservationPaymentMethods },
     ] : [],
     transform: values => ({ ...values, amount: cents(values.amount) }),
     onSuccess,

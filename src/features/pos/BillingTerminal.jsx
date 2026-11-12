@@ -52,7 +52,7 @@ import {
 } from '../../utils';
 import { CheckoutModal } from './CheckoutModal';
 import { ReceiptModal } from './ReceiptModal';
-import { openReservationAction, openReserveItem, ReservationTable } from '../operations/ReservationActions';
+import { PosReservations } from './PosReservations';
 import {
   CashRegisterModal,
   CloseReconcileModal,
@@ -62,34 +62,6 @@ import {
 
 const lineKey = (product, unit) => product + ':' + (unit || '');
 const amountDue = (subtotal, discount, tax) => subtotal - discount + tax;
-
-function PosReservations({ ctx, customer, current, shiftMessage, onClose, onReserve, onAction }) {
-  const state = useData(ctx, {
-    ledger: ['customer.ledger', { branch: customer.branch_id, customer_id: customer.id }],
-  });
-
-  return (
-    <Modal title="Reservations" description={customer.name} wide onClose={onClose}>
-      <div className="modal-body">
-        {!current && <Alert>{shiftMessage}</Alert>}
-        <DataView state={state}>
-          {({ ledger }) => (
-            <ReservationTable
-              rows={ledger.reservations || []}
-              disabled={!current || state.pending}
-              canCancel={['owner', 'manager'].includes(ctx.user.role)}
-              onAction={onAction}
-            />
-          )}
-        </DataView>
-      </div>
-      <div className="modal-footer">
-        <Button onClick={onClose}>Close</Button>
-        <Button icon={Plus} variant="primary" disabled={!current} onClick={onReserve}>Reserve Item</Button>
-      </div>
-    </Modal>
-  );
-}
 
 export function BillingTerminal({ ctx }) {
   const state = useData(ctx, {
@@ -125,7 +97,7 @@ function BillingView({ ctx, data, onRefresh }) {
   const [chosenUnit, setChosenUnit] = useState('');
   const [checkout, setCheckout] = useState(false);
   const [receipt, setReceipt] = useState(null);
-  const [reservationsOpen, setReservationsOpen] = useState(false);
+  const [reservationEntry, setReservationEntry] = useState(null);
   const [held, setHeld] = useState(false);
   const [cashMoveDir, setCashMoveDir] = useState(null);
   const [cashbookOpen, setCashbookOpen] = useState(() => ctx.intent === 'cashbook');
@@ -142,12 +114,8 @@ function BillingView({ ctx, data, onRefresh }) {
   );
   const canReserve = ['cashier', 'manager', 'owner'].includes(ctx.user.role);
 
-  const reserveFromPos = productId => {
-    if (!current || !selectedCustomerObj) return;
-    openReserveItem(ctx, selectedCustomerObj, products, units, {
-      productId,
-      onSuccess: () => setReservationsOpen(true),
-    });
+  const reserveFromPos = (productId = null) => {
+    setReservationEntry({ customerId: selectedCustomerObj?.id, productId });
   };
 
   const customerUnpaidRepairs = useMemo(() => {
@@ -570,6 +538,7 @@ function BillingView({ ctx, data, onRefresh }) {
         title="POS / Billing"
         description={'Create bills, sell products and record payments — ' + branch?.name}
       >
+        {canReserve && <Button icon={Archive} onClick={() => reserveFromPos()}>Reservations</Button>}
         <Button
           icon={Wallet}
           onClick={() => {
@@ -711,8 +680,8 @@ function BillingView({ ctx, data, onRefresh }) {
                 >
                   Add item
                 </Button>
-                {canReserve && selectedCustomerObj && item.category !== 'Services' && (
-                  <Button disabled={!current} onClick={() => reserveFromPos(item.id)}>Reserve</Button>
+                {canReserve && item.category !== 'Services' && (
+                  <Button onClick={() => reserveFromPos(item.id)}>Reserve</Button>
                 )}
               </article>
             ))}
@@ -860,11 +829,6 @@ function BillingView({ ctx, data, onRefresh }) {
                     </div>
                   </div>
                   <div className="zk-pos-sel-badges">
-                    {canReserve && (
-                      <Button icon={Archive} variant="soft" onClick={() => setReservationsOpen(true)}>
-                        Reservations
-                      </Button>
-                    )}
                     <span className="zk-pts-pill">
                       <Award size={12} />
                       <span>{Number(selectedCustomerObj.loyalty_points || 0).toLocaleString()} pts</span>
@@ -1345,26 +1309,22 @@ function BillingView({ ctx, data, onRefresh }) {
         />
       )}
 
-      {reservationsOpen && selectedCustomerObj && (
+      {reservationEntry && (
         <PosReservations
           ctx={ctx}
-          customer={selectedCustomerObj}
+          customers={customers}
+          products={products}
+          units={units}
+          taxBps={settings.tax_bps}
+          initialCustomer={reservationEntry.customerId}
+          initialProduct={reservationEntry.productId}
           current={current}
           shiftMessage={shiftMessage}
-          onClose={() => setReservationsOpen(false)}
-          onReserve={() => {
-            setReservationsOpen(false);
-            reserveFromPos();
-          }}
-          onAction={(reservation, action) => {
-            setReservationsOpen(false);
-            openReservationAction(ctx, reservation, action, result => {
-              if (result.invoice) {
-                setReceipt(result.invoice);
-              } else {
-                setReservationsOpen(true);
-              }
-            });
+          onClose={() => setReservationEntry(null)}
+          onStockRefresh={onRefresh}
+          onInvoice={invoice => {
+            setReservationEntry(null);
+            setReceipt(invoice);
           }}
         />
       )}

@@ -156,9 +156,13 @@ final class ReservationService {
         ProductRepository::assertStockAvailable($branch, $productId, $qty);
         $tax = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
         $subtotal = (int) $product['price'] * $qty;
+        $total = $subtotal + Helpers::rate($subtotal, $tax);
+        if (array_key_exists('expected_total', $body) && Validator::money($body, 'expected_total') !== $total) {
+            throw new ApiError('The item price or tax changed. Review the updated total before reserving.', 409);
+        }
         return BaseRepository::insert(
             'INSERT INTO reservations(sync_uuid, branch_id, customer_id, product_id, unit_id, qty, unit_price, tax_bps, total) VALUES (?,?,?,?,?,?,?,?,?)',
-            ['RSV-' . bin2hex(random_bytes(16)), $branch, $customer, $productId, $unit, $qty, $product['price'], $tax, $subtotal + Helpers::rate($subtotal, $tax)]
+            ['RSV-' . bin2hex(random_bytes(16)), $branch, $customer, $productId, $unit, $qty, $product['price'], $tax, $total]
         );
     }
 }

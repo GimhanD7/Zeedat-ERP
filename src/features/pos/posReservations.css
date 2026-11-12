@@ -1,0 +1,70 @@
+.pos-reservations,
+.pos-reservation-body {
+  display: grid;
+  gap: 14px;
+}
+
+.pos-reservation-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pos-reservations fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.pos-reservation-item,
+.pos-reservation-actions,
+.pos-reservation-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pos-reservation-item,
+.pos-reservation-result {
+  justify-content: space-between;
+}
+
+.pos-reservation-item small {
+  display: block;
+  margin-top: 3px;
+}
+
+.pos-reservation-result {
+  border: 1px solid #bce5d8;
+  border-radius: 8px;
+  background: #edf9f5;
+  color: #176451;
+  padding: 10px 12px;
+}
+
+.pos-reservation-amounts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  border-radius: 8px;
+  background: #f2f6fa;
+  padding: 12px;
+}
+
+.pos-reservation-amounts dt {
+  font-size: 12px;
+}
+
+.pos-reservation-amounts dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+@media (max-width: 540px) {
+  .pos-reservation-fields {
+    grid-template-columns: 1fr;
+  }
+}
