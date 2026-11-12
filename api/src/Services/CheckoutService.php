@@ -239,6 +239,10 @@ class CheckoutService {
                 'UPDATE customers SET loyalty_points = COALESCE(loyalty_points, 0) + ?, synced=0 WHERE id=?',
                 [$creditPoints, (int) $sale['customer_id']]
             );
+            BaseRepository::run(
+                'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, sale_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,?,0,?,?,?,?)',
+                [$branch, (int) $sale['customer_id'], (int) $user['id'], (int) $sale['id'], $creditPoints, 'Credit Settlement Points', $method, Helpers::ref('INV', (int) $sale['id'])]
+            );
         }
 
         return SaleRepository::invoiceDetails($sale['id'], $branch);

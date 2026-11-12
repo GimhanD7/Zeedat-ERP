@@ -4919,3 +4919,273 @@
   border-top: 1px solid #f1f5f9;
 }
 
+/* Modern Customers & Credit CRM Workspace */
+.zk-cust-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zk-cust-workspace {
+  display: grid;
+  grid-template-columns: minmax(310px, 390px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .zk-cust-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-cust-directory .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zk-cust-dir-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.zk-cust-search-sort {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.zk-cust-sort {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.zk-cust-filter-bar {
+  overflow-x: auto;
+}
+
+.zk-cust-cards-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 640px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.zk-cust-card-row {
+  text-align: left;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.zk-cust-card-row:hover {
+  border-color: #99f6e4;
+  background: #f8fafc;
+}
+
+.zk-cust-card-row.active {
+  border-color: #0d9488;
+  background: #f0fdfa;
+  box-shadow: 0 0 0 1px #0d9488;
+}
+
+.zk-cust-row-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zk-cust-row-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.zk-cust-row-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.zk-cust-row-name strong {
+  font-size: 13.5px;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zk-cust-row-sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.zk-cust-row-metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.zk-cust-detail-col {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.zk-cust-hero-panel .panel-body {
+  display: grid;
+  gap: 14px;
+}
+
+.zk-cust-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.zk-cust-hero-id {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.zk-cust-avatar-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.zk-cust-hero-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zk-cust-hero-title h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #0f172a;
+}
+
+.zk-cust-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.zk-cust-contact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #475569;
+  text-decoration: none;
+}
+
+.zk-cust-contact-chip:hover {
+  color: #0f766e;
+}
+
+.zk-cust-hero-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.zk-cust-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .zk-cust-accounts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.zk-cust-acct-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zk-cust-acct-card.due {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.zk-cust-acct-card.wallet {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+
+.zk-cust-acct-card.points {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.zk-cust-acct-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.zk-cust-acct-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.zk-cust-acct-val {
+  font-size: 20px;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.zk-cust-acct-card .button {
+  margin-top: auto;
+  width: 100%;
+  justify-content: center;
+}
+
+

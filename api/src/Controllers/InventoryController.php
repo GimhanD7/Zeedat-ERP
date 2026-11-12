@@ -68,6 +68,18 @@ class InventoryController {
         return InventoryService::topUpCustomerWallet($user, $branch, $body);
     }
 
+    public static function getCustomerLedger(int $branch, array $query): array {
+        return InventoryService::getCustomerLedger($branch, (int) ($query['customer_id'] ?? 0));
+    }
+
+    public static function adjustCustomerPoints(array $user, int $branch, array $body): array {
+        return InventoryService::adjustCustomerPoints($user, $branch, $body);
+    }
+
+    public static function deleteCustomer(array $user, int $branch, array $body): array {
+        return InventoryService::deleteCustomer($user, $branch, $body);
+    }
+
     public static function logBarcodePrint(array $user, int $branch, array $body): array {
         return InventoryService::logBarcodePrint($user, $branch, $body);
     }

@@ -577,6 +577,117 @@ class InventoryService {
         });
     }
 
+    public static function getCustomerLedger(int $branch, int $customerId): array {
+        $cid = Validator::integer($customerId, 'Customer');
+        $params = $branch > 0 ? [$cid, $branch] : [$cid];
+        $cust = BaseRepository::one(
+            'SELECT c.*, b.name AS branch,
+                CAST(COALESCE(c.loyalty_points,0) AS UNSIGNED) AS loyalty_points,
+                CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) AS wallet_balance
+             FROM customers c JOIN branches b ON b.id=c.branch_id
+             WHERE c.id=?' . ($branch > 0 ? ' AND c.branch_id=?' : ''),
+            $params
+        );
+        if (!$cust) {
+            throw new ApiError('Customer not found.', 404);
+        }
+
+        $walletLogs = BaseRepository::rows(
+            "SELECT l.*, COALESCE(u.name, 'Staff') AS user_name
+             FROM customer_wallet_logs l
+             LEFT JOIN users u ON u.id=l.user_id
+             WHERE l.customer_id=?
+             ORDER BY l.id DESC LIMIT 200",
+            [$cid]
+        );
+
+        $creditPayments = BaseRepository::rows(
+            "SELECT pm.id, pm.sale_id, pm.method, pm.amount, pm.reference, pm.created_at,
+                    COALESCE(u.name, 'Staff') AS user_name
+             FROM payments pm
+             JOIN sales s ON s.id=pm.sale_id
+             LEFT JOIN users u ON u.id=pm.user_id
+             WHERE s.customer_id=? AND pm.kind='Credit'
+             ORDER BY pm.id DESC LIMIT 200",
+            [$cid]
+        );
+
+        return [
+            'customer' => $cust,
+            'wallet_logs' => $walletLogs,
+            'credit_payments' => $creditPayments,
+        ];
+    }
+
+    public static function adjustCustomerPoints(array $user, int $branch, array $body): array {
+        $cid = Validator::integer($body['customer_id'] ?? null, 'Customer');
+        $delta = Validator::integer($body['delta'] ?? null, 'Points adjustment', -1000000, 1000000);
+        if ($delta === 0) {
+            throw new ApiError('Points adjustment cannot be zero.');
+        }
+        $reason = Validator::str($body, 'reason', 120, false) ?: ($delta > 0 ? 'Bonus / Adjustment' : 'Points Redemption');
+
+        return BaseRepository::transaction(function () use ($user, $branch, $cid, $delta, $reason) {
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$cid, $branch]);
+            if (!$cust) {
+                throw new ApiError('Customer not found in this branch.', 404);
+            }
+            $current = (int) ($cust['loyalty_points'] ?? 0);
+            $next = $current + $delta;
+            if ($next < 0) {
+                throw new ApiError("Cannot deduct " . abs($delta) . " pts. Available balance is {$current} pts.");
+            }
+
+            BaseRepository::run(
+                'UPDATE customers SET loyalty_points=?, synced=0 WHERE id=?',
+                [$next, $cid]
+            );
+            BaseRepository::run(
+                'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,0,?,?,?,?)',
+                [$branch, $cid, (int) ($user['id'] ?? 1), $delta, $delta > 0 ? 'Loyalty Bonus' : 'Points Redeem', 'Points', $reason]
+            );
+            UserRepository::logAudit((int) $user['id'], $branch, 'customer.points', [
+                'customer_id' => $cid,
+                'delta' => $delta,
+                'balance' => $next,
+                'reason' => $reason,
+            ]);
+
+            return ['id' => $cid, 'loyalty_points' => $next, 'delta' => $delta];
+        });
+    }
+
+    public static function deleteCustomer(array $user, int $branch, array $body): array {
+        $cid = Validator::integer($body['id'] ?? null, 'Customer');
+        return BaseRepository::transaction(function () use ($user, $branch, $cid) {
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? FOR UPDATE', [$cid]);
+            if (!$cust) {
+                throw new ApiError('Customer not found.', 404);
+            }
+            if ($branch > 0 && (int) $cust['branch_id'] !== $branch) {
+                throw new ApiError('Customer belongs to another branch.', 403);
+            }
+            $salesCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE customer_id=?', [$cid]);
+            $repairsCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE customer_id=?', [$cid]);
+            if ($salesCount > 0 || $repairsCount > 0) {
+                throw new ApiError("Cannot delete '{$cust['name']}' because they have {$salesCount} invoice(s) and {$repairsCount} repair job(s) in history.");
+            }
+            if ((int) ($cust['wallet_balance'] ?? 0) > 0) {
+                throw new ApiError("Cannot delete '{$cust['name']}' while wallet balance is non-zero.");
+            }
+
+            BaseRepository::run('DELETE FROM customer_wallet_logs WHERE customer_id=?', [$cid]);
+            BaseRepository::run('DELETE FROM customers WHERE id=?', [$cid]);
+            UserRepository::logAudit((int) $user['id'], (int) $cust['branch_id'], 'customer.delete', [
+                'id' => $cid,
+                'name' => $cust['name'],
+                'phone' => $cust['phone'],
+            ]);
+
+            return ['deleted' => true, 'id' => $cid, 'message' => "Customer '{$cust['name']}' deleted."];
+        });
+    }
+
     public static function logBarcodePrint(array $user, int $branch, array $body): array {
         $items = $body['items'] ?? [];
         if (!is_array($items) || empty($items)) {

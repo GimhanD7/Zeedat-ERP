@@ -169,6 +169,14 @@ try {
                     RoleGuard::allowAnyPermission($user, 'customers', 'pos');
                     return InventoryController::topUpWallet($user, $branch, $body);
                 })(),
+                'customer.points.adjust' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                    return InventoryController::adjustCustomerPoints($user, $branch, $body);
+                })(),
+                'customer.delete' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowPermission($user, 'customers');
+                    return InventoryController::deleteCustomer($user, $branch, $body);
+                })(),
                 'product.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
                     return InventoryController::saveProduct($user, $body);
@@ -377,13 +385,19 @@ try {
                     CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) wallet_balance,
                     CAST(COALESCE(t.total,0) AS UNSIGNED) total,
                     CAST(COALESCE(t.credit,0) AS UNSIGNED) credit,
+                    CAST(COALESCE(t.credit_count,0) AS UNSIGNED) credit_count,
                     CAST(COALESCE(t.sales_count,0) AS UNSIGNED) sales_count,
+                    t.next_due_date,
                     t.last_sale_at
                 FROM customers c JOIN branches b ON b.id=c.branch_id
-                LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit, COUNT(*) sales_count, MAX(created_at) last_sale_at FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
+                LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit, SUM(CASE WHEN credit > 0 THEN 1 ELSE 0 END) credit_count, MIN(CASE WHEN credit > 0 THEN due_date ELSE NULL END) next_due_date, COUNT(*) sales_count, MAX(created_at) last_sale_at FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
                 " . ($branch ? 'WHERE c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
             );
+        })(),
+        'customer.ledger' => (function () use ($user, $branch) {
+            RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+            return InventoryController::getCustomerLedger($branch, $_GET);
         })(),
         'repairs' => (function () use ($user, $branch) {
             RoleGuard::allowPermission($user, 'repairs');
@@ -402,7 +416,7 @@ try {
             return SaleController::getSales($branch);
         })(),
         'invoice' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'sales');
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers');
             return SaleController::getInvoice($branch, $_GET);
         })(),
         'drawer' => (function () use ($user, $branch) {
@@ -454,7 +468,7 @@ try {
             return AdminController::getPermissions();
         })(),
         'settings' => (function () use ($user) {
-            RoleGuard::allowAnyPermission($user, 'settings', 'pos');
+            RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers');
             return AdminController::getSettings();
         })(),
         'branches.summary' => (function () use ($user) {
