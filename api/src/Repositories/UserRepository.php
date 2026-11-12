@@ -128,8 +128,79 @@ class UserRepository extends BaseRepository {
         ]);
     }
 
-    public static function getAuditLogs(int $limit = 100): array {
-        return self::rows("SELECT a.id, a.action, a.details, a.created_at, u.name actor, b.name branch FROM audit_log a JOIN users u ON u.id=a.user_id LEFT JOIN branches b ON b.id=a.branch_id ORDER BY a.id DESC LIMIT {$limit}");
+    public static function getAuditLogs(int|array $query = 500): array {
+        if (is_int($query)) {
+            $query = ['limit' => $query];
+        }
+        $limit = max(50, min(2000, (int) ($query['limit'] ?? 500)));
+        $where = ["a.action != 'sync.auto'"];
+        $params = [];
+
+        $userId = (int) ($query['user_id'] ?? 0);
+        if ($userId > 0) {
+            $where[] = 'a.user_id = ?';
+            $params[] = $userId;
+        }
+        $branchId = (int) ($query['branch_id'] ?? 0);
+        if ($branchId > 0) {
+            $where[] = 'a.branch_id = ?';
+            $params[] = $branchId;
+        }
+        $action = trim((string) ($query['action'] ?? ''));
+        if ($action !== '' && $action !== 'all') {
+            $where[] = 'a.action = ?';
+            $params[] = $action;
+        }
+        $from = trim((string) ($query['from'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+            $where[] = 'DATE(a.created_at) >= ?';
+            $params[] = $from;
+        }
+        $to = trim((string) ($query['to'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            $where[] = 'DATE(a.created_at) <= ?';
+            $params[] = $to;
+        }
+
+        $whereSql = implode(' AND ', $where);
+        $events = self::rows(
+            "SELECT a.id, a.user_id, a.branch_id, a.action, a.details, a.created_at,
+                    u.name AS actor, u.role AS actor_role, u.badge_code AS actor_badge,
+                    b.name AS branch
+             FROM audit_log a
+             JOIN users u ON u.id=a.user_id
+             LEFT JOIN branches b ON b.id=a.branch_id
+             WHERE {$whereSql}
+             ORDER BY a.id DESC LIMIT {$limit}",
+            $params
+        );
+        foreach ($events as &$ev) {
+            $ev['actor_badge'] = self::formatBadgeCode((int) $ev['user_id'], $ev['actor_badge'] ?? null);
+        }
+        return $events;
+    }
+
+    public static function getAuditUserSummary(array $query = []): array {
+        $today = date('Y-m-d');
+        $rows = self::rows(
+            "SELECT u.id, u.name, u.role, u.badge_code, u.active,
+                    COALESCE(b.name, 'All Branches') AS branch_name,
+                    COUNT(a.id) AS total_events,
+                    SUM(CASE WHEN DATE(a.created_at) = ? THEN 1 ELSE 0 END) AS today_events,
+                    SUM(CASE WHEN a.action = 'auth.login' THEN 1 ELSE 0 END) AS login_count,
+                    SUM(CASE WHEN a.action LIKE 'sale.%' THEN 1 ELSE 0 END) AS sales_events,
+                    MAX(a.created_at) AS last_activity_at
+             FROM users u
+             LEFT JOIN branches b ON b.id=u.branch_id
+             LEFT JOIN audit_log a ON a.user_id=u.id AND a.action != 'sync.auto'
+             GROUP BY u.id, u.name, u.role, u.badge_code, u.active, b.name
+             ORDER BY total_events DESC, u.id ASC",
+            [$today]
+        );
+        foreach ($rows as &$r) {
+            $r['badge_code'] = self::formatBadgeCode((int) $r['id'], $r['badge_code'] ?? null);
+        }
+        return $rows;
     }
 
     public static function getSettings(): array {

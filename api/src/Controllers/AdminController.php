@@ -50,9 +50,12 @@ class AdminController
         return $res;
     }
 
-    public static function getAudit(): array
+    public static function getAudit(array $query = []): array
     {
-        return UserRepository::getAuditLogs(100);
+        return [
+            'events' => UserRepository::getAuditLogs($query),
+            'users_summary' => UserRepository::getAuditUserSummary($query),
+        ];
     }
 
     public static function getSettings(): array

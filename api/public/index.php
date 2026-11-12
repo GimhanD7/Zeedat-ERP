@@ -329,11 +329,15 @@ try {
             };
         });
 
-        $details = array_intersect_key($result, array_flip([
-            'id', 'status', 'previous', 'amount', 'replacement_sale_id',
-            'expected', 'counted', 'variance', 'state', 'tax_bps', 'paper_width',
-        ]));
-        Helpers::audit($user, $branch ?: null, $action, $details);
+        if ($action !== 'sync.auto') {
+            $details = array_intersect_key($result, array_flip([
+                'id', 'invoice_no', 'status', 'previous', 'amount', 'total', 'replacement_sale_id',
+                'expected', 'counted', 'variance', 'state', 'tax_bps', 'paper_width',
+                'name', 'sku', 'badge_code', 'seller_name', 'commission_user_id',
+                'customer', 'device', 'method', 'direction', 'kind', 'reference', 'message',
+            ]));
+            Helpers::audit($user, $branch ?: null, $action, $details);
+        }
 
         Response::json($result);
     }
@@ -481,7 +485,7 @@ try {
         })(),
         'audit' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'settings');
-            return AdminController::getAudit();
+            return AdminController::getAudit($_GET);
         })(),
         'barcode.generate' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'inventory');

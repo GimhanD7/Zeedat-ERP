@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Cloud,
   Database,
+  Download,
   KeyRound,
   Lock,
   Mail,
@@ -14,10 +15,12 @@ import {
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
   Save,
   Settings,
   ShieldCheck,
   Store,
+  Users,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
@@ -29,23 +32,30 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { cents, timeLabel } from '../../utils';
+import { cents, printHtmlDocument, timeLabel, today } from '../../utils';
 import { BackupSyncManager } from './BackupSyncManager';
 
 export function SettingsPage({ ctx }) {
+  // Audit filters
+  const [auditQuery, setAuditQuery] = useState('');
+  const [auditUserFilter, setAuditUserFilter] = useState('all');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
+  const [auditFrom, setAuditFrom] = useState('');
+  const [auditTo, setAuditTo] = useState('');
+
   const state = useData(ctx, {
     settings: 'settings',
     branches: 'branches.summary',
-    audit: 'audit',
+    audit: ['audit', { limit: 1000, ...(auditFrom ? { from: auditFrom } : {}), ...(auditTo ? { to: auditTo } : {}) }],
   });
 
   const [activeTab, setActiveTab] = useState(
-    ctx.intent === 'pin' ? 'Security, PIN & Audit' : 'Store & Receipt'
+    ctx.intent === 'pin' ? 'Security & PIN' : 'Store & Receipt'
   );
 
   useEffect(() => {
     if (ctx.intent === 'pin') {
-      setActiveTab('Security, PIN & Audit');
+      setActiveTab('Security & PIN');
       ctx.clearIntent?.();
     }
   }, [ctx.intent]);
@@ -73,10 +83,6 @@ export function SettingsPage({ ctx }) {
   const [drawerTesting, setDrawerTesting] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
   const [storeMsg, setStoreMsg] = useState(null);
-
-  // Audit filters
-  const [auditQuery, setAuditQuery] = useState('');
-  const [auditActionFilter, setAuditActionFilter] = useState('all');
 
   // Change Password form
   const [pwdForm, setPwdForm] = useState({
@@ -294,15 +300,79 @@ export function SettingsPage({ ctx }) {
     }
   };
 
+  const actionTone = action => {
+    const a = String(action || '');
+    if (a.startsWith('auth.')) return 'blue';
+    if (a.startsWith('sale.')) return 'green';
+    if (a.startsWith('drawer.') || a.startsWith('purchase.')) return 'amber';
+    if (a.includes('delete') || a.includes('pin')) return 'red';
+    if (a.startsWith('staff.') || a.startsWith('permissions')) return 'violet';
+    return 'slate';
+  };
+
+  const exportAuditCsv = rows => {
+    const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['ID', 'Date & Time', 'User ID', 'Staff Name', 'Badge', 'Role', 'Branch', 'Action', 'Details'];
+    const lines = [
+      headers.map(csvCell).join(','),
+      ...rows.map(r =>
+        [
+          r.id,
+          r.created_at,
+          r.user_id || '',
+          r.actor || '',
+          r.actor_badge || '',
+          r.actor_role || '',
+          r.branch || 'Global',
+          r.action || '',
+          formatAuditDetails(r.details),
+        ]
+          .map(csvCell)
+          .join(',')
+      ),
+    ];
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `users_activity_log_${today()}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const printAuditDocument = (rows, shopName = 'ZEEDAT POS') => {
+    const esc = v =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    const trs = rows
+      .slice(0, 500)
+      .map(
+        r => `<tr>
+          <td>${esc(timeLabel(r.created_at))}</td>
+          <td>#${esc(r.user_id || '')} · ${esc(r.actor)} (${esc(r.actor_badge || '')})</td>
+          <td>${esc(r.branch || 'Global')}</td>
+          <td><strong>${esc(r.action)}</strong></td>
+          <td>${esc(formatAuditDetails(r.details))}</td>
+        </tr>`
+      )
+      .join('');
+    printHtmlDocument(`<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Users Activity & History Log</title><style>body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#0f172a;margin:14mm 12mm}h1{margin:0 0 4px;font-size:16px}p{margin:0 0 12px;color:#475569;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:top;font-size:9.8px}th{background:#f8fafc}</style></head><body><h1>${esc(shopName)} — Users History & Full Activity Log</h1><p>Printed: ${esc(new Date().toLocaleString())} · Events shown: ${rows.length}</p><table><thead><tr><th>Date & Time</th><th>User</th><th>Branch</th><th>Action</th><th>Details</th></tr></thead><tbody>${trs || '<tr><td colspan="5">No activity events match current filters.</td></tr>'}</tbody></table></body></html>`);
+  };
+
   return (
     <DataView state={state}>
       {({ settings = {}, branches = [], audit = [] }) => {
-        const distinctActions = Array.from(new Set(audit.map(a => a.action)));
-        const filteredAudit = audit.filter(a => {
+        const auditEvents = Array.isArray(audit) ? audit : (audit?.events || []);
+        const usersSummary = Array.isArray(audit?.users_summary) ? audit.users_summary : [];
+        const distinctActions = Array.from(new Set(auditEvents.map(a => a.action)));
+        const filteredAudit = auditEvents.filter(a => {
+          if (auditUserFilter !== 'all' && String(a.user_id) !== String(auditUserFilter)) return false;
           if (auditActionFilter !== 'all' && a.action !== auditActionFilter) return false;
           if (auditQuery) {
             const q = auditQuery.toLowerCase();
-            const text = `${a.actor || ''} ${a.action || ''} ${a.details || ''} ${a.branch || ''}`.toLowerCase();
+            const text = `${a.actor || ''} ${a.actor_badge || ''} ${a.action || ''} ${a.details || ''} ${a.branch || ''}`.toLowerCase();
             if (!text.includes(q)) return false;
           }
           return true;
@@ -391,7 +461,8 @@ export function SettingsPage({ ctx }) {
                   ['Store & Receipt', Receipt],
                   ['Branches & Locations', Building2],
                   ['Cloud Sync & Backup', Cloud],
-                  ['Security, PIN & Audit', ShieldCheck],
+                  ['Users History & Activity', ClipboardList],
+                  ['Security & PIN', ShieldCheck],
                 ].map(([label, TabIcon]) => (
                   <button
                     key={label}
@@ -836,8 +907,170 @@ export function SettingsPage({ ctx }) {
               {/* TAB 3: CLOUD SYNC & BACKUP */}
               {activeTab === 'Cloud Sync & Backup' && <BackupSyncManager ctx={ctx} />}
 
-              {/* TAB 4: SECURITY, PIN & AUDIT LOG */}
-              {activeTab === 'Security, PIN & Audit' && (
+              {/* TAB 4: USERS HISTORY TRACKING & FULL ACTIVITY LOG */}
+              {activeTab === 'Users History & Activity' && (
+                <div className="zk-settings-stack">
+                  {usersSummary.length > 0 && (
+                    <div className="zk-settings-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <Users size={17} style={{ color: '#0d9488' }} />
+                          <span>All Users Activity Tracking</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          {auditUserFilter !== 'all' && (
+                            <Button variant="ghost" onClick={() => setAuditUserFilter('all')}>
+                              Show All Users
+                            </Button>
+                          )}
+                          <Badge tone="green">{usersSummary.length} Users Tracked</Badge>
+                        </div>
+                      </div>
+
+                      <Table
+                        rows={usersSummary}
+                        onRow={u =>
+                          setAuditUserFilter(prev =>
+                            String(prev) === String(u.id) ? 'all' : String(u.id)
+                          )
+                        }
+                        columns={[
+                          [
+                            'User',
+                            u => (
+                              <div>
+                                <strong>#{u.id} · {u.name}</strong>
+                                <div className="muted" style={{ fontSize: '11.5px' }}>
+                                  {u.badge_code} · {u.role} · {u.branch_name}
+                                </div>
+                              </div>
+                            ),
+                          ],
+                          ['Today', u => <Badge tone={Number(u.today_events) > 0 ? 'green' : 'slate'}>{u.today_events || 0} today</Badge>],
+                          ['Logins', u => u.login_count || 0],
+                          ['Sales Ops', u => u.sales_events || 0],
+                          ['Total History', u => <strong>{u.total_events || 0} events</strong>],
+                          ['Last Activity', u => (u.last_activity_at ? timeLabel(u.last_activity_at) : '—')],
+                        ]}
+                      />
+                    </div>
+                  )}
+
+                  <div className="zk-settings-card">
+                    <div className="zk-card-header">
+                      <div className="zk-card-title">
+                        <ClipboardList size={17} style={{ color: '#0d9488' }} />
+                        <span>Full System &amp; User Activity Log</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Badge>{filteredAudit.length} events</Badge>
+                        <Button icon={Download} variant="ghost" onClick={() => exportAuditCsv(filteredAudit)}>
+                          Export CSV
+                        </Button>
+                        <Button
+                          icon={Printer}
+                          variant="soft"
+                          onClick={() => printAuditDocument(filteredAudit, settings.shop_name)}
+                        >
+                          Print Log
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        marginBottom: '16px',
+                      }}
+                    >
+                      <div style={{ flex: '1 1 220px' }}>
+                        <SearchBox
+                          value={auditQuery}
+                          onChange={setAuditQuery}
+                          placeholder="Search user, badge, branch, action, or details..."
+                        />
+                      </div>
+
+                      {usersSummary.length > 0 && (
+                        <div style={{ minWidth: '175px' }}>
+                          <Select
+                            aria-label="Filter by User"
+                            value={auditUserFilter}
+                            options={[
+                              ['all', 'All Users'],
+                              ...usersSummary.map(u => [String(u.id), `#${u.id} · ${u.name}`]),
+                            ]}
+                            onChange={e => setAuditUserFilter(e.target.value)}
+                          />
+                        </div>
+                      )}
+
+                      <div style={{ minWidth: '175px' }}>
+                        <Select
+                          aria-label="Filter by Action"
+                          value={auditActionFilter}
+                          options={[
+                            ['all', 'All Action Types'],
+                            ...distinctActions.map(a => [a, a]),
+                          ]}
+                          onChange={e => setAuditActionFilter(e.target.value)}
+                        />
+                      </div>
+
+                      <input
+                        type="date"
+                        aria-label="From date"
+                        value={auditFrom}
+                        onChange={e => setAuditFrom(e.target.value)}
+                        style={{ minHeight: '36px', padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                      />
+                      <input
+                        type="date"
+                        aria-label="To date"
+                        value={auditTo}
+                        onChange={e => setAuditTo(e.target.value)}
+                        style={{ minHeight: '36px', padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                      />
+                      <Button icon={RefreshCw} variant="ghost" onClick={state.refresh} title="Reload activity log" />
+                    </div>
+
+                    <Table
+                      rows={filteredAudit}
+                      empty="No user activity events recorded for the selected filters."
+                      columns={[
+                        ['Date & Time', r => timeLabel(r.created_at)],
+                        [
+                          'User',
+                          r => (
+                            <div>
+                              <strong>#{r.user_id || ''} · {r.actor}</strong>
+                              <div className="muted" style={{ fontSize: '11px' }}>
+                                {r.actor_badge || ''} {r.actor_role ? `· ${r.actor_role}` : ''}
+                              </div>
+                            </div>
+                          ),
+                        ],
+                        ['Branch', r => r.branch || 'Global'],
+                        ['Action', r => <Badge tone={actionTone(r.action)}>{r.action}</Badge>],
+                        [
+                          'Event Details',
+                          r => (
+                            <span style={{ fontSize: '12px', color: '#475569' }}>
+                              {formatAuditDetails(r.details)}
+                            </span>
+                          ),
+                        ],
+                      ]}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: SECURITY & PIN */}
+              {activeTab === 'Security & PIN' && (
                 <div className="zk-settings-stack">
                   <div className="zk-security-top-grid">
                     {/* Inventory Delete Security PIN Card */}
@@ -1054,65 +1287,6 @@ export function SettingsPage({ ctx }) {
                         </div>
                       </form>
                     </div>
-                  </div>
-
-                  {/* Filterable System Audit Trail */}
-                  <div className="zk-settings-card">
-                    <div className="zk-card-header">
-                      <div className="zk-card-title">
-                        <ClipboardList size={17} style={{ color: '#0d9488' }} />
-                        <span>System Security &amp; Audit Trail</span>
-                      </div>
-                      <Badge>{filteredAudit.length} events</Badge>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '12px',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
-                        marginBottom: '16px',
-                      }}
-                    >
-                      <div style={{ flex: '1 1 260px' }}>
-                        <SearchBox
-                          value={auditQuery}
-                          onChange={setAuditQuery}
-                          placeholder="Search user, branch, action, or details..."
-                        />
-                      </div>
-
-                      <div style={{ minWidth: '200px' }}>
-                        <Select
-                          aria-label="Filter by Action"
-                          value={auditActionFilter}
-                          options={[
-                            ['all', 'All Action Types'],
-                            ...distinctActions.map(a => [a, a]),
-                          ]}
-                          onChange={e => setAuditActionFilter(e.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    <Table
-                      rows={filteredAudit}
-                      columns={[
-                        ['Date & Time', r => timeLabel(r.created_at)],
-                        ['Actor', r => <strong>{r.actor}</strong>],
-                        ['Branch', r => r.branch || 'Global'],
-                        ['Action', r => <Badge>{r.action}</Badge>],
-                        [
-                          'Event Details',
-                          r => (
-                            <span style={{ fontSize: '12px', color: '#475569' }}>
-                              {formatAuditDetails(r.details)}
-                            </span>
-                          ),
-                        ],
-                      ]}
-                    />
                   </div>
                 </div>
               )}
