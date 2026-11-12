@@ -53,6 +53,7 @@ import { ReceiptModal } from './ReceiptModal';
 import {
   CashRegisterModal,
   CloseReconcileModal,
+  OpenRegisterModal,
   QuickCashMovementModal,
 } from '../finance/CashRegister';
 
@@ -93,6 +94,7 @@ function BillingView({ ctx, data, onRefresh }) {
   const [cashMoveDir, setCashMoveDir] = useState(null);
   const [cashbookOpen, setCashbookOpen] = useState(() => ctx.intent === 'cashbook');
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [openRegisterOpen, setOpenRegisterOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const input = useRef(null);
@@ -422,16 +424,7 @@ function BillingView({ ctx, data, onRefresh }) {
   const isManager = ['owner', 'manager'].includes(ctx.user.role);
 
   const openCashRegisterDialog = () => {
-    ctx.setDialog({
-      title: 'Open Cash Register',
-      description: 'Enter starting cash float to begin today’s POS shift.',
-      route: 'drawer.open',
-      submit: 'Open Register',
-      fields: [{ name: 'opening', label: 'Opening Float (LKR)', type: 'money', full: true }],
-      values: { opening: 0 },
-      transform: v => ({ ...v, opening: cents(v.opening) }),
-      onSuccess: () => onRefresh?.(),
-    });
+    setOpenRegisterOpen(true);
   };
 
   const handleQuickCashMovement = dir => {
@@ -1157,10 +1150,19 @@ function BillingView({ ctx, data, onRefresh }) {
         />
       )}
 
+      {openRegisterOpen && (
+        <OpenRegisterModal
+          ctx={ctx}
+          onClose={() => setOpenRegisterOpen(false)}
+          onSuccess={onRefresh}
+        />
+      )}
+
       {reconcileOpen && drawer && (
         <CloseReconcileModal
           ctx={ctx}
           drawer={drawer}
+          paymentBreakdown={register.payment_breakdown || []}
           onClose={() => setReconcileOpen(false)}
           onSuccess={onRefresh}
         />

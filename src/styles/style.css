@@ -5217,4 +5217,67 @@
   overflow-x: auto;
 }
 
+/* Close Register Auto Payment Tender Summary */
+.zk-close-tenders-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .zk-close-tenders-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.zk-close-tender-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.zk-close-tender-card small {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
+}
+
+.zk-close-tender-card strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.zk-close-tender-card span {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.zk-close-tender-card.cash {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+
+.zk-close-tender-card.card {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.zk-close-tender-card.bank {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+.zk-close-tender-card.koko {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
 

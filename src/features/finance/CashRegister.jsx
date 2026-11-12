@@ -64,7 +64,75 @@ export const INFLOW_CATEGORIES = [
   ['Other Income', 'Other Cash Inflow'],
 ];
 
-const LKR_DENOMS = [5000, 1000, 500, 100, 50, 20, 10];
+const LKR_DENOMS = [5000, 1000, 500, 100, 50, 20, 10, 5, 2, 1];
+
+const calcDenomCents = (denoms, coinsAmount) => {
+  let sumRupees = 0;
+  for (const note of LKR_DENOMS) {
+    const count = parseInt(denoms[note] || '0', 10);
+    if (count > 0) sumRupees += note * count;
+  }
+  const coins = parseFloat(coinsAmount || '0');
+  if (coins > 0) sumRupees += coins;
+  return Math.round(sumRupees * 100);
+};
+
+const formatDenomNote = (denoms, coinsAmount) => {
+  const parts = LKR_DENOMS.filter(n => parseInt(denoms[n] || '0', 10) > 0).map(
+    n => `${n}x${parseInt(denoms[n], 10)}`
+  );
+  if (Number(coinsAmount) > 0) parts.push(`Coins:${Number(coinsAmount).toFixed(2)}`);
+  return parts.length ? `Notes: ${parts.join(', ')}` : '';
+};
+
+function LkrDenomCounter({ denoms, coinsAmount, onChangeDenom, onChangeCoins, onClear }) {
+  return (
+    <>
+      <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong style={{ fontSize: '13px', color: '#0f172a' }}>
+          LKR Note &amp; Coin Counter (Cash Breakdown)
+        </strong>
+        <button type="button" className="zk-edit-btn" onClick={onClear}>
+          <RefreshCw size={11} />
+          <span>Clear Notes</span>
+        </button>
+      </div>
+      <div className="zk-denom-grid">
+        {LKR_DENOMS.map(note => {
+          const qty = parseInt(denoms[note] || '0', 10) || 0;
+          return (
+            <div className="zk-denom-row" key={note}>
+              <span className="zk-denom-note">Rs. {note.toLocaleString()}</span>
+              <span style={{ color: '#94a3b8' }}>×</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="zk-denom-input"
+                placeholder="0"
+                value={denoms[note] || ''}
+                onChange={e => onChangeDenom(note, e.target.value)}
+              />
+              <span className="zk-denom-sub">{(note * qty).toLocaleString()}</span>
+            </div>
+          );
+        })}
+        <div className="zk-denom-row">
+          <span className="zk-denom-note">Extra Coins (LKR)</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            className="zk-denom-input"
+            style={{ width: '100%', textAlign: 'right' }}
+            placeholder="0.00"
+            value={coinsAmount}
+            onChange={e => onChangeCoins(e.target.value)}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
 
 function CashMovementForm({
   ctx,
@@ -319,7 +387,125 @@ export function QuickCashMovementModal({
   );
 }
 
-export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
+export function OpenRegisterModal({ ctx, onClose, onSuccess }) {
+  const [denoms, setDenoms] = useState({});
+  const [coinsAmount, setCoinsAmount] = useState('');
+  const [manualOpening, setManualOpening] = useState('0');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const denomTotalCents = useMemo(() => calcDenomCents(denoms, coinsAmount), [denoms, coinsAmount]);
+  const hasDenomInputs =
+    Object.values(denoms).some(v => Number(v) > 0) || Number(coinsAmount) > 0;
+  const effectiveOpeningCents = hasDenomInputs ? denomTotalCents : cents(manualOpening || 0);
+
+  const handleDenomChange = (note, val) => {
+    setDenoms(prev => ({ ...prev, [note]: val.replace(/[^0-9]/g, '') }));
+  };
+
+  const submit = async e => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const denomNote = hasDenomInputs ? formatDenomNote(denoms, coinsAmount) : '';
+      const combinedNotes = [notes.trim(), denomNote].filter(Boolean).join(' | ');
+      await ctx.mutate('drawer.open', {
+        opening: effectiveOpeningCents,
+        notes: combinedNotes,
+      });
+      ctx.setNotice(`Cash register opened with ${money(effectiveOpeningCents)}.`);
+      onSuccess?.();
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to open cash register.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Open Cash Register"
+      description="Count opening LKR notes & coins or enter starting float to begin today’s shift."
+      onClose={() => !busy && onClose()}
+      wide={true}
+      busy={busy}
+    >
+      <form onSubmit={submit}>
+        <div className="modal-body">
+          {error && (
+            <Alert tone="red" style={{ marginBottom: '12px' }}>
+              {error}
+            </Alert>
+          )}
+
+          <div className="zk-recon-summary" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            <div className="zk-recon-box" style={{ background: '#f0fdfa', borderColor: '#99f6e4' }}>
+              <small style={{ color: '#0f766e' }}>Opening Cash Float</small>
+              <strong style={{ color: '#0d9488' }}>{money(effectiveOpeningCents)}</strong>
+            </div>
+            <div className="zk-recon-box">
+              <small>Input Mode</small>
+              <strong>{hasDenomInputs ? 'Note & Coin Counter' : 'Manual Float Amount'}</strong>
+            </div>
+          </div>
+
+          <LkrDenomCounter
+            denoms={denoms}
+            coinsAmount={coinsAmount}
+            onChangeDenom={handleDenomChange}
+            onChangeCoins={setCoinsAmount}
+            onClear={() => {
+              setDenoms({});
+              setCoinsAmount('');
+            }}
+          />
+
+          {!hasDenomInputs && (
+            <div className="zk-field-wrap" style={{ marginBottom: '12px' }}>
+              <label className="zk-field-label">Or Enter Opening Float Manually (LKR)</label>
+              <div className="zk-input-box">
+                <span style={{ fontWeight: 700, color: '#475569' }}>LKR</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={manualOpening}
+                  onChange={e => setManualOpening(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="zk-field-wrap">
+            <label className="zk-field-label">Opening Notes (Optional)</label>
+            <div className="zk-textarea-box">
+              <textarea
+                rows={2}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Shift handover notes or drawer remarks..."
+              />
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <Button type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" icon={Plus} variant="primary" disabled={busy}>
+            {busy ? 'Opening...' : 'Open Register'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function CloseReconcileModal({ ctx, drawer, paymentBreakdown = [], onClose, onSuccess }) {
   const [denoms, setDenoms] = useState({});
   const [coinsAmount, setCoinsAmount] = useState('');
   const [manualCounted, setManualCounted] = useState(String(rupees(drawer?.expected || 0)));
@@ -327,22 +513,24 @@ export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const denomTotalCents = useMemo(() => {
-    let sumRupees = 0;
-    for (const note of LKR_DENOMS) {
-      const count = parseInt(denoms[note] || '0', 10);
-      if (count > 0) sumRupees += note * count;
-    }
-    const coins = parseFloat(coinsAmount || '0');
-    if (coins > 0) sumRupees += coins;
-    return Math.round(sumRupees * 100);
-  }, [denoms, coinsAmount]);
+  const denomTotalCents = useMemo(() => calcDenomCents(denoms, coinsAmount), [denoms, coinsAmount]);
 
   const hasDenomInputs =
     Object.values(denoms).some(v => Number(v) > 0) || Number(coinsAmount) > 0;
   const effectiveCountedCents = hasDenomInputs ? denomTotalCents : cents(manualCounted || 0);
   const expectedCents = drawer?.expected || 0;
   const diff = effectiveCountedCents - expectedCents;
+
+  const tenderTotals = useMemo(() => {
+    const map = { Cash: { total: 0, count: 0 }, Card: { total: 0, count: 0 }, 'Bank Transfer': { total: 0, count: 0 }, Koko: { total: 0, count: 0 } };
+    for (const p of paymentBreakdown || []) {
+      const m = p.method;
+      if (!map[m]) map[m] = { total: 0, count: 0 };
+      map[m].total += Number(p.total || 0);
+      map[m].count += Number(p.count || 0);
+    }
+    return map;
+  }, [paymentBreakdown]);
 
   const handleDenomChange = (note, val) => {
     setDenoms(prev => ({ ...prev, [note]: val.replace(/[^0-9]/g, '') }));
@@ -354,9 +542,11 @@ export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
     setBusy(true);
     setError('');
     try {
+      const denomNote = hasDenomInputs ? formatDenomNote(denoms, coinsAmount) : '';
+      const combinedNotes = [notes.trim(), denomNote].filter(Boolean).join(' | ');
       const res = await ctx.mutate('drawer.close', {
         counted: effectiveCountedCents,
-        notes: notes.trim(),
+        notes: combinedNotes,
       });
       const variance = res.variance;
       const msg =
@@ -391,6 +581,29 @@ export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
             </Alert>
           )}
 
+          <div className="zk-close-tenders-grid">
+            <div className="zk-close-tender-card cash">
+              <small>Cash in Drawer (Expected)</small>
+              <strong>{money(expectedCents)}</strong>
+              <span>Cash Sales: {money(tenderTotals.Cash.total)} ({tenderTotals.Cash.count})</span>
+            </div>
+            <div className="zk-close-tender-card card">
+              <small>Card Payments</small>
+              <strong>{money(tenderTotals.Card.total)}</strong>
+              <span>{tenderTotals.Card.count} transaction(s)</span>
+            </div>
+            <div className="zk-close-tender-card bank">
+              <small>Bank Transfer</small>
+              <strong>{money(tenderTotals['Bank Transfer'].total)}</strong>
+              <span>{tenderTotals['Bank Transfer'].count} transaction(s)</span>
+            </div>
+            <div className="zk-close-tender-card koko">
+              <small>Koko Payments</small>
+              <strong>{money(tenderTotals.Koko.total)}</strong>
+              <span>{tenderTotals.Koko.count} transaction(s)</span>
+            </div>
+          </div>
+
           <div className="zk-recon-summary">
             <div className="zk-recon-box">
               <small>System Expected</small>
@@ -422,56 +635,16 @@ export function CloseReconcileModal({ ctx, drawer, onClose, onSuccess }) {
             </div>
           </div>
 
-          <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong style={{ fontSize: '13px', color: '#0f172a' }}>
-              LKR Note &amp; Coin Counter
-            </strong>
-            <button
-              type="button"
-              className="zk-edit-btn"
-              onClick={() => {
-                setDenoms({});
-                setCoinsAmount('');
-              }}
-            >
-              <RefreshCw size={11} />
-              <span>Clear Notes</span>
-            </button>
-          </div>
-
-          <div className="zk-denom-grid">
-            {LKR_DENOMS.map(note => {
-              const qty = parseInt(denoms[note] || '0', 10) || 0;
-              return (
-                <div className="zk-denom-row" key={note}>
-                  <span className="zk-denom-note">Rs. {note.toLocaleString()}</span>
-                  <span style={{ color: '#94a3b8' }}>×</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className="zk-denom-input"
-                    placeholder="0"
-                    value={denoms[note] || ''}
-                    onChange={e => handleDenomChange(note, e.target.value)}
-                  />
-                  <span className="zk-denom-sub">{(note * qty).toLocaleString()}</span>
-                </div>
-              );
-            })}
-            <div className="zk-denom-row">
-              <span className="zk-denom-note">Coins (LKR)</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className="zk-denom-input"
-                style={{ width: '100%', textAlign: 'right' }}
-                placeholder="0.00"
-                value={coinsAmount}
-                onChange={e => setCoinsAmount(e.target.value)}
-              />
-            </div>
-          </div>
+          <LkrDenomCounter
+            denoms={denoms}
+            coinsAmount={coinsAmount}
+            onChangeDenom={handleDenomChange}
+            onChangeCoins={setCoinsAmount}
+            onClear={() => {
+              setDenoms({});
+              setCoinsAmount('');
+            }}
+          />
 
           {!hasDenomInputs && (
             <div className="zk-field-wrap" style={{ marginBottom: '12px' }}>
@@ -536,6 +709,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [sessionModal, setSessionModal] = useState(null);
   const [closeModalDrawer, setCloseModalDrawer] = useState(null);
+  const [openModalVisible, setOpenModalVisible] = useState(false);
 
   const {
     drawer = null,
@@ -700,16 +874,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
       ctx.setNotice('Please select a specific branch from the top bar before opening a cash drawer.');
       return;
     }
-    ctx.setDialog({
-      title: 'Open Cash Register',
-      description: 'Enter starting cash float to begin today’s business shift.',
-      route: 'drawer.open',
-      submit: 'Open Register',
-      fields: [{ name: 'opening', label: 'Opening Float (LKR)', type: 'money', full: true }],
-      values: { opening: 0 },
-      transform: v => ({ ...v, opening: cents(v.opening) }),
-      onSuccess: () => onRefresh?.(),
-    });
+    setOpenModalVisible(true);
   };
 
   const applyDatePreset = preset => {
@@ -1573,11 +1738,21 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
         </Modal>
       )}
 
+      {/* OPEN CASH REGISTER MODAL WITH NOTE & COIN COUNTER */}
+      {openModalVisible && (
+        <OpenRegisterModal
+          ctx={ctx}
+          onClose={() => setOpenModalVisible(false)}
+          onSuccess={onRefresh}
+        />
+      )}
+
       {/* RECONCILE & CLOSE DRAWER MODAL */}
       {closeModalDrawer && (
         <CloseReconcileModal
           ctx={ctx}
           drawer={closeModalDrawer}
+          paymentBreakdown={payment_breakdown}
           onClose={() => setCloseModalDrawer(null)}
           onSuccess={onRefresh}
         />

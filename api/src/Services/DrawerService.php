@@ -96,6 +96,7 @@ class DrawerService {
         }
 
         $opening = Validator::money($body, 'opening');
+        $notes = Validator::str($body, 'notes', 500, false) ?: '';
         $date = date('Y-m-d');
 
         $cycle = BaseRepository::one('SELECT id, closed_at FROM cycles WHERE branch_id=? AND business_date=?', [$branch, $date]);
@@ -109,8 +110,8 @@ class DrawerService {
 
         $syncUuid = 'DRW-' . bin2hex(random_bytes(8));
         $id = BaseRepository::insert(
-            'INSERT INTO drawers(branch_id, user_id, cycle_id, opening, sync_uuid, synced) VALUES (?,?,?,?,?,0)',
-            [$branch, $user['id'], $cycleId, $opening, $syncUuid]
+            'INSERT INTO drawers(branch_id, user_id, cycle_id, opening, notes, sync_uuid, synced) VALUES (?,?,?,?,?,?,0)',
+            [$branch, $user['id'], $cycleId, $opening, $notes, $syncUuid]
         );
 
         return ['id' => $id, 'status' => 'Open', 'opening' => $opening, 'cycle_id' => $cycleId];
