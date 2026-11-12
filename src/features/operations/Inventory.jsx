@@ -140,12 +140,14 @@ export function Inventory({ ctx }) {
 
     ctx.setDialog({
       title: item ? 'Edit product / service' : 'Add product / service',
+      description: item
+        ? `Item Code: ${item.sku} (auto-generated)`
+        : 'Item Code is auto-generated automatically (ZEE00001 format).',
       route: 'product.save',
       submit: item ? 'Save changes' : 'Create item',
       wide: true,
       values: {
         ...item,
-        sku: item?.sku || '',
         branch: activeBranchId,
         category: defaults?.category || item?.category || 'Accessories',
         cost: rupees(item?.cost),
@@ -166,13 +168,17 @@ export function Inventory({ ctx }) {
       },
       fields: values => [
         branchField(ctx),
+        ...(isNew
+          ? []
+          : [
+              {
+                name: 'sku',
+                label: 'Item Code (Auto-generated)',
+                optional: true,
+                readOnly: true,
+              },
+            ]),
         { name: 'name', label: values.category === 'Services' ? 'Service name' : 'Product name' },
-        {
-          name: 'sku',
-          label: 'Item Code (Leave blank to auto-number from 1)',
-          optional: true,
-          placeholder: 'Auto (1, 2, 3...) — or clear to assign next number',
-        },
         { name: 'category', label: 'Category', choices: categories },
         ...(values.category !== 'Services'
           ? [
@@ -275,7 +281,6 @@ export function Inventory({ ctx }) {
         }
         return {
           ...v,
-          sku: (v.sku || '').trim(),
           cost: cents(v.cost || 0),
           price: cents(v.price),
           commission_type: commType,

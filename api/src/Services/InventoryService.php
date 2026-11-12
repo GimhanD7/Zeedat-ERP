@@ -20,9 +20,9 @@ class InventoryService {
             if ($existing === '') {
                 continue;
             }
-            $taken[$existing] = true;
-            if (ctype_digit($existing)) {
-                $num = (int) $existing;
+            $taken[strtoupper($existing)] = true;
+            if (preg_match('/^ZEE(\d+)$/i', $existing, $m)) {
+                $num = (int) $m[1];
                 if ($num > $maxNum) {
                     $maxNum = $num;
                 }
@@ -30,10 +30,12 @@ class InventoryService {
         }
 
         $next = max(1, $maxNum + 1);
-        while (isset($taken[(string) $next])) {
+        do {
+            $candidate = 'ZEE' . str_pad((string) $next, 5, '0', STR_PAD_LEFT);
             $next++;
-        }
-        return (string) $next;
+        } while (isset($taken[$candidate]));
+
+        return $candidate;
     }
 
     public static function generateBarcode(array $excludeCodes = [], ?int $productId = null): array {
@@ -86,18 +88,12 @@ class InventoryService {
         $id = empty($body['id']) ? null : Validator::integer($body['id'], 'Product');
         $category = Validator::str($body, 'category', 40);
 
-        // Sequential numeric Item Code (1, 2, 3...) when omitted or cleared
-        $hasSkuKey = array_key_exists('sku', $body);
-        $skuInput = trim((string) ($body['sku'] ?? ''));
-        if ($skuInput === '') {
-            if ($id && !$hasSkuKey) {
-                $existingSku = BaseRepository::scalar('SELECT sku FROM products WHERE id=?', [$id]);
-                $sku = $existingSku ?: self::generateUniqueSku($category);
-            } else {
-                $sku = self::generateUniqueSku($category);
-            }
+        // Auto-generated sequential Item Code (ZEE00001, ZEE00002...) — never entered manually by users
+        if ($id) {
+            $existingSku = trim((string) BaseRepository::scalar('SELECT sku FROM products WHERE id=?', [$id]));
+            $sku = $existingSku !== '' ? $existingSku : self::generateUniqueSku($category);
         } else {
-            $sku = strtoupper(Validator::str($body, 'sku', 40));
+            $sku = self::generateUniqueSku($category);
         }
 
         // Services do not have barcodes

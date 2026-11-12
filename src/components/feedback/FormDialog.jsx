@@ -139,12 +139,17 @@ export function FormDialog({ spec, close, mutate }) {
                 min,
                 max,
                 placeholder,
+                readOnly,
               }) => {
                 const value = values[name] ?? '';
                 const props = {
                   value,
-                  required: !optional,
-                  onChange: e => update(name, e.target.value),
+                  required: !optional && !readOnly,
+                  readOnly: Boolean(readOnly),
+                  disabled: Boolean(readOnly),
+                  onChange: e => {
+                    if (!readOnly) update(name, e.target.value);
+                  },
                   placeholder,
                 };
                 return (
