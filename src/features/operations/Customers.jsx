@@ -42,6 +42,7 @@ import {
   today,
 } from '../../utils';
 import { ReceiptModal } from '../pos/ReceiptModal';
+import { openReservationAction, openReserveItem, ReservationTable } from './ReservationActions';
 import { buildCustomerDirectoryHtml, buildCustomerStatementHtml } from './customerStatementPrint';
 
 const actionBranch = ctx => ctx.branch || ctx.branches[0]?.id;
@@ -438,47 +439,10 @@ export function Customers({ ctx }) {
               ctx.get('products', { branch: person.branch_id }),
               ctx.get('units', { branch: person.branch_id }),
             ]);
-            const available = products.filter(p => p.category !== 'Services' &&
-              Number(p.branch_stocks?.find(s => Number(s.branch_id) === Number(person.branch_id))?.available_qty ?? p.qty) > 0);
-            ctx.setDialog({
-              title: 'Reserve item · ' + person.name,
-              route: 'reservation.create',
-              submit: 'Reserve & Record Deposit',
-              values: { customer_id: person.id, branch: person.branch_id, qty: 1, method: 'Cash' },
-              fields: v => {
-                const product = available.find(p => String(p.id) === String(v.product_id));
-                return [
-                  { name: 'product_id', label: 'Product', choices: available.map(p => [p.id, p.name + ' · ' + money(p.price)]) },
-                  product?.serialized
-                    ? { name: 'unit_id', label: 'Device Unit', choices: units.filter(u => String(u.product_id) === String(product.id) && u.state === 'Available' && !Number(u.reserved)).map(u => [u.id, u.code]) }
-                    : { name: 'qty', label: 'Quantity', type: 'number', min: 1 },
-                  { name: 'amount', label: 'Deposit (LKR)', type: 'money', min: 0.01 },
-                  { name: 'method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
-                ];
-              },
-              transform: v => ({ ...v, qty: available.find(p => String(p.id) === String(v.product_id))?.serialized ? 1 : v.qty, amount: cents(v.amount) }),
-            });
+            openReserveItem(ctx, person, products, units);
           } catch (error) {
             ctx.setNotice(error.message);
           }
-        };
-
-        const openReservationAction = (reservation, action) => {
-          const due = Math.max(0, Number(reservation.total) - Number(reservation.paid));
-          const titles = { pay: 'Collect Reservation Payment', deliver: 'Hand Over Reserved Item', cancel: 'Cancel Reservation' };
-          ctx.setDialog({
-            title: titles[action],
-            description: action === 'cancel' ? 'Deposits will be returned to the customer wallet.' : reservation.product + ' · ' + ref('RSV', reservation.id),
-            route: 'reservation.' + action,
-            submit: titles[action],
-            values: { id: reservation.id, branch: reservation.branch_id, amount: due / 100, method: 'Cash' },
-            fields: action === 'pay' ? [
-              { name: 'amount', label: 'Payment Amount (LKR)', type: 'money', min: 0.01, max: due / 100 },
-              { name: 'method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
-            ] : [],
-            transform: v => ({ ...v, amount: cents(v.amount) }),
-            onSuccess: result => { if (result.invoice) setReceipt(result.invoice); },
-          });
         };
 
         const handleViewInvoice = async saleRow => {
@@ -810,22 +774,13 @@ export function Customers({ ctx }) {
                     {detailTab === 'reservations' && (
                       <>
                         <Button icon={Plus} variant="primary" onClick={reserveItem}>Reserve Item</Button>
-                        <Table rows={reservations} empty="No reserved items for this customer." columns={[
-                          ['Item', r => r.product + (r.unit_code ? ' · ' + r.unit_code : '')],
-                          ['Qty', r => r.qty],
-                          ['Total', r => money(r.total)],
-                          ['Paid', r => money(r.paid)],
-                          ['Balance', r => money(Math.max(0, r.total - r.paid))],
-                          ['Status', r => r.status],
-                          ['Actions', r => r.status === 'Held' && (
-                            <div className="row-actions">
-                              {Number(r.paid) < Number(r.total)
-                                ? <Button onClick={() => openReservationAction(r, 'pay')}>Collect Payment</Button>
-                                : <Button onClick={() => openReservationAction(r, 'deliver')}>Hand Over</Button>}
-                              {['owner', 'manager'].includes(ctx.user.role) && <Button onClick={() => openReservationAction(r, 'cancel')}>Cancel</Button>}
-                            </div>
-                          )],
-                        ]} />
+                        <ReservationTable
+                          rows={reservations}
+                          canCancel={['owner', 'manager'].includes(ctx.user.role)}
+                          onAction={(row, action) => openReservationAction(ctx, row, action, result => {
+                            if (result.invoice) setReceipt(result.invoice);
+                          })}
+                        />
                       </>
                     )}
                     {detailTab === 'receivables' && (
