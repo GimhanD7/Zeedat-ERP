@@ -281,3 +281,78 @@ export function downloadStockImportTemplate() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export function exportStockCsv(items = [], branches = [], selectedBranch = 0) {
+  const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const branchCols = selectedBranch === 0 ? branches : branches.filter(b => Number(b.id) === Number(selectedBranch));
+
+  const headers = [
+    'Item Code',
+    'Product Name',
+    'Category',
+    'Brand',
+    'Barcode',
+    'Cost (LKR)',
+    'Selling Price (LKR)',
+    'Stock Qty',
+    ...branchCols.map(b => `${b.name} Qty`),
+    'Stock Value Cost (LKR)',
+    'Stock Value Retail (LKR)',
+    'Reorder Level',
+    'Commission Type',
+    'Commission',
+  ];
+
+  const rows = items.map(p => {
+    const isService = p.category === 'Services';
+    let stockQty = 0;
+    if (!isService) {
+      if (selectedBranch === 0) {
+        stockQty = Number(p.total_qty ?? p.qty ?? 0);
+      } else {
+        const hit = (p.branch_stocks || []).find(bs => Number(bs.branch_id) === Number(selectedBranch));
+        stockQty = hit ? Number(hit.qty || 0) : 0;
+      }
+    }
+
+    const branchQtys = branchCols.map(b => {
+      if (isService) return '0';
+      const hit = (p.branch_stocks || []).find(bs => Number(bs.branch_id) === Number(b.id));
+      return String(hit ? Number(hit.qty || 0) : 0);
+    });
+
+    const costRs = (Number(p.cost || 0) / 100).toFixed(2);
+    const priceRs = (Number(p.price || 0) / 100).toFixed(2);
+    const costVal = isService ? '0.00' : ((stockQty * Number(p.cost || 0)) / 100).toFixed(2);
+    const retailVal = isService ? '0.00' : ((stockQty * Number(p.price || 0)) / 100).toFixed(2);
+    const commVal = (Number(p.commission_value || 0) / 100).toFixed(2);
+
+    return [
+      p.sku || '',
+      p.name || '',
+      p.category || '',
+      p.brand || '',
+      p.barcode || '',
+      costRs,
+      priceRs,
+      isService ? '0' : String(stockQty),
+      ...branchQtys,
+      costVal,
+      retailVal,
+      String(Number(p.reorder_level || 0)),
+      p.commission_type || 'fixed',
+      commVal,
+    ];
+  });
+
+  const csv = [headers, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const branchTag = selectedBranch === 0 ? 'all_branches' : (branches.find(b => Number(b.id) === Number(selectedBranch))?.name || `branch_${selectedBranch}`).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `zeedat_stock_${branchTag}_${todayStr}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

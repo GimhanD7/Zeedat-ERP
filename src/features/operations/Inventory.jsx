@@ -7,6 +7,7 @@ import {
   Box,
   Building2,
   DollarSign,
+  Download,
   FileSpreadsheet,
   History,
   Layers3,
@@ -44,6 +45,7 @@ import { StockHistoryTab } from './StockHistoryTab';
 import {
   categories,
   cents,
+  exportStockCsv,
   money,
   options,
   rupees,
@@ -418,6 +420,15 @@ export function Inventory({ ctx }) {
               title="Products & Inventory"
               description="Manage your catalog, branch-wise stocks, barcodes, pricing and device units."
             >
+              <Button
+                icon={Download}
+                onClick={() => {
+                  exportStockCsv(matching, ctx.branches, selectedBranch);
+                  ctx.setNotice(`Exported ${matching.length} stock item(s) to CSV.`);
+                }}
+              >
+                Export Stock
+              </Button>
               <Button icon={FileSpreadsheet} onClick={() => setImportModalOpen(true)}>
                 Import Excel / CSV
               </Button>
