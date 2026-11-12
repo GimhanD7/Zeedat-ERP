@@ -104,6 +104,7 @@ class PermissionRepository extends BaseRepository {
         ],
         'cashier' => [
             'pos',
+            'repairs',
         ],
         'technician' => [
             'repairs',

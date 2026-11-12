@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  Award,
   Banknote,
   Barcode,
   Calendar,
@@ -24,8 +25,10 @@ import {
   Smartphone,
   User,
   UserRound,
+  Wallet,
   Wrench,
 } from 'lucide-react';
+import { OpenRegisterModal } from '../finance/CashRegister';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
@@ -242,6 +245,7 @@ export function Repairs({ ctx }) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [smsSendingId, setSmsSendingId] = useState(null);
+  const [openRegisterOpen, setOpenRegisterOpen] = useState(false);
 
   useEffect(() => {
     setIntakeBranch(actionBranch(ctx));
@@ -262,6 +266,7 @@ export function Repairs({ ctx }) {
       ? {
           customers: ['customers', { branch: intakeBranch || ctx.branch }],
           technicians: ['technicians', { branch: intakeBranch || ctx.branch }],
+          drawer: ['drawer', { branch: intakeBranch || ctx.branch }],
         }
       : {}),
   });
@@ -290,6 +295,28 @@ export function Repairs({ ctx }) {
     const found = list.find(c => String(c.id) === String(id));
     if (found) {
       setCustomerPhone(found.phone || '');
+    }
+  };
+
+  const handlePhoneChange = val => {
+    setCustomerPhone(val);
+    const digits = String(val || '').replace(/\D/g, '');
+    if (digits.length < 7) return;
+    const list = state.data?.customers || [];
+    const normalize = p => String(p || '').replace(/\D/g, '');
+    let match = list.find(c => normalize(c.phone) === digits);
+    if (!match && digits.length >= 9) {
+      const tail9 = digits.slice(-9);
+      const candidates = list.filter(c => normalize(c.phone).endsWith(tail9));
+      if (candidates.length === 1) match = candidates[0];
+    }
+    if (!match) {
+      const tail7 = digits.slice(-7);
+      const candidates = list.filter(c => normalize(c.phone).endsWith(tail7));
+      if (candidates.length === 1) match = candidates[0];
+    }
+    if (match && String(match.id) !== String(selectedCustomerId)) {
+      setSelectedCustomerId(String(match.id));
     }
   };
 
@@ -414,7 +441,8 @@ export function Repairs({ ctx }) {
     }
   };
 
-  const handleNewCustomerModal = () => {
+  const handleNewCustomerModal = (prefillPhone = '') => {
+    const phoneVal = typeof prefillPhone === 'string' ? prefillPhone.trim() : '';
     ctx.setDialog({
       title: 'Add New Customer',
       description: 'Create customer account for repair job registration.',
@@ -425,7 +453,7 @@ export function Repairs({ ctx }) {
         { name: 'email', label: 'Email Address', type: 'email', optional: true },
         { name: 'notes', label: 'Notes', type: 'textarea', optional: true },
       ],
-      values: { branch: intakeBranch },
+      values: { branch: intakeBranch, ...(phoneVal ? { phone: phoneVal } : {}) },
       onSuccess: newCust => {
         state.refresh();
         if (newCust?.id) {
@@ -607,12 +635,13 @@ export function Repairs({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ jobs = [], customers = [], technicians = [], settings = {} }) => {
+      {({ jobs = [], customers = [], technicians = [], settings = {}, drawer = null }) => {
         const active = jobs.filter(j => !['Delivered', 'Cancelled'].includes(j.status));
         const readyJobs = jobs.filter(j => j.status === 'Ready');
         const overdue = active.filter(j => j.due_date < today());
         const due = active.filter(j => j.due_date === today());
         const totalCollected = jobs.reduce((sum, j) => sum + Number(j.paid_amount ?? j.advance_paid ?? 0), 0);
+        const openDrawer = drawer?.drawer ?? (drawer?.id ? drawer : null);
 
         const techFilterChoices = new Map();
         technicians.forEach(t => techFilterChoices.set(String(t.id), t.name));
@@ -649,6 +678,43 @@ export function Repairs({ ctx }) {
               }
             >
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {!tech && (
+                  <>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 10px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        background: openDrawer ? '#ecfdf5' : '#fffbeb',
+                        color: openDrawer ? '#047857' : '#b45309',
+                        border: `1px solid ${openDrawer ? '#a7f3d0' : '#fde68a'}`,
+                      }}
+                    >
+                      <Banknote size={14} />
+                      {openDrawer ? `Drawer Open · ${money(openDrawer.expected ?? 0)}` : 'Register Closed'}
+                    </span>
+                    {!openDrawer && (
+                      <Button
+                        icon={Banknote}
+                        variant="outline"
+                        onClick={() => setOpenRegisterOpen(true)}
+                      >
+                        Open Register
+                      </Button>
+                    )}
+                    <Button
+                      icon={Wallet}
+                      variant="outline"
+                      onClick={() => ctx.navigate('drawer')}
+                    >
+                      Cashbook & Register
+                    </Button>
+                  </>
+                )}
                 <Button
                   icon={FileText}
                   variant={mainTab === 'Repair Jobs' ? 'primary' : 'outline'}
@@ -753,11 +819,64 @@ export function Repairs({ ctx }) {
                             <input
                               type="text"
                               value={customerPhone}
-                              onChange={e => setCustomerPhone(e.target.value)}
+                              onChange={e => handlePhoneChange(e.target.value)}
                               placeholder="077 123 4567"
                               required
                             />
                           </div>
+                          {(() => {
+                            const digits = String(customerPhone || '').replace(/\D/g, '');
+                            if (digits.length < 7) return null;
+                            if (currentCustomer) {
+                              const custCredit = Number(currentCustomer.credit || 0);
+                              const custOverdue =
+                                custCredit > 0 &&
+                                currentCustomer.next_due_date &&
+                                String(currentCustomer.next_due_date).slice(0, 10) < today();
+                              return (
+                                <div
+                                  style={{
+                                    marginTop: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    flexWrap: 'wrap',
+                                    fontSize: '12px',
+                                  }}
+                                >
+                                  <span style={{ color: '#047857', fontWeight: 600 }}>
+                                    Matched: {ref('CUS', currentCustomer.id)} · {currentCustomer.name}
+                                  </span>
+                                  {custOverdue && (
+                                    <span style={{ color: '#dc2626', fontWeight: 700 }}>
+                                      · Overdue Credit {money(custCredit)}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div
+                                style={{
+                                  marginTop: '6px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '8px',
+                                  fontSize: '12px',
+                                }}
+                              >
+                                <span style={{ color: '#b45309' }}>No customer found for this number</span>
+                                <button
+                                  type="button"
+                                  className="zk-add-new-btn"
+                                  onClick={() => handleNewCustomerModal(customerPhone)}
+                                >
+                                  + Quick Add
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -1059,7 +1178,23 @@ export function Repairs({ ctx }) {
                         {currentCustomer ? currentCustomer.name.substring(0, 2).toUpperCase() : 'CU'}
                       </div>
                       <div className="zk-cust-details">
-                        <h4>{currentCustomer?.name || 'No Customer Selected'}</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <h4 style={{ margin: 0 }}>{currentCustomer?.name || 'No Customer Selected'}</h4>
+                          {currentCustomer && (
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: '6px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                              }}
+                            >
+                              {ref('CUS', currentCustomer.id)}
+                            </span>
+                          )}
+                        </div>
                         <div className="zk-cust-contact">
                           <div className="zk-cust-contact-item">
                             <Phone size={13} style={{ color: '#0d9488' }} />
@@ -1085,6 +1220,39 @@ export function Repairs({ ctx }) {
                         </button>
                       )}
                     </div>
+
+                    {currentCustomer && Number(currentCustomer.credit || 0) > 0 && (() => {
+                      const custCredit = Number(currentCustomer.credit || 0);
+                      const custOverdue =
+                        currentCustomer.next_due_date &&
+                        String(currentCustomer.next_due_date).slice(0, 10) < today();
+                      return (
+                        <div
+                          style={{
+                            marginTop: '10px',
+                            padding: '8px 10px',
+                            borderRadius: '8px',
+                            background: custOverdue ? '#fef2f2' : '#fffbeb',
+                            border: `1px solid ${custOverdue ? '#fecaca' : '#fde68a'}`,
+                            color: custOverdue ? '#b91c1c' : '#92400e',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                          }}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                            <AlertTriangle size={14} />
+                            {custOverdue ? 'Overdue Credit' : 'Open Credit'}
+                            {currentCustomer.next_due_date
+                              ? ` · Due ${dateLabel(currentCustomer.next_due_date)}`
+                              : ''}
+                          </span>
+                          <strong>{money(custCredit)}</strong>
+                        </div>
+                      );
+                    })()}
 
                     <div className="zk-cust-kpi-row">
                       <div className="zk-kpi-box">
@@ -1113,6 +1281,55 @@ export function Repairs({ ctx }) {
                         </div>
                       </div>
                     </div>
+
+                    {currentCustomer && (
+                      <>
+                        <div className="zk-cust-kpi-row" style={{ marginTop: '8px' }}>
+                          <div className="zk-kpi-box">
+                            <div className="zk-kpi-top">
+                              <FileText size={12} />
+                              <span>Bills ({currentCustomer.sales_count || 0})</span>
+                            </div>
+                            <div className="zk-kpi-val" style={{ fontSize: '13px' }}>
+                              {money(currentCustomer.total || 0)}
+                            </div>
+                          </div>
+                          <div className="zk-kpi-box">
+                            <div className="zk-kpi-top">
+                              <Wallet size={12} style={{ color: '#0d9488' }} />
+                              <span>Wallet</span>
+                            </div>
+                            <div className="zk-kpi-val" style={{ fontSize: '13px', color: '#0d9488' }}>
+                              {money(currentCustomer.wallet_balance || 0)}
+                            </div>
+                          </div>
+                          <div className="zk-kpi-box">
+                            <div className="zk-kpi-top">
+                              <Award size={12} style={{ color: '#7c3aed' }} />
+                              <span>Points</span>
+                            </div>
+                            <div className="zk-kpi-val" style={{ fontSize: '13px', color: '#7c3aed' }}>
+                              {currentCustomer.loyalty_points || 0}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            icon={ArrowRight}
+                            variant="outline"
+                            onClick={() =>
+                              ctx.navigate(
+                                'customers',
+                                Number(currentCustomer.credit || 0) > 0 ? 'credit' : undefined
+                              )
+                            }
+                          >
+                            View Customer & Credit
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="zk-cust-card">
@@ -1904,6 +2121,16 @@ export function Repairs({ ctx }) {
                   </Button>
                 </div>
               </Modal>
+            )}
+            {openRegisterOpen && (
+              <OpenRegisterModal
+                ctx={ctx}
+                onClose={() => setOpenRegisterOpen(false)}
+                onSuccess={() => {
+                  setOpenRegisterOpen(false);
+                  state.refresh();
+                }}
+              />
             )}
           </>
         );

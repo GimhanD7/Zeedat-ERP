@@ -710,5 +710,15 @@ class AutoMigrator
             }
         } catch (Throwable) {
         }
+
+        // Ensure cashier role has repairs permission on existing databases
+        try {
+            if ($driver === 'sqlite') {
+                $db->exec("INSERT OR IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'repairs')");
+            } else {
+                $db->exec("INSERT IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'repairs')");
+            }
+        } catch (Throwable) {
+        }
     }
 }
