@@ -291,9 +291,6 @@ class RepairService {
             }
             $existingFinal = (int) (($job['final_charge'] ?? 0) > 0 ? $job['final_charge'] : $job['estimate']);
             $alreadyPaid = (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
-            if ($job['status'] === 'Delivered' && $alreadyPaid >= $existingFinal) {
-                throw new ApiError('This repair job is already completed and fully paid.');
-            }
 
             $finalCharge = array_key_exists('final_charge', $body)
                 ? Validator::money($body, 'final_charge')
@@ -304,8 +301,11 @@ class RepairService {
                 ? Validator::money($body, 'pay_amount')
                 : $defaultPay;
 
+            if ($job['status'] === 'Delivered' && $alreadyPaid >= $finalCharge && $payAmount <= 0) {
+                throw new ApiError('This repair job is already completed and fully paid.');
+            }
             if ($job['status'] === 'Delivered' && $payAmount <= 0) {
-                throw new ApiError('Enter a payment amount greater than zero to settle the due.');
+                throw new ApiError('Enter a payment amount greater than zero to record payment.');
             }
 
             $method = (string) ($body['payment_method'] ?? 'Cash');

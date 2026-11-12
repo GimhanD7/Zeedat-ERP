@@ -980,7 +980,46 @@ function BillingView({ ctx, data, onRefresh }) {
                       </span>
                     ),
                   ],
-                  ['Amount', r => <strong>{money(r.product.price * r.qty)}</strong>],
+                  [
+                    'Amount',
+                    r =>
+                      r.repair_id ? (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>LKR</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={rupees(r.product.price)}
+                            onChange={e => {
+                              const newCents = Math.max(0, cents(e.target.value || 0));
+                              setCart(
+                                cart.map(item =>
+                                  Number(item.repair_id) === Number(r.repair_id)
+                                    ? {
+                                        ...item,
+                                        repairProduct: { ...item.repairProduct, price: newCents },
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            style={{
+                              width: '88px',
+                              padding: '4px 6px',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              textAlign: 'right',
+                            }}
+                            aria-label={'Repair amount for ' + r.product.name}
+                          />
+                        </div>
+                      ) : (
+                        <strong>{money(r.product.price * r.qty)}</strong>
+                      ),
+                  ],
                   [
                     'Action',
                     r => (
@@ -989,7 +1028,14 @@ function BillingView({ ctx, data, onRefresh }) {
                         className="icon-only text-red"
                         aria-label={'Remove ' + r.product.name}
                         onClick={() =>
-                          setCart(cart.filter(x => lineKey(x.product_id, x.unit_id) !== r.id))
+                          setCart(
+                            cart.filter(
+                              x =>
+                                (x.repair_id
+                                  ? 'repair:' + x.repair_id
+                                  : lineKey(x.product_id, x.unit_id)) !== r.id
+                            )
+                          )
                         }
                       />
                     ),

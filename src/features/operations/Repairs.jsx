@@ -1572,10 +1572,7 @@ export function Repairs({ ctx }) {
                               const estCents = Number(j.final_charge || j.estimate || 0);
                               const paidCents = Number(j.paid_amount ?? j.advance_paid ?? 0);
                               const balCents = Math.max(0, estCents - paidCents);
-                              const canComplete =
-                                !tech &&
-                                j.status !== 'Cancelled' &&
-                                (j.status !== 'Delivered' || balCents > 0);
+                              const canComplete = !tech && j.status !== 'Cancelled';
 
                               return (
                                 <article className="repair-card zk-repair-modern-card" key={j.id}>
@@ -1632,7 +1629,13 @@ export function Repairs({ ctx }) {
                                           onClick={() => openCompleteModal(j)}
                                         >
                                           <Banknote size={14} />
-                                          <span>{j.status === 'Delivered' ? 'Settle Due' : 'Complete & Pay'}</span>
+                                          <span>
+                                            {j.status !== 'Delivered'
+                                              ? 'Complete & Pay'
+                                              : balCents > 0
+                                                ? 'Settle Due'
+                                                : 'Payment'}
+                                          </span>
                                         </button>
                                     )}
                                     <button
@@ -1727,19 +1730,26 @@ export function Repairs({ ctx }) {
                           'Actions',
                           r => (
                             <div className="row-actions">
-                              {!tech &&
-                                r.status !== 'Cancelled' &&
-                                (r.status !== 'Delivered' ||
-                                  Number(r.final_charge || r.estimate || 0) >
-                                    Number(r.paid_amount ?? r.advance_paid ?? 0)) && (
+                              {!tech && r.status !== 'Cancelled' && (() => {
+                                const bal = Math.max(
+                                  0,
+                                  Number(r.final_charge || r.estimate || 0) -
+                                    Number(r.paid_amount ?? r.advance_paid ?? 0)
+                                );
+                                return (
                                   <Button
                                     icon={Banknote}
-                                    variant="primary"
+                                    variant={r.status === 'Delivered' && bal === 0 ? 'outline' : 'primary'}
                                     onClick={() => openCompleteModal(r)}
                                   >
-                                    {r.status === 'Delivered' ? 'Settle Due' : 'Complete & Pay'}
+                                    {r.status !== 'Delivered'
+                                      ? 'Complete & Pay'
+                                      : bal > 0
+                                        ? 'Settle Due'
+                                        : 'Payment'}
                                   </Button>
-                                )}
+                                );
+                              })()}
                               <Button icon={ArrowRight} onClick={() => openStatusEditor(r)}>
                                 Status
                               </Button>
