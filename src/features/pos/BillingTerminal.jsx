@@ -76,6 +76,9 @@ export function BillingTerminal({ ctx }) {
 
 function BillingView({ ctx, data, onRefresh }) {
   const { products, units, customers, register, drafts, settings, staffList = [] } = data;
+  const drawer = register.drawer;
+  const registerBlocked = Boolean(register.blocked);
+  const current = register.can_checkout !== false && drawer?.business_date === today();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All Products');
   const [cart, setCart] = useState([]);
@@ -384,19 +387,19 @@ function BillingView({ ctx, data, onRefresh }) {
 
   useEffect(() => {
     const handle = e => {
-      if (device || held || checkout || receipt || cashMoveDir || cashbookOpen || reconcileOpen || document.querySelector('.modal')) return;
+      if (device || held || checkout || receipt || cashMoveDir || cashbookOpen || reconcileOpen || openRegisterOpen || document.querySelector('.modal')) return;
       if (e.key === 'F2') {
         e.preventDefault();
         input.current?.focus();
       }
-      if (e.key === 'F7' && lines.length && register.drawer?.business_date === today()) {
+      if (e.key === 'F7' && lines.length && current) {
         e.preventDefault();
         setCheckout(true);
       }
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [device, held, checkout, receipt, cashMoveDir, cashbookOpen, reconcileOpen, lines.length, register.drawer]);
+  }, [device, held, checkout, receipt, cashMoveDir, cashbookOpen, reconcileOpen, openRegisterOpen, lines.length, current]);
 
   const hold = async () => {
     setBusy(true);
@@ -415,13 +418,15 @@ function BillingView({ ctx, data, onRefresh }) {
     }
   };
 
-  const drawer = register.drawer;
   const registerMovements = register.movements || [];
-  const registerBlocked = Boolean(register.blocked);
   const shiftCashIn = registerMovements.reduce((s, r) => s + Math.max(0, r.amount), 0);
   const shiftCashOut = registerMovements.reduce((s, r) => s + Math.min(0, r.amount), 0);
-  const current = drawer?.business_date === today();
   const isManager = ['owner', 'manager'].includes(ctx.user.role);
+  const shiftMessage = registerBlocked
+    ? 'Another cashier has an open shift at this branch.'
+    : drawer
+      ? 'Close the previous shift, then open today’s register to sell.'
+      : 'Open your register and enter the starting cash for this branch to sell.';
 
   const openCashRegisterDialog = () => {
     setOpenRegisterOpen(true);
@@ -544,7 +549,7 @@ function BillingView({ ctx, data, onRefresh }) {
           ) : (
             !registerBlocked && (
               <Button icon={Plus} variant="primary" onClick={openCashRegisterDialog}>
-                Open Register
+                  Open Shift
               </Button>
             )
           )}
@@ -945,7 +950,7 @@ function BillingView({ ctx, data, onRefresh }) {
                   <span>Total payable</span>
                   <strong>{money(total)}</strong>
                 </div>
-                {!current && <Alert>Open today’s cash register before checkout.</Alert>}
+                {!current && <Alert>{shiftMessage}</Alert>}
                 {staffInvalid && <Alert>Enter a valid active Staff User ID (or clear to credit your own ID).</Alert>}
                 <Button
                   className="checkout-button"
@@ -1065,7 +1070,7 @@ function BillingView({ ctx, data, onRefresh }) {
         </Modal>
       )}
 
-      {checkout && (
+      {checkout && current && (
         <CheckoutModal
           ctx={ctx}
           onClose={() => setCheckout(false)}

@@ -4,24 +4,36 @@ declare(strict_types=1);
 namespace Zeedat\Services;
 
 use Zeedat\Repositories\BaseRepository;
+use Zeedat\Repositories\BranchRepository;
 use Zeedat\Repositories\DrawerRepository;
 use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
 
 class DrawerService {
     public static function openDrawer(array $user, int $branch): array {
-        $drawer = DrawerRepository::openDrawerForBranch($branch);
+        return self::requireDrawer($user, $branch, true);
+    }
+
+    private static function requireDrawer(array $user, int $branch, bool $currentShift): array {
+        $drawer = DrawerRepository::openDrawerForBranch($branch, true);
         if (!$drawer) {
-            throw new ApiError('Open today’s cash drawer before completing transactions.');
+            throw new ApiError('Open your cash drawer for this branch before continuing.', 409);
         }
         if ((int) $drawer['user_id'] !== (int) $user['id']) {
-            throw new ApiError('The active drawer is assigned to another cashier.');
+            throw new ApiError('The active drawer for this branch is assigned to another cashier.', 409);
+        }
+        if ($currentShift && !self::isCurrentShift($drawer)) {
+            throw new ApiError('Close the previous shift and open today’s cash drawer before completing transactions.', 409);
         }
         $drawer['expected'] = (int) $drawer['opening'] + (int) BaseRepository::scalar(
             'SELECT COALESCE(SUM(amount), 0) FROM cash_movements WHERE drawer_id=?',
             [$drawer['id']]
         );
         return $drawer;
+    }
+
+    private static function isCurrentShift(array $drawer): bool {
+        return $drawer['business_date'] === date('Y-m-d') && $drawer['cycle_closed_at'] === null;
     }
 
     public static function getRegister(int $branch, array $user, array $params = []): array {
@@ -76,6 +88,7 @@ class DrawerService {
         return [
             'drawer' => $drawer,
             'blocked' => $blocked,
+            'can_checkout' => $drawer !== null && self::isCurrentShift($drawer),
             'movements' => $movements,
             'payment_breakdown' => $paymentBreakdown,
             'history' => $history,
@@ -91,6 +104,7 @@ class DrawerService {
     }
 
     public static function open(array $user, int $branch, array $body): array {
+        BranchRepository::lock($branch);
         if (DrawerRepository::openDrawerForBranch($branch)) {
             throw new ApiError('A drawer session is already open at this branch.', 409);
         }
@@ -118,7 +132,7 @@ class DrawerService {
     }
 
     public static function close(array $user, int $branch, array $body): array {
-        $drawer = self::openDrawer($user, $branch);
+        $drawer = self::requireDrawer($user, $branch, false);
         $counted = Validator::money($body, 'counted');
         $notes = Validator::str($body, 'notes', 500, false);
         $expected = (int) $drawer['expected'];
@@ -138,17 +152,20 @@ class DrawerService {
     }
 
     public static function movement(array $user, int $branch, array $body): array {
-        $drawer = DrawerRepository::openDrawerForBranch($branch);
+        $drawer = DrawerRepository::openDrawerForBranch($branch, true);
         if (!$drawer) {
-            if (in_array($user['role'], ['owner', 'manager'], true) || !empty($body['auto_open'])) {
+            if (in_array($user['role'], ['owner', 'manager'], true)) {
                 self::open($user, $branch, ['opening' => 0]);
-                $drawer = DrawerRepository::openDrawerForBranch($branch);
+                $drawer = DrawerRepository::openDrawerForBranch($branch, true);
             } else {
                 throw new ApiError('Open today’s cash drawer before recording cash movements.');
             }
         }
         if ((int) $drawer['user_id'] !== (int) $user['id'] && !in_array($user['role'], ['owner', 'manager'], true)) {
             throw new ApiError('The active drawer is assigned to another cashier.');
+        }
+        if (!self::isCurrentShift($drawer)) {
+            throw new ApiError('Close the previous shift and open today’s cash drawer before recording cash movements.', 409);
         }
 
         $direction = $body['direction'] ?? '';
@@ -172,6 +189,7 @@ class DrawerService {
     }
 
     public static function closeCycle(int $branch, array $body): array {
+        BranchRepository::lock($branch);
         $date = Validator::date($body, 'business_date');
         $cycle = BaseRepository::one('SELECT id, closed_at FROM cycles WHERE branch_id=? AND business_date=?', [$branch, $date]);
         if (!$cycle) {

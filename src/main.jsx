@@ -444,7 +444,7 @@ function Workspace({ session, onLogout }) {
       setNotice('Changes saved');
       return result;
     } catch (e) {
-      if (route === 'sale.checkout' && (!navigator.onLine || !e.status || e.status >= 500)) {
+      if (route === 'sale.checkout' && user.role !== 'cashier' && (!navigator.onLine || !e.status || e.status >= 500)) {
         mutationKeys.delete(signature);
         const cachedProducts = await offlineStore.getProducts();
         const currentBranch = branches.find(b => b.id === activeBranch);

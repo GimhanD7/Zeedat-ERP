@@ -4,10 +4,12 @@ declare(strict_types=1);
 namespace Zeedat\Repositories;
 
 class DrawerRepository extends BaseRepository {
-    public static function openDrawerForBranch(int $branch): ?array {
+    public static function openDrawerForBranch(int $branch, bool $lock = false): ?array {
         if ($branch <= 0) return null;
         return self::one(
-            'SELECT d.*, c.business_date, u.name AS operator FROM drawers d JOIN cycles c ON c.id=d.cycle_id LEFT JOIN users u ON u.id=d.user_id WHERE d.branch_id=? AND d.closed_at IS NULL',
+            'SELECT d.*, c.business_date, c.closed_at AS cycle_closed_at, u.name AS operator
+             FROM drawers d JOIN cycles c ON c.id=d.cycle_id LEFT JOIN users u ON u.id=d.user_id
+             WHERE d.branch_id=? AND d.closed_at IS NULL' . ($lock ? ' FOR UPDATE' : ''),
             [$branch]
         );
     }
