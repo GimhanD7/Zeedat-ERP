@@ -357,20 +357,17 @@ export function Customers({ ctx }) {
             <Heading
               title="Customers & Credit"
               description="Customer directory, open credit receivables, loyalty points, wallets, and printable statements"
-              action={
-                <div className="zk-cust-head-actions">
-                  <Button icon={Download} variant="ghost" onClick={() => exportCustomersCsv(filteredCustomers)}>
-                    Export CSV
-                  </Button>
-                  <Button icon={Printer} variant="soft" onClick={handlePrintDirectory}>
-                    Print List
-                  </Button>
-                  <Button icon={Plus} variant="primary" onClick={() => openCustomerForm()}>
-                    New Customer
-                  </Button>
-                </div>
-              }
-            />
+            >
+              <Button icon={Download} variant="ghost" onClick={() => exportCustomersCsv(filteredCustomers)}>
+                Export CSV
+              </Button>
+              <Button icon={Printer} variant="soft" onClick={handlePrintDirectory}>
+                Print List
+              </Button>
+              <Button icon={Plus} variant="primary" onClick={() => openCustomerForm()}>
+                New Customer
+              </Button>
+            </Heading>
 
             <Stats
               items={[
@@ -432,7 +429,7 @@ export function Customers({ ctx }) {
                     </select>
                   </div>
                   <div className="zk-cust-filter-bar">
-                    <FilterTabs value={filterMode} onChange={setFilterMode} options={FILTER_OPTIONS} />
+                    <FilterTabs value={filterMode} onChange={setFilterMode} choices={FILTER_OPTIONS} />
                   </div>
                 </div>
 
@@ -614,7 +611,7 @@ export function Customers({ ctx }) {
                       <FilterTabs
                         value={detailTab}
                         onChange={setDetailTab}
-                        options={[
+                        choices={[
                           ['receivables', `Open Credit (${receivables.length})`],
                           ['sales', `Sales (${personSales.length})`],
                           ['payments', `Credit Payments (${ledger.credit_payments.length})`],

@@ -1,7 +1,8 @@
-export function FilterTabs({ choices, value, onChange }) {
+export function FilterTabs({ choices, options, value, onChange }) {
+  const list = choices || options || [];
   return (
     <div className="tabs" role="group" aria-label="Filters">
-      {choices.map(item => {
+      {list.map(item => {
         const [key, label] = Array.isArray(item) ? item : [item, item];
         return (
           <button

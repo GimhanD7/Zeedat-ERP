@@ -4,12 +4,14 @@ import {
   Award,
   Banknote,
   BarChart3,
+  DollarSign,
   Download,
   FileText,
   Package,
   Printer,
   RefreshCw,
   ShoppingBag,
+  TrendingUp,
   Truck,
   Users,
   Wrench,
@@ -263,27 +265,24 @@ export function ReportsPage({ ctx }) {
             <Heading
               title="Reports & Print Center"
               description="All-user sales commissions, itemized ledgers, and formal printable business reports across every system function"
-              action={
-                <div className="zk-rpt-print-actions">
-                  <Button icon={Download} variant="ghost" onClick={handleExportCsv}>
-                    Export CSV
-                  </Button>
-                  <Button icon={Printer} variant="soft" onClick={handlePrintTab}>
-                    Print {activeTabLabel}
-                  </Button>
-                  <Button icon={FileText} variant="primary" onClick={handlePrintAll}>
-                    Print Full Report
-                  </Button>
-                </div>
-              }
-            />
+            >
+              <Button icon={Download} variant="ghost" onClick={handleExportCsv}>
+                Export CSV
+              </Button>
+              <Button icon={Printer} variant="soft" onClick={handlePrintTab}>
+                Print {activeTabLabel}
+              </Button>
+              <Button icon={FileText} variant="primary" onClick={handlePrintAll}>
+                Print Full Report
+              </Button>
+            </Heading>
 
             <Panel className="zk-rpt-filter-bar">
               <div className="zk-rpt-filter-row">
                 <FilterTabs
                   value={preset}
                   onChange={applyPreset}
-                  options={[
+                  choices={[
                     ['1', 'Today'],
                     ['7', '7 Days'],
                     ['30', '30 Days'],
@@ -328,7 +327,7 @@ export function ReportsPage({ ctx }) {
                 </div>
               </div>
               <div className="zk-rpt-tab-strip">
-                <FilterTabs value={tab} onChange={setTab} options={REPORT_TABS} />
+                <FilterTabs value={tab} onChange={setTab} choices={REPORT_TABS} />
               </div>
             </Panel>
 
@@ -336,18 +335,18 @@ export function ReportsPage({ ctx }) {
               <>
                 <Stats
                   items={[
-                    ['Net Sales', money(s.net_sales || 0), `${s.total_bills || 0} invoices · ${s.total_units_sold || 0} units`],
-                    ['Gross Profit', money(s.gross_profit || 0), `COGS: ${money(s.total_cost || 0)}`],
-                    ['All Staff Commissions', money(s.total_commission || totalCommEarned), `${commSummary.length} active users`],
-                    ['Net Profit After Comm.', money(s.net_profit_after_comm || 0), `Discounts: ${money(s.total_discount || 0)}`],
+                    { icon: ShoppingBag, label: 'Net Sales', value: money(s.net_sales || 0), note: `${s.total_bills || 0} invoices · ${s.total_units_sold || 0} units`, tone: 'teal' },
+                    { icon: TrendingUp, label: 'Gross Profit', value: money(s.gross_profit || 0), note: `COGS: ${money(s.total_cost || 0)}`, tone: 'mint' },
+                    { icon: Award, label: 'All Staff Commissions', value: money(s.total_commission || totalCommEarned), note: `${commSummary.length} active users`, tone: 'amber' },
+                    { icon: DollarSign, label: 'Net Profit After Comm.', value: money(s.net_profit_after_comm || 0), note: `Discounts: ${money(s.total_discount || 0)}`, tone: 'violet' },
                   ]}
                 />
                 <Stats
                   items={[
-                    ['Cashbook Net Flow', money(cb.net_cashflow || 0), `In ${money(cb.total_in || 0)} · Out ${money(cb.total_out || 0)}`],
-                    ['Stock Cost Value', money(inv.cost_value || 0), `${inv.total_units || 0} units · ${inv.low_stock_count || 0} low`],
-                    ['Repairs Logged', String((report.repairs_report || []).length), `Paid: ${money((report.repairs_report || []).reduce((a, r) => a + Number(r.paid_amount || 0), 0))}`],
-                    ['Purchases Total', money((report.purchases_report || []).reduce((a, r) => a + Number(r.total_cost || 0), 0)), `${(report.purchases_report || []).length} GRN items`],
+                    { icon: Banknote, label: 'Cashbook Net Flow', value: money(cb.net_cashflow || 0), note: `In ${money(cb.total_in || 0)} · Out ${money(cb.total_out || 0)}`, tone: 'teal' },
+                    { icon: Package, label: 'Stock Cost Value', value: money(inv.cost_value || 0), note: `${inv.total_units || 0} units · ${inv.low_stock_count || 0} low`, tone: 'mint' },
+                    { icon: Wrench, label: 'Repairs Logged', value: String((report.repairs_report || []).length), note: `Paid: ${money((report.repairs_report || []).reduce((a, r) => a + Number(r.paid_amount || 0), 0))}`, tone: 'amber' },
+                    { icon: Truck, label: 'Purchases Total', value: money((report.purchases_report || []).reduce((a, r) => a + Number(r.total_cost || 0), 0)), note: `${(report.purchases_report || []).length} GRN items`, tone: 'violet' },
                   ]}
                 />
                 <div className="columns">
@@ -384,10 +383,10 @@ export function ReportsPage({ ctx }) {
               <>
                 <Stats
                   items={[
-                    ['Active Staff', String(commSummary.length), 'All accounts tracked'],
-                    ['Total Commission Earned', money(totalCommEarned), `${from} to ${to}`],
-                    ['Commissioned Items', String(commItems.length), 'Individual sold lines'],
-                    ['Attributed Sales', money(commSummary.reduce((a, r) => a + Number(r.sales_total || 0), 0)), 'By bill maker User ID'],
+                    { icon: Users, label: 'Active Staff', value: String(commSummary.length), note: 'All accounts tracked', tone: 'teal' },
+                    { icon: Award, label: 'Total Commission Earned', value: money(totalCommEarned), note: `${from} to ${to}`, tone: 'amber' },
+                    { icon: FileText, label: 'Commissioned Items', value: String(commItems.length), note: 'Individual sold lines', tone: 'mint' },
+                    { icon: ShoppingBag, label: 'Attributed Sales', value: money(commSummary.reduce((a, r) => a + Number(r.sales_total || 0), 0)), note: 'By bill maker User ID', tone: 'violet' },
                   ]}
                 />
                 <Panel title="All Users Commission Summary (By Bill Maker User ID)" icon={Award}>
@@ -431,10 +430,10 @@ export function ReportsPage({ ctx }) {
               <>
                 <Stats
                   items={[
-                    ['Gross Sales', money(s.gross_sales || 0), `${s.total_bills || 0} invoices`],
-                    ['Discounts', money(s.total_discount || 0), `Tax: ${money(s.total_tax || 0)}`],
-                    ['Net Revenue', money(s.net_sales || 0), `Wallet: ${money(s.total_wallet_used || 0)}`],
-                    ['Net Profit (After Comm.)', money(s.net_profit_after_comm || 0), `Gross: ${money(s.gross_profit || 0)}`],
+                    { icon: ShoppingBag, label: 'Gross Sales', value: money(s.gross_sales || 0), note: `${s.total_bills || 0} invoices`, tone: 'teal' },
+                    { icon: DollarSign, label: 'Discounts', value: money(s.total_discount || 0), note: `Tax: ${money(s.total_tax || 0)}`, tone: 'amber' },
+                    { icon: Banknote, label: 'Net Revenue', value: money(s.net_sales || 0), note: `Wallet: ${money(s.total_wallet_used || 0)}`, tone: 'mint' },
+                    { icon: TrendingUp, label: 'Net Profit (After Comm.)', value: money(s.net_profit_after_comm || 0), note: `Gross: ${money(s.gross_profit || 0)}`, tone: 'violet' },
                   ]}
                 />
                 <Panel title="Invoices & Margin Ledger" icon={ShoppingBag}>
@@ -461,10 +460,10 @@ export function ReportsPage({ ctx }) {
               <>
                 <Stats
                   items={[
-                    ['Total Cash In', money(cb.total_in || 0), `${cb.movements_count || 0} entries`],
-                    ['Total Cash Out', money(cb.total_out || 0)],
-                    ['Net Cashflow', money(cb.net_cashflow || 0)],
-                    ['Register Shifts', String(cb.shifts_count || 0), `${cb.open_shifts || 0} currently open`],
+                    { icon: Banknote, label: 'Total Cash In', value: money(cb.total_in || 0), note: `${cb.movements_count || 0} entries`, tone: 'mint' },
+                    { icon: Banknote, label: 'Total Cash Out', value: money(cb.total_out || 0), note: 'Disbursements & payouts', tone: 'amber' },
+                    { icon: TrendingUp, label: 'Net Cashflow', value: money(cb.net_cashflow || 0), note: 'Cash In − Cash Out', tone: 'teal' },
+                    { icon: FileText, label: 'Register Shifts', value: String(cb.shifts_count || 0), note: `${cb.open_shifts || 0} currently open`, tone: 'violet' },
                   ]}
                 />
                 <Panel title="Cashbook Ledger" icon={Banknote}>
@@ -505,10 +504,10 @@ export function ReportsPage({ ctx }) {
               <>
                 <Stats
                   items={[
-                    ['Active SKUs', String(inv.total_skus || 0), `${inv.total_units || 0} units total`],
-                    ['Stock Cost Value', money(inv.cost_value || 0)],
-                    ['Retail Valuation', money(inv.retail_value || 0), `Margin: ${money(inv.potential_profit || 0)}`],
-                    ['Low / Out Stock', `${inv.low_stock_count || 0} / ${inv.out_of_stock_count || 0}`, 'Needs reorder'],
+                    { icon: Package, label: 'Active SKUs', value: String(inv.total_skus || 0), note: `${inv.total_units || 0} units total`, tone: 'teal' },
+                    { icon: DollarSign, label: 'Stock Cost Value', value: money(inv.cost_value || 0), note: 'Current inventory at cost', tone: 'mint' },
+                    { icon: TrendingUp, label: 'Retail Valuation', value: money(inv.retail_value || 0), note: `Margin: ${money(inv.potential_profit || 0)}`, tone: 'violet' },
+                    { icon: BarChart3, label: 'Low / Out Stock', value: `${inv.low_stock_count || 0} / ${inv.out_of_stock_count || 0}`, note: 'Needs reorder', tone: 'amber' },
                   ]}
                 />
                 <Panel title="Current Inventory Valuation" icon={Package}>
