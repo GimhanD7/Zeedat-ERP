@@ -42,7 +42,12 @@ class AdminController
         if (!is_array($overrides)) {
             throw new ApiError('Invalid user overrides payload.');
         }
-        return PermissionRepository::saveUserPermissions($targetUserId, $overrides, (int) $user['id']);
+        $res = PermissionRepository::saveUserPermissions($targetUserId, $overrides, (int) $user['id']);
+        try {
+            BaseRepository::run('UPDATE users SET synced=0 WHERE id=?', [$targetUserId]);
+        } catch (\Throwable) {
+        }
+        return $res;
     }
 
     public static function getAudit(): array
@@ -70,7 +75,7 @@ class AdminController
 
         $primaryId = $clean[0];
         BaseRepository::transaction(function () use ($userId, $primaryId, $clean) {
-            BaseRepository::run('UPDATE users SET branch_id=? WHERE id=?', [$primaryId, $userId]);
+            BaseRepository::run('UPDATE users SET branch_id=?, synced=0 WHERE id=?', [$primaryId, $userId]);
             BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$userId]);
             foreach ($clean as $bid) {
                 BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$userId, $bid]);
@@ -147,22 +152,22 @@ class AdminController
             $active = !empty($body['active']) ? 1 : 0;
             if ($password !== '') {
                 BaseRepository::run(
-                    'UPDATE users SET branch_id=?, name=?, email=?, role=?, password_hash=?, active=? WHERE id=?',
+                    'UPDATE users SET branch_id=?, name=?, email=?, role=?, password_hash=?, active=?, synced=0 WHERE id=?',
                     [$branch, $name, $email, $role, password_hash($password, PASSWORD_DEFAULT), $active, $id]
                 );
             } else {
                 BaseRepository::run(
-                    'UPDATE users SET branch_id=?, name=?, email=?, role=?, active=? WHERE id=?',
+                    'UPDATE users SET branch_id=?, name=?, email=?, role=?, active=?, synced=0 WHERE id=?',
                     [$branch, $name, $email, $role, $active, $id]
                 );
             }
         } else {
             $id = BaseRepository::insert(
-                'INSERT INTO users(branch_id, name, email, role, password_hash, active) VALUES (?,?,?,?,?,1)',
+                'INSERT INTO users(branch_id, name, email, role, password_hash, active, synced) VALUES (?,?,?,?,?,1,0)',
                 [$branch, $name, $email, $role, password_hash($password, PASSWORD_DEFAULT)]
             );
             $badgeCode = UserRepository::formatBadgeCode((int) $id);
-            BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', [$badgeCode, $id]);
+            BaseRepository::run('UPDATE users SET badge_code=?, synced=0 WHERE id=?', [$badgeCode, $id]);
         }
 
         $synced = self::syncUserBranches((int) $id, $branchIds);
@@ -192,7 +197,7 @@ class AdminController
 
         if ($salesCount > 0 || $drawersCount > 0 || $repairsCount > 0) {
             // Soft delete/deactivate to prevent FK constraint errors and preserve audit history
-            BaseRepository::run('UPDATE users SET active=0 WHERE id=?', [$id]);
+            BaseRepository::run('UPDATE users SET active=0, synced=0 WHERE id=?', [$id]);
             UserRepository::logAudit((int) $user['id'], null, 'staff.deactivate', ['id' => $id, 'name' => $target['name'], 'reason' => 'deleted_with_history']);
             return [
                 'id' => $id,
@@ -232,7 +237,7 @@ class AdminController
         }
 
         $newStatus = empty($target['active']) ? 1 : 0;
-        BaseRepository::run('UPDATE users SET active=? WHERE id=?', [$newStatus, $id]);
+        BaseRepository::run('UPDATE users SET active=?, synced=0 WHERE id=?', [$newStatus, $id]);
 
         UserRepository::logAudit((int) $user['id'], null, 'staff.toggle', ['id' => $id, 'active' => $newStatus]);
 

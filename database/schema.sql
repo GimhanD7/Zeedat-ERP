@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
  role ENUM('owner','manager','cashier','technician','stock') NOT NULL,
  badge_code VARCHAR(32) NULL UNIQUE,
  active BOOLEAN NOT NULL DEFAULT TRUE,
+ sync_uuid VARCHAR(64) NULL,
+ synced TINYINT(1) NOT NULL DEFAULT 1,
  FOREIGN KEY (branch_id) REFERENCES branches(id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS customers (

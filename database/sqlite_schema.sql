@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL CHECK(role IN ('owner','manager','cashier','technician','stock')),
   badge_code TEXT NULL,
   active INTEGER NOT NULL DEFAULT 1,
+  sync_uuid TEXT NULL,
+  synced INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (branch_id) REFERENCES branches(id)
 );
 

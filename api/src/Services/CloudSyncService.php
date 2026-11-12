@@ -126,6 +126,38 @@ class CloudSyncService {
             static fn($r) => (string) ($r['name'] ?? '')
         );
 
+        $users = self::ensureSyncUuids(
+            'users',
+            'USR',
+            self::safeRows(
+                'SELECT u.*, COALESCE(b.name, "") AS branch_name
+                 FROM users u LEFT JOIN branches b ON b.id=u.branch_id
+                 WHERE ' . $pendingWhere('u') . ' ORDER BY u.id ASC LIMIT 200'
+            ),
+            static fn($r) => strtolower(trim((string) ($r['email'] ?? '')))
+        );
+        $userBranchesPush = [];
+        $userPermissionsPush = [];
+        if (!empty($users)) {
+            $dirtyUserEmails = array_map(static fn($u) => (int) $u['id'], $users);
+            $inU = implode(',', array_unique(array_filter($dirtyUserEmails, static fn($v) => $v > 0)));
+            if ($inU !== '') {
+                $userBranchesPush = self::safeRows(
+                    "SELECT u.email, b.name AS branch_name
+                     FROM user_branches ub
+                     JOIN users u ON u.id=ub.user_id
+                     JOIN branches b ON b.id=ub.branch_id
+                     WHERE ub.user_id IN ({$inU})"
+                );
+                $userPermissionsPush = self::safeRows(
+                    "SELECT u.email, up.permission, up.allowed
+                     FROM user_permissions up
+                     JOIN users u ON u.id=up.user_id
+                     WHERE up.user_id IN ({$inU})"
+                );
+            }
+        }
+
         $products = self::ensureSyncUuids(
             'products',
             'PRD',
@@ -363,7 +395,7 @@ class CloudSyncService {
             static fn($r) => ($r['action'] ?? '') . '|' . ($r['user_id'] ?? 0) . '|' . ($r['created_at'] ?? '')
         );
 
-        if (empty($branches) && empty($products) && empty($customers) && empty($units)
+        if (empty($branches) && empty($users) && empty($products) && empty($customers) && empty($units)
             && empty($suppliers) && empty($purchases) && empty($transfers)
             && empty($repairs) && empty($salePayloads) && empty($movements)
             && empty($drawers) && empty($cashMovements) && empty($supplierPayments)
@@ -374,6 +406,9 @@ class CloudSyncService {
         return [
             'branch_id' => $sales[0]['branch_id'] ?? $drawers[0]['branch_id'] ?? $customers[0]['branch_id'] ?? 1,
             'branches' => $branches,
+            'users' => $users,
+            'user_branches' => $userBranchesPush,
+            'user_permissions' => $userPermissionsPush,
             'products' => $products,
             'customers' => $customers,
             'units' => $units,
@@ -396,6 +431,7 @@ class CloudSyncService {
     private static function applyPushAcknowledgements(array $srv): array {
         $counts = [
             'synced_branches' => self::markSyncedIds('branches', $srv['synced_branches'] ?? []),
+            'synced_users' => self::markSyncedIds('users', $srv['synced_users'] ?? []),
             'synced_products' => self::markSyncedIds('products', $srv['synced_products'] ?? []),
             'synced_customers' => self::markSyncedIds('customers', $srv['synced_customers'] ?? []),
             'synced_units' => self::markSyncedIds('units', $srv['synced_units'] ?? []),
@@ -577,6 +613,7 @@ class CloudSyncService {
 
             // 2. Role permissions & Staff users (enables offline logins for staff created online)
             if (!empty($data['role_permissions'])) {
+                BaseRepository::run('DELETE FROM role_permissions');
                 foreach ($data['role_permissions'] as $rp) {
                     $sql = $isSqlite
                         ? 'INSERT OR IGNORE INTO role_permissions (role, permission) VALUES (?,?)'
@@ -586,22 +623,38 @@ class CloudSyncService {
             }
 
             $userByEmail = [];
+            $dirtyUserIds = [];
             foreach ($data['users'] ?? [] as $u) {
                 $email = strtolower(trim((string) ($u['email'] ?? '')));
                 if ($email === '' || empty($u['password_hash'])) continue;
                 $bId = empty($u['branch_name']) ? null : $resolveLocalBranch($u['branch_name'], (int) ($u['branch_id'] ?? 1));
-                $existingId = (int) BaseRepository::scalar('SELECT id FROM users WHERE email=? LIMIT 1', [$email]);
+                $existingRow = BaseRepository::one('SELECT id, synced, badge_code FROM users WHERE email=? LIMIT 1', [$email]);
+                $existingId = (int) ($existingRow['id'] ?? 0);
                 if ($existingId > 0) {
+                    $badge = trim((string) ($u['badge_code'] ?? ($existingRow['badge_code'] ?? '')));
+                    if ($badge === '') {
+                        $badge = 'STF' . str_pad((string) $existingId, 5, '0', STR_PAD_LEFT);
+                    }
+                    if ((int) ($existingRow['synced'] ?? 1) === 0) {
+                        // Preserve pending local edits until pushed
+                        $dirtyUserIds[$existingId] = true;
+                        $userByEmail[$email] = $existingId;
+                        continue;
+                    }
                     BaseRepository::run(
-                        'UPDATE users SET branch_id=?, name=?, password_hash=?, role=?, active=? WHERE id=?',
-                        [$bId, $u['name'], $u['password_hash'], $u['role'], (int) ($u['active'] ?? 1), $existingId]
+                        'UPDATE users SET branch_id=?, name=?, password_hash=?, role=?, badge_code=?, active=?, synced=1 WHERE id=?',
+                        [$bId, $u['name'], $u['password_hash'], $u['role'], $badge, (int) ($u['active'] ?? 1), $existingId]
                     );
                     $userByEmail[$email] = $existingId;
                 } else {
+                    $badgeInput = trim((string) ($u['badge_code'] ?? ''));
                     $newU = BaseRepository::insert(
-                        'INSERT INTO users (branch_id, name, email, password_hash, role, active) VALUES (?,?,?,?,?,?)',
-                        [$bId, $u['name'], $email, $u['password_hash'], $u['role'], (int) ($u['active'] ?? 1)]
+                        'INSERT INTO users (branch_id, name, email, password_hash, role, badge_code, active, synced) VALUES (?,?,?,?,?,?,?,1)',
+                        [$bId, $u['name'], $email, $u['password_hash'], $u['role'], $badgeInput !== '' ? $badgeInput : null, (int) ($u['active'] ?? 1)]
                     );
+                    if ($badgeInput === '') {
+                        BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', ['STF' . str_pad((string) $newU, 5, '0', STR_PAD_LEFT), $newU]);
+                    }
                     $userByEmail[$email] = $newU;
                 }
             }
@@ -619,9 +672,34 @@ class CloudSyncService {
                         }
                     }
                     foreach ($userByEmail as $localUId) {
+                        if (!empty($dirtyUserIds[$localUId])) continue;
                         BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$localUId]);
                         foreach ($byEmailBranches[$localUId] ?? [] as $localBId) {
                             BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$localUId, $localBId]);
+                        }
+                    }
+                } catch (\Throwable $ignore) {
+                }
+            }
+            if (array_key_exists('user_permissions', $data) && is_array($data['user_permissions'])) {
+                try {
+                    \Zeedat\Repositories\PermissionRepository::ensureTable();
+                    $byUserPerms = [];
+                    foreach ($data['user_permissions'] as $up) {
+                        $email = strtolower(trim((string) ($up['email'] ?? '')));
+                        $perm = trim((string) ($up['permission'] ?? ''));
+                        if ($email === '' || $perm === '' || !isset($userByEmail[$email])) continue;
+                        $localUId = $userByEmail[$email];
+                        $byUserPerms[$localUId][$perm] = (int) ($up['allowed'] ?? 1);
+                    }
+                    foreach ($userByEmail as $localUId) {
+                        if (!empty($dirtyUserIds[$localUId])) continue;
+                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$localUId]);
+                        foreach ($byUserPerms[$localUId] ?? [] as $perm => $allowed) {
+                            BaseRepository::run(
+                                'INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)',
+                                [$localUId, $perm, $allowed]
+                            );
                         }
                     }
                 } catch (\Throwable $ignore) {
@@ -1458,6 +1536,7 @@ class CloudSyncService {
         $isSqlite = Database::isSqlite();
         $acked = [
             'synced_branches' => [],
+            'synced_users' => [],
             'synced_products' => [],
             'synced_customers' => [],
             'synced_units' => [],
@@ -1521,6 +1600,75 @@ class CloudSyncService {
                     BaseRepository::run('INSERT INTO branches (name, phone, address, sync_uuid, synced) VALUES (?,?,?,?,1)', [$name, $b['phone'] ?? '', $b['address'] ?? '', $b['sync_uuid'] ?? null]);
                 }
                 $acked['synced_branches'][] = $b['id'];
+            }
+
+            // 1b. Users / Staff (sync offline-created or updated staff, branches, and permissions)
+            $pushedUsersByEmail = [];
+            foreach ($payload['users'] ?? [] as $u) {
+                $email = strtolower(trim((string) ($u['email'] ?? '')));
+                if ($email === '' || empty($u['password_hash'])) continue;
+                $bId = empty($u['branch_name']) ? null : $resolveBranch($u['branch_name'], (int) ($u['branch_id'] ?? $defaultBranchId));
+                $existingId = (int) BaseRepository::scalar('SELECT id FROM users WHERE email=? LIMIT 1', [$email]);
+                $badgeInput = trim((string) ($u['badge_code'] ?? ''));
+                if ($existingId > 0) {
+                    $badge = $badgeInput !== '' ? $badgeInput : 'STF' . str_pad((string) $existingId, 5, '0', STR_PAD_LEFT);
+                    BaseRepository::run(
+                        'UPDATE users SET branch_id=?, name=?, password_hash=?, role=?, badge_code=?, active=?, sync_uuid=?, synced=1 WHERE id=?',
+                        [$bId, $u['name'], $u['password_hash'], $u['role'], $badge, (int) ($u['active'] ?? 1), $u['sync_uuid'] ?? null, $existingId]
+                    );
+                    $pushedUsersByEmail[$email] = $existingId;
+                } else {
+                    $newUId = BaseRepository::insert(
+                        'INSERT INTO users (branch_id, name, email, password_hash, role, badge_code, active, sync_uuid, synced) VALUES (?,?,?,?,?,?,?,?,1)',
+                        [$bId, $u['name'], $email, $u['password_hash'], $u['role'], $badgeInput !== '' ? $badgeInput : null, (int) ($u['active'] ?? 1), $u['sync_uuid'] ?? null]
+                    );
+                    if ($badgeInput === '') {
+                        BaseRepository::run('UPDATE users SET badge_code=? WHERE id=?', ['STF' . str_pad((string) $newUId, 5, '0', STR_PAD_LEFT), $newUId]);
+                    }
+                    $pushedUsersByEmail[$email] = $newUId;
+                }
+                $acked['synced_users'][] = $u['id'];
+            }
+            if (!empty($pushedUsersByEmail) && is_array($payload['user_branches'] ?? null)) {
+                try {
+                    $byUserBr = [];
+                    foreach ($payload['user_branches'] as $ub) {
+                        $email = strtolower(trim((string) ($ub['email'] ?? '')));
+                        $branchName = trim((string) ($ub['branch_name'] ?? ''));
+                        if ($email === '' || $branchName === '' || !isset($pushedUsersByEmail[$email])) continue;
+                        $uid = $pushedUsersByEmail[$email];
+                        $bid = $resolveBranch($branchName, 0);
+                        if ($bid > 0) $byUserBr[$uid][$bid] = $bid;
+                    }
+                    foreach ($pushedUsersByEmail as $uid) {
+                        if (!isset($byUserBr[$uid])) continue;
+                        BaseRepository::run('DELETE FROM user_branches WHERE user_id=?', [$uid]);
+                        foreach ($byUserBr[$uid] as $bid) {
+                            BaseRepository::run('INSERT INTO user_branches (user_id, branch_id) VALUES (?,?)', [$uid, $bid]);
+                        }
+                    }
+                } catch (\Throwable $ignore) {
+                }
+            }
+            if (!empty($pushedUsersByEmail) && is_array($payload['user_permissions'] ?? null)) {
+                try {
+                    \Zeedat\Repositories\PermissionRepository::ensureTable();
+                    $byUserPerm = [];
+                    foreach ($payload['user_permissions'] as $up) {
+                        $email = strtolower(trim((string) ($up['email'] ?? '')));
+                        $perm = trim((string) ($up['permission'] ?? ''));
+                        if ($email === '' || $perm === '' || !isset($pushedUsersByEmail[$email])) continue;
+                        $uid = $pushedUsersByEmail[$email];
+                        $byUserPerm[$uid][$perm] = (int) ($up['allowed'] ?? 1);
+                    }
+                    foreach ($pushedUsersByEmail as $uid) {
+                        BaseRepository::run('DELETE FROM user_permissions WHERE user_id=?', [$uid]);
+                        foreach ($byUserPerm[$uid] ?? [] as $perm => $allowed) {
+                            BaseRepository::run('INSERT INTO user_permissions (user_id, permission, allowed) VALUES (?,?,?)', [$uid, $perm, $allowed]);
+                        }
+                    }
+                } catch (\Throwable $ignore) {
+                }
             }
 
             // 2. Products
@@ -2049,7 +2197,7 @@ class CloudSyncService {
             'branches' => BaseRepository::rows('SELECT id, name, phone, address, sync_uuid FROM branches ORDER BY id ASC'),
             'role_permissions' => BaseRepository::rows('SELECT role, permission FROM role_permissions'),
             'users' => BaseRepository::rows(
-                "SELECT u.id, u.branch_id, COALESCE(b.name, '') AS branch_name, u.name, u.email, u.password_hash, u.role, u.active
+                "SELECT u.id, u.branch_id, COALESCE(b.name, '') AS branch_name, u.name, u.email, u.password_hash, u.role, u.badge_code, u.active
                  FROM users u LEFT JOIN branches b ON b.id=u.branch_id ORDER BY u.id ASC"
             ),
             'user_branches' => $userBranches,
