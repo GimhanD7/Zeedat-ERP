@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownLeft,
+  ArrowRight,
   ArrowUpRight,
   Banknote,
   CalendarDays,
