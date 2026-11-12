@@ -210,6 +210,7 @@ function BillingView({ ctx, data, onRefresh }) {
   }, []);
 
   const openQuickAddCustomer = (prefillText = '') => {
+    setCustDropdownOpen(false);
     const clean = prefillText.trim();
     const looksPhone = /^[0-9+\-\s]{4,}$/.test(clean);
     ctx.setDialog({
