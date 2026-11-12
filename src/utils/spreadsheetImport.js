@@ -207,7 +207,7 @@ const HEADER_MAP = {
   commissionvalue: 'commission_value',
 };
 
-export async function parseStockSpreadsheet(file) {
+export async function parseStockSpreadsheet(file, branches = []) {
   const nameLower = String(file?.name || '').toLowerCase();
   let rawRows = [];
 
@@ -224,12 +224,40 @@ export async function parseStockSpreadsheet(file) {
     throw new Error('The file must contain a header row and at least one product row.');
   }
 
-  const headers = rawRows[0].map(h => HEADER_MAP[normalizeHeader(h)] || null);
+  // Match standard headers AND per-branch columns like "Battaramulla Mobile Qty" or "Battaramulla Mobile"
+  const branchHeaderMap = new Map();
+  for (const b of branches || []) {
+    const normName = normalizeHeader(b.name);
+    if (normName) {
+      branchHeaderMap.set(normName, b);
+      branchHeaderMap.set(`${normName}qty`, b);
+      branchHeaderMap.set(`${normName}stock`, b);
+    }
+  }
+
+  const branchColIndices = [];
+  const headers = rawRows[0].map((rawH, idx) => {
+    const norm = normalizeHeader(rawH);
+    if (HEADER_MAP[norm]) return HEADER_MAP[norm];
+    const matchedBranch = branchHeaderMap.get(norm);
+    if (matchedBranch) {
+      branchColIndices.push({ idx, branch: matchedBranch });
+      return null;
+    }
+    return null;
+  });
+
   if (!headers.includes('name')) {
     throw new Error('Missing a "Name" / "Product Name" column in the header row.');
   }
 
-  const parsed = [];
+  const hasBranchColumns = branchColIndices.length > 0;
+  const hasSkuColumn = headers.includes('sku');
+
+  // Deduplicate rows by normalized name (one unique name per catalog item; latest row wins)
+  const byKey = new Map();
+  let duplicatesMerged = 0;
+
   for (let i = 1; i < rawRows.length; i++) {
     const row = rawRows[i];
     const obj = {};
@@ -241,7 +269,25 @@ export async function parseStockSpreadsheet(file) {
 
     const cleanNum = v => String(v ?? '').replace(/[, ]+/g, '');
     const commType = String(obj.commission_type || '').toLowerCase().includes('perc') ? 'percent' : 'fixed';
-    parsed.push({
+
+    let branchStocks = null;
+    let totalBranchQty = 0;
+    if (hasBranchColumns) {
+      branchStocks = {};
+      for (const { idx, branch } of branchColIndices) {
+        if (row[idx] !== undefined && String(row[idx]).trim() !== '') {
+          const bQty = Math.max(0, parseInt(cleanNum(row[idx]), 10) || 0);
+          branchStocks[branch.id] = bQty;
+          totalBranchQty += bQty;
+        }
+      }
+    }
+
+    const parsedQty = hasBranchColumns
+      ? totalBranchQty
+      : Math.max(0, parseInt(cleanNum(obj.qty || 0), 10) || 0);
+
+    const entry = {
       rowNumber: i + 1,
       sku: String(obj.sku || '').trim(),
       name: itemName,
@@ -250,17 +296,26 @@ export async function parseStockSpreadsheet(file) {
       barcode: String(obj.barcode || '').trim(),
       cost: Math.max(0, cents(cleanNum(obj.cost || 0))),
       price: Math.max(0, cents(cleanNum(obj.price || 0))),
-      qty: Math.max(0, parseInt(cleanNum(obj.qty || 0), 10) || 0),
+      qty: parsedQty,
+      branch_stocks: branchStocks,
       reorder_level: Math.max(0, parseInt(cleanNum(obj.reorder_level || 0), 10) || 0),
       commission_type: commType,
       commission_value: Math.max(0, cents(cleanNum(obj.commission_value || 0))),
-    });
+    };
+
+    const dedupKey = itemName.toLowerCase().replace(/\s+/g, ' ');
+    if (byKey.has(dedupKey)) {
+      duplicatesMerged++;
+    }
+    byKey.set(dedupKey, entry);
   }
 
-  if (!parsed.length) {
+  const rows = Array.from(byKey.values());
+  if (!rows.length) {
     throw new Error('No valid product rows found in the spreadsheet.');
   }
-  return parsed;
+
+  return { rows, hasBranchColumns, hasSkuColumn, duplicatesMerged };
 }
 
 export function downloadStockImportTemplate() {

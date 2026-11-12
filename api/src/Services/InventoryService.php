@@ -879,9 +879,6 @@ class InventoryService {
     }
 
     public static function importProducts(array $user, int $branch, array $body): array {
-        if ($branch <= 0) {
-            throw new ApiError('Select a branch to receive imported stock.');
-        }
         $rows = $body['items'] ?? null;
         if (!is_array($rows) || empty($rows)) {
             throw new ApiError('No items provided for import.');
@@ -900,12 +897,17 @@ class InventoryService {
             $skipped = 0;
             $batchRef = 'XLS-' . date('YmdHis');
 
+            $validBranchIds = [];
+            foreach (BaseRepository::rows('SELECT id FROM branches') as $br) {
+                $validBranchIds[(int) $br['id']] = true;
+            }
+
             foreach ($rows as $raw) {
                 if (!is_array($raw)) {
                     $skipped++;
                     continue;
                 }
-                $name = trim((string) ($raw['name'] ?? ''));
+                $name = preg_replace('/\s+/', ' ', trim((string) ($raw['name'] ?? '')));
                 if ($name === '') {
                     $skipped++;
                     continue;
@@ -937,20 +939,22 @@ class InventoryService {
                     $commVal = 10000;
                 }
 
-                // Match existing product by SKU -> Barcode -> exact Name
-                $existing = null;
-                if ($skuInput !== '') {
-                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE UPPER(sku)=UPPER(?) LIMIT 1', [$skuInput]);
+                // Match existing product strictly without duplicating names:
+                // 1) exact Name (case-insensitive), 2) Item Code (SKU), 3) Barcode
+                $existing = BaseRepository::one('SELECT id, sku, name, barcode, serialized FROM products WHERE LOWER(TRIM(name))=LOWER(?) LIMIT 1', [$name]);
+                if (!$existing && $skuInput !== '') {
+                    $existing = BaseRepository::one('SELECT id, sku, name, barcode, serialized FROM products WHERE UPPER(sku)=UPPER(?) LIMIT 1', [$skuInput]);
                 }
                 if (!$existing && $barcode !== '') {
-                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE barcode=? LIMIT 1', [$barcode]);
-                }
-                if (!$existing) {
-                    $existing = BaseRepository::one('SELECT id, sku, barcode, serialized FROM products WHERE LOWER(name)=LOWER(?) LIMIT 1', [$name]);
+                    $existing = BaseRepository::one('SELECT id, sku, name, barcode, serialized FROM products WHERE barcode=? LIMIT 1', [$barcode]);
                 }
 
                 if ($existing) {
                     $pid = (int) $existing['id'];
+                    // Ensure renaming by SKU/barcode doesn't collide with another product's unique name
+                    $nameHolder = (int) BaseRepository::scalar('SELECT id FROM products WHERE LOWER(TRIM(name))=LOWER(?) AND id!=?', [$name, $pid]);
+                    $finalName = $nameHolder > 0 ? (string) $existing['name'] : $name;
+
                     if ($barcode !== '') {
                         $holder = (int) BaseRepository::scalar('SELECT id FROM products WHERE barcode=? AND id!=?', [$barcode, $pid]);
                         if ($holder > 0) {
@@ -961,7 +965,7 @@ class InventoryService {
                     }
                     BaseRepository::run(
                         'UPDATE products SET barcode=?, name=?, brand=?, category=?, cost=?, price=?, reorder_level=?, commission_type=?, commission_value=?, active=1, synced=0 WHERE id=?',
-                        [$barcode !== '' ? $barcode : null, $name, $brand, $category, $cost, $price, $reorder, $commType, $commVal, $pid]
+                        [$barcode !== '' ? $barcode : null, $finalName, $brand, $category, $cost, $price, $reorder, $commType, $commVal, $pid]
                     );
                     $updated++;
                 } else {
@@ -980,18 +984,27 @@ class InventoryService {
                 }
 
                 if ($category !== 'Services' && empty($existing['serialized'])) {
-                    $currentQty = (int) BaseRepository::scalar('SELECT COALESCE(qty, 0) FROM stock WHERE branch_id=? AND product_id=?', [$branch, $pid]);
-                    $delta = $mode === 'set' ? ($qty - $currentQty) : $qty;
-                    if ($delta !== 0) {
-                        ProductRepository::adjustStock(
-                            $branch,
-                            $pid,
-                            $delta,
-                            'Excel Import',
-                            $batchRef,
-                            (int) ($user['id'] ?? 1)
-                        );
-                        $stockAdjusted++;
+                    $branchMap = !empty($raw['branch_stocks']) && is_array($raw['branch_stocks'])
+                        ? $raw['branch_stocks']
+                        : ($branch > 0 ? [$branch => $qty] : []);
+
+                    foreach ($branchMap as $bKey => $bQtyRaw) {
+                        $bId = (int) $bKey;
+                        if ($bId <= 0 || !isset($validBranchIds[$bId])) continue;
+                        $targetQty = max(0, (int) $bQtyRaw);
+                        $currentQty = (int) BaseRepository::scalar('SELECT COALESCE(qty, 0) FROM stock WHERE branch_id=? AND product_id=?', [$bId, $pid]);
+                        $delta = $mode === 'set' ? ($targetQty - $currentQty) : $targetQty;
+                        if ($delta !== 0) {
+                            ProductRepository::adjustStock(
+                                $bId,
+                                $pid,
+                                $delta,
+                                'Excel Import',
+                                $batchRef,
+                                (int) ($user['id'] ?? 1)
+                            );
+                            $stockAdjusted++;
+                        }
                     }
                 }
             }

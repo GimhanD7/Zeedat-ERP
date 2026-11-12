@@ -9,6 +9,7 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
   const [mode, setMode] = useState('add'); // 'add' | 'set'
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState([]);
+  const [meta, setMeta] = useState({ hasBranchColumns: false, hasSkuColumn: false, duplicatesMerged: 0 });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -18,10 +19,19 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
     setError('');
     setFileName(file.name);
     try {
-      const parsed = await parseStockSpreadsheet(file);
-      setRows(parsed);
+      const parsed = await parseStockSpreadsheet(file, ctx.branches);
+      setRows(parsed.rows);
+      setMeta({
+        hasBranchColumns: parsed.hasBranchColumns,
+        hasSkuColumn: parsed.hasSkuColumn,
+        duplicatesMerged: parsed.duplicatesMerged,
+      });
+      if (parsed.hasBranchColumns || parsed.hasSkuColumn) {
+        setMode('set');
+      }
     } catch (err) {
       setRows([]);
+      setMeta({ hasBranchColumns: false, hasSkuColumn: false, duplicatesMerged: 0 });
       setError(err?.message || 'Unable to read spreadsheet.');
     }
   };
@@ -32,7 +42,7 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
       setError('Select an Excel (.xlsx) or CSV (.csv) file with items first.');
       return;
     }
-    if (!branch) {
+    if (!meta.hasBranchColumns && !branch) {
       setError('Select a destination branch.');
       return;
     }
@@ -70,20 +80,22 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
           {error && <Alert tone="red">{error}</Alert>}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
-            <label style={{ display: 'grid', gap: '5px', fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
-              <span>Target Branch for Stock</span>
-              <select
-                value={branch}
-                onChange={e => setBranch(Number(e.target.value))}
-                style={{ minHeight: '36px', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
-              >
-                {ctx.branches.map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!meta.hasBranchColumns && (
+              <label style={{ display: 'grid', gap: '5px', fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                <span>Target Branch for Stock</span>
+                <select
+                  value={branch}
+                  onChange={e => setBranch(Number(e.target.value))}
+                  style={{ minHeight: '36px', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
+                >
+                  {ctx.branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label style={{ display: 'grid', gap: '5px', fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
               <span>Stock Quantity Mode</span>
@@ -92,8 +104,8 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
                 onChange={e => setMode(e.target.value)}
                 style={{ minHeight: '36px', padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '8px' }}
               >
+                <option value="set">Set exact branch stock (= Qty from Excel)</option>
                 <option value="add">Add to existing branch stock (+ Qty)</option>
-                <option value="set">Set exact branch stock (= Qty)</option>
               </select>
             </label>
           </div>
@@ -143,8 +155,14 @@ export function StockImportModal({ ctx, defaultBranch, onClose, onSuccess }) {
           {rows.length > 0 && (
             <>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <Badge tone="green">{rows.length} items ready</Badge>
+                <Badge tone="green">{rows.length} unique items ready</Badge>
                 <Badge tone="blue">{totalUnits.toLocaleString()} total stock units</Badge>
+                {meta.hasBranchColumns && (
+                  <Badge tone="violet">Multi-branch stock columns matched automatically</Badge>
+                )}
+                {meta.duplicatesMerged > 0 && (
+                  <Badge tone="amber">{meta.duplicatesMerged} duplicate name(s) merged</Badge>
+                )}
               </div>
               <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                 <Table
