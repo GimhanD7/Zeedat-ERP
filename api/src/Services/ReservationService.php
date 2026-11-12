@@ -53,14 +53,14 @@ final class ReservationService {
                 ProductRepository::assertStockAvailable($branch, $product, (int) $row['qty']);
             }
             if ($existing) {
-                BaseRepository::run('UPDATE reservations SET paid=?, status=?, sale_id=?, version=?, base_version=?, change_token=?, synced=1 WHERE id=?',
-                    [$row['paid'], $row['status'], $sale, $version, $version, $token, $existing['id']]);
+                BaseRepository::run('UPDATE reservations SET paid=?, status=?, sale_id=?, version=?, base_version=?, change_token=?, points_earned=COALESCE(?, points_earned), synced=1 WHERE id=?',
+                    [$row['paid'], $row['status'], $sale, $version, $version, $token, $row['points_earned'] ?? null, $existing['id']]);
             } else {
                 BaseRepository::run(
-                    'INSERT INTO reservations(sync_uuid, branch_id, customer_id, product_id, unit_id, qty, unit_price, tax_bps, total, paid, status, sale_id, version, base_version, change_token, created_at, synced)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
+                    'INSERT INTO reservations(sync_uuid, branch_id, customer_id, product_id, unit_id, qty, unit_price, tax_bps, total, paid, status, sale_id, version, base_version, change_token, created_at, points_earned, synced)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
                     [$row['sync_uuid'], $branch, $customer, $product, $unit, $row['qty'], $row['unit_price'], $row['tax_bps'], $row['total'],
-                        $row['paid'], $row['status'], $sale, $version, $version, $token, $row['created_at']]
+                        $row['paid'], $row['status'], $sale, $version, $version, $token, $row['created_at'], $row['points_earned'] ?? 0]
                 );
             }
             $ack[(int) $row['id']] = $version;
@@ -104,7 +104,7 @@ final class ReservationService {
                     'expected_total' => $hold['total'],
                     'notes' => 'Reservation ' . $reference,
                 ], $hold);
-                BaseRepository::run('UPDATE reservations SET sale_id=? WHERE id=?', [$invoice['id'], $id]);
+                BaseRepository::run('UPDATE reservations SET sale_id=?, points_earned=? WHERE id=?', [$invoice['id'], $invoice['points_earned'], $id]);
                 return ['id' => $id, 'status' => 'Delivered', 'invoice' => $invoice];
             }
 
@@ -113,6 +113,7 @@ final class ReservationService {
                 if ($paid > 0) {
                     BaseRepository::run('UPDATE customers SET wallet_balance=wallet_balance+?, synced=0 WHERE id=?', [$paid, $customer]);
                     CustomerWallet::entry($user, $branch, $customer, $paid, 'Reservation refund', 'Wallet', $reference);
+                    CustomerWallet::recordPoints($user, $branch, $customer, -(int) $hold['points_earned'], 'Reservation Points Reversed', 'Wallet', $reference);
                 }
                 BaseRepository::run("UPDATE reservations SET status='Cancelled', version=version+1, change_token=?, synced=0 WHERE id=?", [$token, $id]);
                 return ['id' => $id, 'status' => 'Cancelled'];
@@ -130,8 +131,10 @@ final class ReservationService {
                 DrawerRepository::addCashMovement((int) $user['id'], $drawer, $amount, 'Reservation deposit', $reference);
             }
             CustomerWallet::recordAppliedPayment($user, $branch, $customer, $amount, 'Reservation deposit', $method, $reference);
-            BaseRepository::run('UPDATE reservations SET paid=paid+?, version=version+1, change_token=?, synced=0 WHERE id=?', [$amount, $token, $id]);
-            return ['id' => $id, 'status' => 'Held', 'paid' => $paid + $amount, 'balance' => (int) $hold['total'] - $paid - $amount];
+            $points = CustomerWallet::paymentPoints($paid, $amount);
+            CustomerWallet::recordPoints($user, $branch, $customer, $points, 'Reservation Payment Points', $method, $reference);
+            BaseRepository::run('UPDATE reservations SET paid=paid+?, points_earned=points_earned+?, version=version+1, change_token=?, synced=0 WHERE id=?', [$amount, $points, $token, $id]);
+            return ['id' => $id, 'status' => 'Held', 'paid' => $paid + $amount, 'balance' => (int) $hold['total'] - $paid - $amount, 'points_earned' => $points];
         });
     }
 

@@ -595,8 +595,9 @@ class InventoryService {
             throw new ApiError('Customer not found.', 404);
         }
 
+        $walletDelta = CustomerWallet::WALLET_DELTA;
         $walletLogs = BaseRepository::rows(
-            "SELECT l.*, COALESCE(u.name, 'Staff') AS user_name
+            "SELECT l.*, {$walletDelta} AS wallet_delta, COALESCE(u.name, 'Staff') AS user_name
              FROM customer_wallet_logs l
              LEFT JOIN users u ON u.id=l.user_id
              WHERE l.customer_id=?

@@ -840,6 +840,8 @@ function BillingView({ ctx, data, onRefresh }) {
                       <Wallet size={12} />
                       <span>Wallet: {money(selectedCustomerObj.wallet_balance || 0)}</span>
                     </span>
+                    <Badge tone="green">Credits +{money(selectedCustomerObj.wallet_credits || 0)}</Badge>
+                    <Badge tone="red">Debits −{money(selectedCustomerObj.wallet_debits || 0)}</Badge>
                     {(Number(selectedCustomerObj.credit || 0) > 0 ||
                       Number(selectedCustomerObj.repair_due || 0) > 0) && (() => {
                       const creditDue = Number(selectedCustomerObj.credit || 0);

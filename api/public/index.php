@@ -391,10 +391,13 @@ try {
         'customers' => (function () use ($user, $branch) {
             RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
             $params = $branch ? [$branch] : [];
+            $walletDelta = \Zeedat\Services\CustomerWallet::WALLET_DELTA;
             return BaseRepository::rows(
                 "SELECT c.*, b.name branch,
                     CAST(COALESCE(c.loyalty_points,0) AS UNSIGNED) loyalty_points,
                     CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) wallet_balance,
+                    COALESCE(w.wallet_credits,0) wallet_credits,
+                    COALESCE(w.wallet_debits,0) wallet_debits,
                     CAST(COALESCE(t.total,0) AS UNSIGNED) total,
                     CAST(COALESCE(t.credit,0) AS UNSIGNED) credit,
                     CAST(COALESCE(t.credit_count,0) AS UNSIGNED) credit_count,
@@ -405,6 +408,13 @@ try {
                     CAST(COALESCE(rp.repair_due_count,0) AS UNSIGNED) repair_due_count,
                     rp.repair_next_due_date
                 FROM customers c JOIN branches b ON b.id=c.branch_id
+                LEFT JOIN (
+                    SELECT customer_id,
+                        SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END) wallet_credits,
+                        SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END) wallet_debits
+                    FROM (SELECT l.customer_id, {$walletDelta} AS delta FROM customer_wallet_logs l) wallet_entries
+                    GROUP BY customer_id
+                ) w ON w.customer_id=c.id
                 LEFT JOIN (SELECT customer_id, SUM(total) total, SUM(credit) credit, SUM(CASE WHEN credit > 0 THEN 1 ELSE 0 END) credit_count, MIN(CASE WHEN credit > 0 THEN due_date ELSE NULL END) next_due_date, COUNT(*) sales_count, MAX(created_at) last_sale_at FROM sales GROUP BY customer_id) t ON t.customer_id=c.id
                 LEFT JOIN (
                     SELECT customer_id,

@@ -202,12 +202,19 @@ class AutoMigrator
             branch_id INT NOT NULL, customer_id INT NOT NULL, product_id INT NOT NULL, unit_id INT NULL,
             qty INT NOT NULL, unit_price BIGINT NOT NULL, tax_bps INT NOT NULL,
             total BIGINT NOT NULL, paid BIGINT NOT NULL DEFAULT 0, status VARCHAR(16) NOT NULL DEFAULT 'Held',
+            points_earned BIGINT NOT NULL DEFAULT 0,
             version INT NOT NULL DEFAULT 0, base_version INT NOT NULL DEFAULT 0, change_token VARCHAR(32) NOT NULL DEFAULT '',
             sale_id INT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (branch_id) REFERENCES branches(id), FOREIGN KEY (customer_id) REFERENCES customers(id),
             FOREIGN KEY (product_id) REFERENCES products(id), FOREIGN KEY (unit_id) REFERENCES units(id),
             FOREIGN KEY (sale_id) REFERENCES sales(id){$reservationIndex}
         )");
+        $hasReservationPoints = $driver === 'sqlite'
+            ? in_array('points_earned', array_column($db->query('PRAGMA table_info(reservations)')->fetchAll(PDO::FETCH_ASSOC), 'name'), true)
+            : (bool) $db->query("SHOW COLUMNS FROM reservations LIKE 'points_earned'")->fetch();
+        if (!$hasReservationPoints) {
+            $db->exec('ALTER TABLE reservations ADD COLUMN points_earned BIGINT NOT NULL DEFAULT 0');
+        }
         if ($driver === 'sqlite') {
             $db->exec('CREATE INDEX IF NOT EXISTS reservations_stock ON reservations(branch_id, product_id, status)');
             $db->exec('CREATE INDEX IF NOT EXISTS reservations_unit ON reservations(unit_id, status)');

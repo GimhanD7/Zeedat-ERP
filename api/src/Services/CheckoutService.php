@@ -215,7 +215,11 @@ class CheckoutService {
         $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
 
         // 1 Rupee (100 cents) = 1 Loyalty Point earned on settled bill value
-        $pointsEarned = $customer ? intdiv(max(0, $total - $credit), 100) : 0;
+        $pointsEarned = $customer ? intdiv(max(0, $total - $credit - $repairSubtotal), 100) : 0;
+        foreach ($repairLinks as [, $linePrice, $job]) {
+            $pointsEarned += CustomerWallet::paymentPoints((int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0), $linePrice);
+        }
+        $pointsToCredit = max(0, $pointsEarned - (int) ($reservation['points_earned'] ?? 0));
 
         $syncUuid = 'SL-' . bin2hex(random_bytes(10));
         if (\Zeedat\Config\Database::isSqlite()) {
@@ -232,14 +236,14 @@ class CheckoutService {
         $invoiceNo = Helpers::ref($prefixCode, $id);
         BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [$invoiceNo, $id]);
 
-        if ($customer && ($walletUsed > 0 || $pointsEarned > 0)) {
+        if ($customer && ($walletUsed > 0 || $pointsToCredit > 0)) {
             BaseRepository::run(
                 'UPDATE customers SET wallet_balance = COALESCE(wallet_balance, 0) - ?, loyalty_points = COALESCE(loyalty_points, 0) + ?, synced=0 WHERE id=?',
-                [$walletUsed, $pointsEarned, $customer]
+                [$walletUsed, $pointsToCredit, $customer]
             );
             BaseRepository::run(
                 'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, sale_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,?,?,?,?,?,?)',
-                [$branch, $customer, (int) $user['id'], $id, -$walletUsed, $pointsEarned, $walletUsed > 0 ? 'POS Wallet + Points' : 'POS Points', $paymentMethods, $invoiceNo]
+                [$branch, $customer, (int) $user['id'], $id, -$walletUsed, $pointsToCredit, $walletUsed > 0 ? 'POS Wallet + Points' : 'POS Points', $paymentMethods, $invoiceNo]
             );
         }
 
@@ -302,7 +306,7 @@ class CheckoutService {
         $drawer = DrawerService::openDrawer($user, $branch);
         $invoiceNo = $body['invoice'] ?? '';
         $id = (int) preg_replace('/\D/', '', (string) $invoiceNo);
-        $sale = BaseRepository::one('SELECT id, credit, customer_id FROM sales WHERE id=? AND branch_id=? FOR UPDATE', [$id, $branch]);
+        $sale = BaseRepository::one('SELECT id, total, credit, customer_id FROM sales WHERE id=? AND branch_id=? FOR UPDATE', [$id, $branch]);
         if (!$sale) throw new ApiError('Invoice not found.', 404);
 
         $amount = Validator::money($body, 'amount');
@@ -318,7 +322,7 @@ class CheckoutService {
 
         self::salePayment($user, $drawer, $sale['id'], $amount, $method, $ref, 'Credit');
         $cashAdd = $method === 'Cash' ? $amount : 0;
-        $creditPoints = !empty($sale['customer_id']) ? intdiv($amount, 100) : 0;
+        $creditPoints = !empty($sale['customer_id']) ? CustomerWallet::paymentPoints(max(0, (int) $sale['total'] - (int) $sale['credit']), $amount) : 0;
         BaseRepository::run(
             "UPDATE sales SET credit=credit-?, paid_amount=COALESCE(paid_amount,0)+?, cash_tendered=COALESCE(cash_tendered,0)+?, points_earned=COALESCE(points_earned,0)+?, payment_methods=CASE WHEN COALESCE(payment_methods,'') IN ('','Credit') THEN ? WHEN INSTR(payment_methods, ?) > 0 THEN payment_methods ELSE CONCAT(payment_methods, ' + ', ?) END, synced=0 WHERE id=?",
             [$amount, $amount, $cashAdd, $creditPoints, $method, $method, $method, $sale['id']]

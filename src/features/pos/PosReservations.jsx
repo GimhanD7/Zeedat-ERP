@@ -141,10 +141,11 @@ export function PosReservations({
       setTab('manage');
       setSelectedId(result.id);
       setInvoice(result.invoice || null);
-      setMessage(creating ? 'Reservation created and deposit recorded.' : action === 'deliver'
+      const notice = creating ? 'Reservation created and deposit recorded.' : action === 'deliver'
         ? 'Item handed over. Invoice created.' : action === 'cancel'
           ? 'Reservation cancelled. Deposit returned to the customer wallet.'
-          : result.balance === 0 ? 'Payment recorded. The item is ready for handover.' : 'Payment recorded.');
+          : result.balance === 0 ? 'Payment recorded. The item is ready for handover.' : 'Payment recorded.';
+      setMessage(result.points_earned > 0 ? notice + ' +' + result.points_earned + ' loyalty points.' : notice);
       state.refresh();
       if (creating) {
         setProductId('');
@@ -249,6 +250,9 @@ export function PosReservations({
                     <Badge tone={due > 0 && selected.status === 'Held' ? 'amber' : 'green'}>{stage(selected)}</Badge>
                   </div>
                   <Amounts total={Number(selected.total)} paid={Number(selected.paid)} />
+                  {Number(selected.points_earned) > 0 && selected.status !== 'Cancelled' && (
+                    <small className="muted">{Number(selected.points_earned).toLocaleString()} loyalty points earned</small>
+                  )}
                   {selected.status === 'Held' && !action && (
                     <div className="pos-reservation-actions">
                       <Button type="button" variant="primary" disabled={!canSubmit} onClick={() => {

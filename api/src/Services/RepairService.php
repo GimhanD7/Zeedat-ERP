@@ -13,7 +13,7 @@ use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
 
 class RepairService {
-    private static function collectPayment(array $user, int $branch, int $customer, int $id, int $amount, string $method, string $kind): void {
+    private static function collectPayment(array $user, int $branch, int $customer, int $id, int $amount, string $method, string $kind, int $alreadyPaid = 0): void {
         if (!in_array($user['role'], ['cashier', 'owner', 'manager'], true)) {
             throw new ApiError('A cashier must collect this repair payment.', 403);
         }
@@ -26,6 +26,7 @@ class RepairService {
             DrawerRepository::addCashMovement((int) $user['id'], $drawer, $amount, $kind, $reference);
         }
         CustomerWallet::recordAppliedPayment($user, $branch, $customer, $amount, $kind, $method, $reference);
+        CustomerWallet::recordPoints($user, $branch, $customer, CustomerWallet::paymentPoints($alreadyPaid, $amount), 'Repair Payment Points', $method, $reference);
     }
 
     public static function create(int $branch, array $body, ?array $user = null): array {
@@ -323,7 +324,7 @@ class RepairService {
 
             $jobNumber = sprintf('RJ-%06d', $id);
             if ($payAmount > 0) {
-                self::collectPayment($user, $branch, (int) $job['customer_id'], $id, $payAmount, $method, 'Repair Payment');
+                self::collectPayment($user, $branch, (int) $job['customer_id'], $id, $payAmount, $method, 'Repair Payment', $alreadyPaid);
             }
             $status = $paymentOnly ? $job['status'] : 'Delivered';
             $paidAt = $payAmount > 0 ? date('Y-m-d H:i:s') : $job['paid_at'];

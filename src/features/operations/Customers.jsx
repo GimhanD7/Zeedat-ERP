@@ -599,7 +599,9 @@ export function Customers({ ctx }) {
                               </div>
                               <div className="zk-cust-row-metrics">
                                 <Badge tone="amber">{pts.toLocaleString()} pts</Badge>
-                                {walletAmt > 0 && <Badge tone="green">Wallet {money(walletAmt)}</Badge>}
+                                <Badge tone="slate">Wallet {money(walletAmt)}</Badge>
+                                {Number(c.wallet_credits) > 0 && <Badge tone="green">+{money(c.wallet_credits)}</Badge>}
+                                {Number(c.wallet_debits) > 0 && <Badge tone="red">−{money(c.wallet_debits)}</Badge>}
                                 {creditAmt > 0 ? (
                                   <Badge tone={overdue ? 'red' : 'amber'}>Due {money(creditAmt)}</Badge>
                                 ) : (
@@ -726,10 +728,15 @@ export function Customers({ ctx }) {
                           <Badge tone="green">Prepaid</Badge>
                         </div>
                         <strong className="zk-cust-acct-val">{money(person.wallet_balance || 0)}</strong>
-                        <small className="muted">Available instantly at POS checkout</small>
+                        <small className="muted">Available balance</small>
+                        <div className="row-actions">
+                          <Badge tone="green">Credits +{money(person.wallet_credits || 0)}</Badge>
+                          <Badge tone="red">Debits −{money(person.wallet_debits || 0)}</Badge>
+                        </div>
                         <Button icon={Wallet} variant="soft" onClick={openWalletTopUp}>
                           Top Up Wallet
                         </Button>
+                        <Button variant="ghost" onClick={() => setDetailTab('wallet')}>View Wallet Activity</Button>
                       </div>
 
                       <div className="zk-cust-acct-card points">
@@ -888,7 +895,7 @@ export function Customers({ ctx }) {
                           [
                             'Wallet Δ',
                             r => {
-                              const amt = Number(r.amount || 0);
+                              const amt = Number(r.wallet_delta ?? r.amount ?? 0);
                               if (!amt) return '—';
                               return (
                                 <strong className={amt > 0 ? 'text-green' : 'text-red'}>
@@ -897,6 +904,7 @@ export function Customers({ ctx }) {
                               );
                             },
                           ],
+                          ['Payment activity', r => !Number(r.wallet_delta) && Number(r.amount) ? money(r.amount) : '—'],
                           [
                             'Points Δ',
                             r => {
