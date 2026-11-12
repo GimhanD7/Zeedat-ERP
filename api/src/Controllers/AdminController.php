@@ -361,6 +361,9 @@ class AdminController
 
     public static function saveDeletePin(array $user, array $body): array
     {
+        if ($user['role'] !== 'owner') {
+            throw new ApiError('Only the owner can configure the Delete PIN.', 403);
+        }
         $newPin = trim((string) ($body['new_pin'] ?? ''));
         if (!preg_match('/^\d{4,8}$/', $newPin)) {
             throw new ApiError('Security PIN must be 4 to 8 digits (numbers only).');

@@ -279,7 +279,7 @@ export function SettingsPage({ ctx }) {
         confirm_pin: '',
         use_account_password: false,
       });
-      ctx.setNotice('Inventory Delete PIN saved.');
+      ctx.setNotice('Delete PIN saved.');
       state.refresh();
     } catch (err) {
       setPinMsg({ type: 'error', text: err.message || 'Failed to save Security PIN.' });
@@ -1078,7 +1078,7 @@ export function SettingsPage({ ctx }) {
                       <div className="zk-card-header">
                         <div className="zk-card-title">
                           <Lock size={17} style={{ color: '#0d9488' }} />
-                          <span>Inventory Delete Security PIN</span>
+                          <span>Delete Security PIN</span>
                         </div>
                         <Badge tone={settings.delete_pin_configured ? 'green' : 'amber'}>
                           {settings.delete_pin_configured ? 'PIN Active' : 'PIN Not Set'}
@@ -1086,7 +1086,7 @@ export function SettingsPage({ ctx }) {
                       </div>
 
                       <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#64748b', lineHeight: 1.5 }}>
-                        This numeric PIN (4–8 digits) is required before any staff member can delete an item in Inventory.
+                        The owner sets this 4–8 digit PIN. It is required to delete inventory items or customer accounts.
                       </p>
 
                       {pinMsg && (

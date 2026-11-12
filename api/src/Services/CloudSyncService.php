@@ -7,6 +7,7 @@ use Throwable;
 use Zeedat\Config\Database;
 use Zeedat\Repositories\BaseRepository;
 use Zeedat\Repositories\PermissionRepository;
+use Zeedat\Repositories\ProductRepository;
 use Zeedat\Support\Response;
 
 class CloudSyncService {
@@ -52,6 +53,9 @@ class CloudSyncService {
         $pendingRoles = $driver === 'sqlite'
             ? (int) BaseRepository::scalar('SELECT COUNT(*) FROM role_permission_sync WHERE pending_token IS NOT NULL')
             : 0;
+        $pendingReservations = $driver === 'sqlite'
+            ? (int) BaseRepository::scalar('SELECT COUNT(*) FROM reservations WHERE synced=0')
+            : 0;
 
         return [
             'driver' => $driver,
@@ -81,7 +85,8 @@ class CloudSyncService {
             'unsynced_audits' => $counts['audit_log'],
             'total_sales' => (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales'),
             'unsynced_roles' => $pendingRoles,
-            'total_pending' => $totalPending + $pendingRoles,
+            'unsynced_reservations' => $pendingReservations,
+            'total_pending' => $totalPending + $pendingRoles + $pendingReservations,
         ];
     }
 
@@ -427,7 +432,8 @@ class CloudSyncService {
             static fn($row) => bin2hex(random_bytes(16))
         );
 
-        if (empty($branches) && empty($users) && empty($roleChanges) && empty($walletLogs) && empty($products) && empty($customers) && empty($units)
+        $reservations = ReservationService::syncRows(true);
+        if (empty($branches) && empty($users) && empty($roleChanges) && empty($walletLogs) && empty($reservations) && empty($products) && empty($customers) && empty($units)
             && empty($suppliers) && empty($purchases) && empty($transfers)
             && empty($repairs) && empty($salePayloads) && empty($movements)
             && empty($drawers) && empty($cashMovements) && empty($supplierPayments)
@@ -443,6 +449,7 @@ class CloudSyncService {
             'user_permissions' => $userPermissionsPush,
             'role_changes' => $roleChanges,
             'customer_wallet_logs' => $walletLogs,
+            'reservations' => $reservations,
             'products' => $products,
             'customers' => $customers,
             'units' => $units,
@@ -463,6 +470,13 @@ class CloudSyncService {
     }
 
     private static function applyPushAcknowledgements(array $srv): array {
+        $reservationsSynced = 0;
+        foreach ($srv['synced_reservations'] ?? [] as $id => $version) {
+            $reservationsSynced += BaseRepository::run(
+                'UPDATE reservations SET base_version=?, synced=CASE WHEN version=? THEN 1 ELSE 0 END WHERE id=? AND base_version<=?',
+                [$version, $version, $id, $version]
+            )->rowCount();
+        }
         $acknowledgedRoles = 0;
         foreach ($srv['synced_roles'] ?? [] as $change) {
             $acknowledgedRoles += BaseRepository::run(
@@ -471,6 +485,7 @@ class CloudSyncService {
             )->rowCount();
         }
         $counts = [
+            'synced_reservations' => $reservationsSynced,
             'synced_wallet_logs' => self::markSyncedIds('customer_wallet_logs', $srv['synced_wallet_logs'] ?? []),
             'synced_roles' => $acknowledgedRoles,
             'synced_branches' => self::markSyncedIds('branches', $srv['synced_branches'] ?? []),
@@ -550,7 +565,7 @@ class CloudSyncService {
             'synced_transfers' => 0, 'synced_repairs' => 0, 'synced_sales' => 0,
             'synced_movements' => 0, 'synced_drawers' => 0, 'synced_cash_movements' => 0,
             'synced_supplier_payments' => 0, 'synced_returns' => 0,
-            'synced_barcode_logs' => 0, 'synced_audit_logs' => 0, 'synced_wallet_logs' => 0, 'synced_count' => 0,
+            'synced_barcode_logs' => 0, 'synced_audit_logs' => 0, 'synced_wallet_logs' => 0, 'synced_reservations' => 0, 'synced_count' => 0,
         ];
 
         for ($pass = 0; $pass < 10; $pass++) {
@@ -784,25 +799,25 @@ class CloudSyncService {
                 $bid = $resolveLocalBranch($c['branch_name'] ?? null, (int) ($c['branch_id'] ?? 1));
                 $syncUuid = (string) ($c['sync_uuid'] ?? ('CUS-' . substr(md5(($c['phone'] ?? '') . '|' . ($c['name'] ?? '')), 0, 10)));
                 $existing = BaseRepository::one(
-                    'SELECT id, synced FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                    [$syncUuid, $bid, $c['phone']]
+                    'SELECT id, synced FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                    [$syncUuid, $bid, $c['phone'], $syncUuid]
                 );
                 if ($existing) {
                     if ((int) ($existing['synced'] ?? 1) === 1) {
                         BaseRepository::run(
-                            'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
-                            [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
+                            'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, deleted_at=COALESCE(deleted_at, ?), synced=1 WHERE id=?',
+                            [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $existing['id']]
                         );
                     }
                 } elseif ($isSqlite) {
                     BaseRepository::run(
-                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
-                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, deleted_at, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)',
+                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 } else {
                     BaseRepository::run(
-                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)',
-                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, deleted_at, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
+                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 }
                 $stats['customers_synced']++;
@@ -880,40 +895,14 @@ class CloudSyncService {
                 $bid = $resolveLocalBranch($rep['branch_name'] ?? null, (int) ($rep['branch_id'] ?? 1));
                 $syncUuid = (string) ($rep['sync_uuid'] ?? ('REP-' . substr(md5(($rep['device'] ?? '') . '|' . ($rep['created_at'] ?? '')), 0, 10)));
                 $cid = (int) (BaseRepository::scalar(
-                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                    [$rep['customer_sync_uuid'] ?? '', $bid, $rep['customer_phone'] ?? '']
+                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                    [$rep['customer_sync_uuid'] ?? '', $bid, $rep['customer_phone'] ?? '', $rep['customer_sync_uuid'] ?? '']
                 ) ?: 0);
                 if ($cid <= 0) continue;
                 $techId = !empty($rep['technician_email']) ? ($userByEmail[strtolower($rep['technician_email'])] ?? null) : null;
                 $existing = BaseRepository::one('SELECT id, synced FROM repairs WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
-                if ($existing) {
-                    if ((int) ($existing['synced'] ?? 1) === 1) {
-                        BaseRepository::run(
-                            'UPDATE repairs SET status=?, notes=?, technician_id=?, synced=1 WHERE id=?',
-                            [$rep['status'] ?? 'Received', $rep['notes'] ?? '', $techId, $existing['id']]
-                        );
-                    }
-                } elseif ($isSqlite) {
-                    BaseRepository::run(
-                        'INSERT INTO repairs (uuid, branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
-                        [
-                            $syncUuid, $bid, $cid, $techId, $rep['device'], $rep['serial'] ?? '',
-                            $rep['issue'] ?? '', $rep['accessories'] ?? '', $rep['notes'] ?? '',
-                            (int) ($rep['estimate'] ?? 0), $rep['due_date'] ?? date('Y-m-d'),
-                            $rep['status'] ?? 'Received', $syncUuid, $rep['created_at'] ?? date('Y-m-d H:i:s'),
-                        ]
-                    );
-                } else {
-                    BaseRepository::run(
-                        'INSERT INTO repairs (branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
-                        [
-                            $bid, $cid, $techId, $rep['device'], $rep['serial'] ?? '',
-                            $rep['issue'] ?? '', $rep['accessories'] ?? '', $rep['notes'] ?? '',
-                            (int) ($rep['estimate'] ?? 0), $rep['due_date'] ?? date('Y-m-d'),
-                            $rep['status'] ?? 'Received', $syncUuid, $rep['created_at'] ?? date('Y-m-d H:i:s'),
-                        ]
-                    );
-                }
+                if ($existing && (int) $existing['synced'] === 0) continue;
+                self::writeSyncedRepair($rep, $bid, $cid, $techId, $syncUuid, (int) ($existing['id'] ?? 0), $isSqlite);
                 $stats['repairs_synced']++;
             }
 
@@ -947,8 +936,8 @@ class CloudSyncService {
 
                 $cid = (!empty($s['customer_sync_uuid']) || !empty($s['customer_phone']))
                     ? (BaseRepository::scalar(
-                        'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                        [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '']
+                        'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                        [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '', $s['customer_sync_uuid'] ?? '']
                     ) ?: null)
                     : null;
 
@@ -1007,6 +996,7 @@ class CloudSyncService {
             $stats['wallet_logs_synced'] = count(self::syncWalletLogs(
                 $data['customer_wallet_logs'] ?? [], $resolveLocalBranch, $resolveLocalUser
             ));
+            $stats['reservations_synced'] = count(ReservationService::applySync($data['reservations'] ?? [], true));
             $stats['stock_movements_synced'] = 0;
             foreach ($data['stock_movements'] ?? [] as $movement) {
                 $id = $productBySku[$movement['product_sku']] ?? null;
@@ -1053,6 +1043,39 @@ class CloudSyncService {
             'success' => true,
             'message' => "Synced {$stats['branches_synced']} branch(es), {$stats['products_synced']} product(s), {$stats['stock_synced']} stock, {$stats['customers_synced']} customer(s), {$stats['sales_synced']} sale(s), {$stats['drawers_synced']} drawer(s), {$stats['cash_movements_synced']} cashbook entry(s), and {$stats['returns_synced']} return(s).",
         ]);
+    }
+
+    private static function writeSyncedRepair(array $row, int $branch, int $customer, ?int $technician, string $uuid, int $existing, bool $sqlite): void {
+        $estimate = (int) ($row['estimate'] ?? 0);
+        $advance = (int) ($row['advance_paid'] ?? 0);
+        $paid = (int) ($row['paid_amount'] ?? $advance);
+        $charge = (int) ($row['final_charge'] ?? $estimate);
+        $method = (string) ($row['payment_method'] ?? '');
+        $paidAt = $row['paid_at'] ?? null;
+        if ($existing) {
+            $current = BaseRepository::one('SELECT paid_amount, payment_method, paid_at, status FROM repairs WHERE id=? FOR UPDATE', [$existing]);
+            if ((int) $current['paid_amount'] > $paid) {
+                $paid = (int) $current['paid_amount'];
+                $method = $current['payment_method'];
+                $paidAt = $current['paid_at'];
+            }
+            $status = $current['status'] === 'Delivered' ? 'Delivered' : ($row['status'] ?? 'Received');
+            BaseRepository::run(
+                'UPDATE repairs SET status=?, notes=?, technician_id=?, estimate=?, advance_paid=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, synced=1 WHERE id=?',
+                [$status, $row['notes'] ?? '', $technician, $estimate, $advance, $charge, $paid, $method, $paidAt, $existing]
+            );
+            return;
+        }
+        $fields = [$branch, $customer, $technician, $row['device'], $row['serial'] ?? '', $row['issue'] ?? '',
+            $row['accessories'] ?? '', $row['notes'] ?? '', $estimate, $row['due_date'] ?? date('Y-m-d'),
+            $row['status'] ?? 'Received', $uuid, $row['created_at'] ?? date('Y-m-d H:i:s'), $advance, $charge, $paid, $method, $paidAt];
+        BaseRepository::run(
+            'INSERT INTO repairs (' . ($sqlite ? 'uuid, ' : '') .
+            'branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid,
+                created_at, advance_paid, final_charge, paid_amount, payment_method, paid_at, synced)
+             VALUES (' . ($sqlite ? '?, ' : '') . '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
+            $sqlite ? [$uuid, ...$fields] : $fields
+        );
     }
 
     private static function syncWalletLogs(array $rows, callable $resolveBranch, callable $resolveUser): array {
@@ -1239,6 +1262,7 @@ class CloudSyncService {
     }
 
     private static function syncSalePayments(int $saleId, int $drawerId, int $userId, array $payments, bool $isSqlite): void {
+        $seen = [];
         foreach ($payments as $pm) {
             $kind = $pm['kind'] ?? 'Sale';
             $method = $pm['method'] ?? 'Cash';
@@ -1246,11 +1270,13 @@ class CloudSyncService {
             $refVal = !empty($pm['reference']) ? (string) $pm['reference'] : null;
             $createdAt = $pm['created_at'] ?? date('Y-m-d H:i:s');
 
-            $dup = BaseRepository::scalar(
-                'SELECT id FROM payments WHERE sale_id=? AND kind=? AND method=? AND amount=? AND COALESCE(reference, "")=? LIMIT 1',
+            $key = json_encode([$kind, $method, $amount, $refVal], JSON_THROW_ON_ERROR);
+            $seen[$key] = ($seen[$key] ?? 0) + 1;
+            $count = (int) BaseRepository::scalar(
+                'SELECT COUNT(*) FROM payments WHERE sale_id=? AND kind=? AND method=? AND amount=? AND COALESCE(reference, "")=?',
                 [$saleId, $kind, $method, $amount, $refVal ?? '']
             );
-            if ($dup) {
+            if ($count >= $seen[$key]) {
                 continue;
             }
             $pSql = $isSqlite
@@ -1734,23 +1760,23 @@ class CloudSyncService {
                 $bid = $resolveBranch($c['branch_name'] ?? null, (int) ($c['branch_id'] ?? $defaultBranchId));
                 $syncUuid = (string) ($c['sync_uuid'] ?? $c['uuid'] ?? ('CUS-' . ($c['id'] ?? 0)));
                 $existing = BaseRepository::one(
-                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                    [$syncUuid, $bid, $c['phone']]
+                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                    [$syncUuid, $bid, $c['phone'], $syncUuid]
                 );
                 if ($existing) {
                     BaseRepository::run(
-                        'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, synced=1 WHERE id=?',
-                        [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $existing['id']]
+                        'UPDATE customers SET name=?, phone=?, email=?, notes=?, loyalty_points=?, wallet_balance=?, sync_uuid=?, deleted_at=COALESCE(deleted_at, ?), synced=1 WHERE id=?',
+                        [$c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $existing['id']]
                     );
                 } elseif ($isSqlite) {
                     BaseRepository::run(
-                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
-                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (uuid, branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, deleted_at, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,?)',
+                        [$syncUuid, $bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 } else {
                     BaseRepository::run(
-                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,1,?)',
-                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['created_at'] ?? date('Y-m-d H:i:s')]
+                        'INSERT INTO customers (branch_id, name, phone, email, notes, loyalty_points, wallet_balance, sync_uuid, deleted_at, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,?)',
+                        [$bid, $c['name'], $c['phone'], $c['email'] ?? '', $c['notes'] ?? '', (int) ($c['loyalty_points'] ?? 0), (int) ($c['wallet_balance'] ?? 0), $syncUuid, $c['deleted_at'] ?? null, $c['created_at'] ?? date('Y-m-d H:i:s')]
                     );
                 }
                 $acked['synced_customers'][] = $c['id'];
@@ -1861,8 +1887,8 @@ class CloudSyncService {
                 $bid = $resolveBranch($r['branch_name'] ?? null, (int) ($r['branch_id'] ?? $defaultBranchId));
                 $syncUuid = (string) ($r['sync_uuid'] ?? $r['uuid'] ?? ('REP-' . ($r['id'] ?? 0)));
                 $cid = (int) (BaseRepository::scalar(
-                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                    [$r['customer_sync_uuid'] ?? '', $bid, $r['customer_phone'] ?? '']
+                    'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                    [$r['customer_sync_uuid'] ?? '', $bid, $r['customer_phone'] ?? '', $r['customer_sync_uuid'] ?? '']
                 ) ?: 0);
                 if ($cid <= 0 && !empty($r['customer_phone'])) {
                     $cUuid = $r['customer_sync_uuid'] ?: ('CUS-' . substr(md5($r['customer_phone']), 0, 10));
@@ -1877,19 +1903,7 @@ class CloudSyncService {
 
                 $techId = !empty($r['technician_email']) ? (BaseRepository::scalar('SELECT id FROM users WHERE email=? LIMIT 1', [$r['technician_email']]) ?: null) : null;
                 $existingRep = BaseRepository::scalar('SELECT id FROM repairs WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
-                if ($existingRep) {
-                    BaseRepository::run('UPDATE repairs SET status=?, notes=?, technician_id=?, synced=1 WHERE id=?', [$r['status'] ?? 'Received', $r['notes'] ?? '', $techId, $existingRep]);
-                } elseif ($isSqlite) {
-                    BaseRepository::run(
-                        'INSERT INTO repairs (uuid, branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
-                        [$syncUuid, $bid, $cid, $techId, $r['device'], $r['serial'] ?? '', $r['issue'] ?? '', $r['accessories'] ?? '', $r['notes'] ?? '', (int) ($r['estimate'] ?? 0), $r['due_date'] ?? date('Y-m-d'), $r['status'] ?? 'Received', $syncUuid, $r['created_at'] ?? date('Y-m-d H:i:s')]
-                    );
-                } else {
-                    BaseRepository::run(
-                        'INSERT INTO repairs (branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid, synced, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?)',
-                        [$bid, $cid, $techId, $r['device'], $r['serial'] ?? '', $r['issue'] ?? '', $r['accessories'] ?? '', $r['notes'] ?? '', (int) ($r['estimate'] ?? 0), $r['due_date'] ?? date('Y-m-d'), $r['status'] ?? 'Received', $syncUuid, $r['created_at'] ?? date('Y-m-d H:i:s')]
-                    );
-                }
+                self::writeSyncedRepair($r, $bid, $cid, $techId, $syncUuid, (int) $existingRep, $isSqlite);
                 $acked['synced_repairs'][] = $r['id'];
             }
 
@@ -1903,6 +1917,12 @@ class CloudSyncService {
             $acked['synced_drawers'] = $ackedDrawers;
 
             // 8. Sales + Sale Items + Payments (with resolved Branch, User, Drawer, Customer, Product, Unit FKs)
+            $reservationBySale = [];
+            foreach ($payload['reservations'] ?? [] as $reservation) {
+                if ($reservation['status'] === 'Delivered' && !empty($reservation['sale_uuid'])) {
+                    $reservationBySale[$reservation['sale_uuid']] = $reservation['sync_uuid'];
+                }
+            }
             foreach ($payload['sales'] ?? [] as $saleEntry) {
                 $s = $saleEntry['sale'] ?? [];
                 if (empty($s)) continue;
@@ -1918,13 +1938,16 @@ class CloudSyncService {
                 );
 
                 $existingSaleId = (int) BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid = ? LIMIT 1', [$syncUuid]);
+                $releasingHold = isset($reservationBySale[$syncUuid])
+                    ? (int) BaseRepository::scalar("SELECT id FROM reservations WHERE sync_uuid=? AND branch_id=? AND status='Held'", [$reservationBySale[$syncUuid], $bid])
+                    : 0;
                 if ($existingSaleId > 0) {
                     self::updateSyncedSale($existingSaleId, $drawerId, $uid, $s, $saleEntry['payments'] ?? [], $isSqlite);
                 } else {
                     $cid = (!empty($s['customer_sync_uuid']) || !empty($s['customer_phone']))
                         ? (BaseRepository::scalar(
-                            'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=?) LIMIT 1',
-                            [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '']
+                            'SELECT id FROM customers WHERE sync_uuid=? OR (branch_id=? AND phone=? AND deleted_at IS NULL) ORDER BY CASE WHEN sync_uuid=? THEN 0 ELSE 1 END LIMIT 1',
+                            [$s['customer_sync_uuid'] ?? '', $bid, $s['customer_phone'] ?? '', $s['customer_sync_uuid'] ?? '']
                         ) ?: null)
                         : null;
 
@@ -1934,6 +1957,9 @@ class CloudSyncService {
                         $pid = $resolveProduct($it['product_sku'] ?? null, (int) ($it['product_id'] ?? 0));
                         if ($pid <= 0) continue;
                         $unId = !empty($it['unit_code']) ? (BaseRepository::scalar('SELECT id FROM units WHERE code=? LIMIT 1', [$it['unit_code']]) ?: null) : null;
+                        if ($unId && BaseRepository::scalar("SELECT id FROM reservations WHERE unit_id=? AND status='Held' AND id<>?", [$unId, $releasingHold])) {
+                            throw new \Zeedat\Support\ApiError('A synced sale includes a reserved device. The sale is still pending.', 409);
+                        }
                         BaseRepository::run(
                             'INSERT INTO sale_items (sale_id, product_id, unit_id, name, qty, price, total, refunded_qty, commission_amount) VALUES (?,?,?,?,?,?,?,?,?)',
                             [$newSaleId, $pid, $unId, $it['name'], (int) $it['qty'], (int) $it['price'], (int) $it['total'], (int) ($it['refunded_qty'] ?? 0), (int) ($it['commission_amount'] ?? 0)]
@@ -1943,6 +1969,9 @@ class CloudSyncService {
                         }
                         $cat = BaseRepository::scalar('SELECT category FROM products WHERE id=?', [$pid]);
                         if ($cat !== 'Services') {
+                            if (BaseRepository::scalar("SELECT id FROM reservations WHERE branch_id=? AND product_id=? AND status='Held' LIMIT 1", [$bid, $pid])) {
+                                ProductRepository::assertStockAvailable($bid, $pid, (int) $it['qty'], $releasingHold);
+                            }
                             $stockSql = $isSqlite
                                 ? 'INSERT INTO stock (branch_id, product_id, qty) VALUES (?,?,0) ON CONFLICT(branch_id, product_id) DO UPDATE SET qty = MAX(0, stock.qty - ?)'
                                 : 'INSERT INTO stock (branch_id, product_id, qty) VALUES (?,?,0) ON DUPLICATE KEY UPDATE qty = GREATEST(0, CAST(qty AS SIGNED) - ?)';
@@ -2019,6 +2048,7 @@ class CloudSyncService {
             $acked['synced_wallet_logs'] = self::syncWalletLogs(
                 $payload['customer_wallet_logs'] ?? [], $resolveBranch, $resolveUser
             );
+            $acked['synced_reservations'] = ReservationService::applySync($payload['reservations'] ?? [], false);
         });
 
         return array_merge($acked, [
@@ -2251,12 +2281,12 @@ class CloudSyncService {
                  FROM transfers t JOIN branches fb ON fb.id=t.from_branch JOIN branches tb ON tb.id=t.to_branch
                  JOIN products p ON p.id=t.product_id LEFT JOIN units un ON un.id=t.unit_id ORDER BY t.id DESC"
             ),
-            'repairs' => BaseRepository::rows(
+            'repairs' => self::ensureSyncUuids('repairs', 'REP', BaseRepository::rows(
                 "SELECT r.*, b.name AS branch_name, COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone,
                         COALESCE(t.email, '') AS technician_email
                  FROM repairs r JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=r.customer_id
                  LEFT JOIN users t ON t.id=r.technician_id ORDER BY r.id DESC"
-            ),
+            ), static fn($r) => ($r['device'] ?? '') . '|' . ($r['created_at'] ?? ''), false),
             'drawers' => $drawers,
             'sales' => $saleEntries,
             'cash_movements' => $cashMovements,
@@ -2264,6 +2294,7 @@ class CloudSyncService {
             'returns_log' => $returnsRaw,
             'barcode_print_logs' => $barcodeLogs,
             'audit_log' => $auditLogs,
+            'reservations' => ReservationService::syncRows(false),
             'customer_wallet_logs' => self::ensureSyncUuids(
                 'customer_wallet_logs', 'WLT', BaseRepository::rows(self::WALLET_LOG_QUERY . ' ORDER BY w.id'),
                 static fn($row) => bin2hex(random_bytes(16)), false

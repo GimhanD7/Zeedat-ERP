@@ -123,16 +123,19 @@ function buildClientSmsText(job, settings, branchName, kind = 'intake') {
 }
 
 function printRepairSlip(job, settings, branchName, mode = 'intake') {
-  const shopName = settings?.shop_name || 'ZEEDAT MOBILE & REPAIR';
-  const shopPhone = settings?.shop_phone ? `Tel: ${settings.shop_phone}` : '';
-  const shopAddr = settings?.shop_address || '';
-  const jobNo = job.job_number || ref('RJ', job.id);
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, char => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+  ));
+  const shopName = escape(settings?.shop_name || 'ZEEDAT MOBILE & REPAIR');
+  const shopPhone = settings?.shop_phone ? `Tel: ${escape(settings.shop_phone)}` : '';
+  const shopAddr = escape(settings?.shop_address);
+  const jobNo = escape(job.job_number || ref('RJ', job.id));
   const totalCost = Number(job.final_charge || job.estimate || 0);
   const paid = Number(job.paid_amount ?? job.advance_paid ?? job.advance ?? 0);
   const balance = Math.max(0, totalCost - paid);
   const title = mode === 'delivery' ? 'REPAIR DELIVERY & PAYMENT BILL' : 'REPAIR INTAKE RECEIPT';
 
-  printHtmlDocument(`<!DOCTYPE html>
+  return printHtmlDocument(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
@@ -153,33 +156,33 @@ function printRepairSlip(job, settings, branchName, mode = 'intake') {
 <body>
   <div class="head">
     <h2>${shopName}</h2>
-    <p>${branchName || 'Main Branch'} ${shopPhone ? '· ' + shopPhone : ''}</p>
+    <p>${escape(branchName || 'Main Branch')} ${shopPhone ? '· ' + shopPhone : ''}</p>
     ${shopAddr ? `<p>${shopAddr}</p>` : ''}
     <div style="margin-top:6px;font-weight:700;font-size:11px;color:#0f766e;">${title}</div>
     <span class="job-tag">${jobNo}</span>
   </div>
   <div class="grid">
-    <div><span style="color:#64748b">Customer:</span><br/><strong>${job.customer || 'Walk-in'}</strong></div>
-    <div><span style="color:#64748b">Phone:</span><br/><strong>${job.phone || job.customer_phone || '—'}</strong></div>
-    <div><span style="color:#64748b">Device:</span><br/><strong>${job.device || ''}</strong></div>
-    <div><span style="color:#64748b">IMEI / Serial:</span><br/><strong>${job.serial || 'N/A'}</strong></div>
-    <div><span style="color:#64748b">Technician:</span><br/><strong>${job.technician || 'Unassigned'}</strong></div>
+    <div><span style="color:#64748b">Customer:</span><br/><strong>${escape(job.customer || 'Walk-in')}</strong></div>
+    <div><span style="color:#64748b">Phone:</span><br/><strong>${escape(job.phone || job.customer_phone || '—')}</strong></div>
+    <div><span style="color:#64748b">Device:</span><br/><strong>${escape(job.device)}</strong></div>
+    <div><span style="color:#64748b">IMEI / Serial:</span><br/><strong>${escape(job.serial || 'N/A')}</strong></div>
+    <div><span style="color:#64748b">Technician:</span><br/><strong>${escape(job.technician || 'Unassigned')}</strong></div>
     <div><span style="color:#64748b">Promised Date:</span><br/><strong>${dateLabel(job.due_date || today())}</strong></div>
   </div>
   <div class="box">
-    <div><strong>Reported Issue:</strong> ${job.issue || '—'}</div>
-    ${job.accessories ? `<div style="margin-top:4px;"><strong>Accessories:</strong> ${job.accessories}</div>` : ''}
-    ${job.notes ? `<div style="margin-top:4px;"><strong>Notes:</strong> ${job.notes}</div>` : ''}
+    <div><strong>Reported Issue:</strong> ${escape(job.issue || '—')}</div>
+    ${job.accessories ? `<div style="margin-top:4px;"><strong>Accessories:</strong> ${escape(job.accessories)}</div>` : ''}
+    ${job.notes ? `<div style="margin-top:4px;"><strong>Notes:</strong> ${escape(job.notes)}</div>` : ''}
   </div>
   <div class="box">
-    <div class="row"><span>${mode === 'delivery' ? 'Final Repair Charge' : 'Estimated Cost'}</span><strong>${money(totalCost)}</strong></div>
+    <div class="row"><span>${mode === 'delivery' ? 'Final Repair Charge' : 'Assigned Repair Charge'}</span><strong>${money(totalCost)}</strong></div>
     <div class="row"><span>${mode === 'delivery' ? 'Total Paid' : 'Advance Paid'}</span><strong style="color:#15803d;">${money(paid)}</strong></div>
-    ${job.payment_method ? `<div class="row"><span>Payment Method</span><strong>${job.payment_method}</strong></div>` : ''}
+    ${job.payment_method ? `<div class="row"><span>Payment Method</span><strong>${escape(job.payment_method)}</strong></div>` : ''}
     <div class="row total"><span>Balance Due</span><span>${money(balance)}</span></div>
   </div>
   <div class="foot">
     Please bring this slip when collecting your device.<br/>
-    ${settings?.receipt_footer || 'Thank you for choosing us!'}
+    ${escape(settings?.receipt_footer || 'Thank you for choosing us!')}
   </div>
 </body>
 </html>`);
@@ -266,10 +269,10 @@ export function Repairs({ ctx }) {
   const state = useData(ctx, {
     jobs: 'repairs',
     settings: 'settings',
+    customers: ['customers', { branch: intakeBranch || ctx.branch }],
+    technicians: ['technicians', { branch: intakeBranch || ctx.branch }],
     ...(!tech
       ? {
-          customers: ['customers', { branch: intakeBranch || ctx.branch }],
-          technicians: ['technicians', { branch: intakeBranch || ctx.branch }],
           drawer: ['drawer', { branch: intakeBranch || ctx.branch }],
           products: 'products',
         }
@@ -417,7 +420,7 @@ export function Repairs({ ctx }) {
         notes: notes.trim(),
         accessories: chosenAccessories.join(', '),
         estimate: cents(estimate || 0),
-        advance_payment: cents(advance || 0),
+        advance_payment: tech ? 0 : cents(advance || 0),
         advance_method: advanceMethod,
         due_date: dueDate || today(),
         status: repairStatus,
@@ -429,14 +432,14 @@ export function Repairs({ ctx }) {
         : sendSmsOnSave
           ? ' · Customer SMS slip ready'
           : '';
-      const cashNotice = cents(advance || 0) > 0 && advanceMethod === 'Cash'
+      const cashNotice = res.advance_paid > 0 && advanceMethod === 'Cash'
         ? ' · Advance added to Cashbook'
         : '';
 
       ctx.setNotice(`Repair Job ${res.job_number} saved${smsNotice}${cashNotice}.`);
 
       if (printReceiptOnSave || sendSmsOnSave) {
-        setReceiptJob({
+        const slip = {
           id: res.id,
           branch_id: intakeBranch,
           branch_name: res.branch_name || ctx.branches.find(b => b.id === intakeBranch)?.name || '',
@@ -449,16 +452,21 @@ export function Repairs({ ctx }) {
           notes: notes.trim(),
           accessories: chosenAccessories.join(', '),
           technician: res.technician || selectedTechName || 'Unassigned',
-          estimate: cents(estimate || 0),
-          advance_paid: cents(advance || 0),
-          paid_amount: cents(advance || 0),
-          payment_method: cents(advance || 0) > 0 ? advanceMethod : '',
+          estimate: res.final_charge,
+          advance_paid: res.advance_paid,
+          paid_amount: res.paid_amount,
+          payment_method: res.paid_amount > 0 ? advanceMethod : '',
           due_date: dueDate,
           status: res.status || 'Received',
           sms: res.sms,
           sms_message: res.sms_message,
           mode: 'intake',
-        });
+        };
+        setReceiptJob(slip);
+        if (printReceiptOnSave) {
+          const print = await printRepairSlip(slip, state.data?.settings, slip.branch_name);
+          if (!print.success) ctx.setNotice('Repair saved. Use Print Bill to retry printing.');
+        }
       }
 
       clearForm();
@@ -751,20 +759,18 @@ export function Repairs({ ctx }) {
                 >
                   Workshop Jobs ({jobs.length})
                 </Button>
-                {!tech && (
-                  <Button
+                <Button
                     icon={Plus}
                     variant={mainTab === 'New Repair Job' ? 'primary' : 'outline'}
                     onClick={() => setMainTab('New Repair Job')}
                   >
                     New Repair Intake
-                  </Button>
-                )}
+                </Button>
               </div>
             </Heading>
 
             {/* TAB 1: NEW REPAIR JOB INTAKE */}
-            {mainTab === 'New Repair Job' && !tech && (
+            {mainTab === 'New Repair Job' && (
               <div className="zk-repairs-layout" style={{ gap: '16px', alignItems: 'start' }}>
                 <div className="zk-repair-form-card" style={{ padding: '18px 20px' }}>
                   <div className="zk-repair-card-header" style={{ marginBottom: '12px', paddingBottom: '10px' }}>
@@ -1135,6 +1141,10 @@ export function Repairs({ ctx }) {
                           </div>
                         </div>
 
+                        {tech ? (
+                          <p className="muted">The cashier collects the assigned charge after intake.</p>
+                        ) : (
+                          <>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">Advance Payment (LKR)</label>
                           <div className="zk-input-box">
@@ -1159,7 +1169,7 @@ export function Repairs({ ctx }) {
                               onChange={e => setAdvanceMethod(e.target.value)}
                               disabled={cents(advance || 0) <= 0}
                             >
-                              {tenders.map(m => (
+                              {[...tenders, 'Wallet'].map(m => (
                                 <option key={m} value={m}>
                                   {m}
                                 </option>
@@ -1167,6 +1177,8 @@ export function Repairs({ ctx }) {
                             </select>
                           </div>
                         </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1192,14 +1204,14 @@ export function Repairs({ ctx }) {
                           <label className="zk-field-label">Assigned Technician</label>
                           <div className="zk-input-box">
                             <Wrench size={16} style={{ color: '#0d9488' }} />
-                            <select value={technicianId} onChange={e => setTechnicianId(e.target.value)}>
+                            {tech ? <span>{ctx.user.name}</span> : <select value={technicianId} onChange={e => setTechnicianId(e.target.value)}>
                               <option value="">Unassigned</option>
                               {technicians.map(t => (
                                 <option key={t.id} value={t.id}>
                                   {t.name}
                                 </option>
                               ))}
-                            </select>
+                            </select>}
                           </div>
                         </div>
 
@@ -1905,6 +1917,7 @@ export function Repairs({ ctx }) {
                             step="0.01"
                             min="0"
                             value={finalCharge}
+                            readOnly={ctx.user.role === 'cashier' || completeJob.status === 'Delivered'}
                             onChange={e => {
                               setFinalCharge(e.target.value);
                               const bal = Math.max(
@@ -1953,7 +1966,7 @@ export function Repairs({ ctx }) {
                     <div className="zk-field-wrap">
                       <label className="zk-field-label">Payment Method</label>
                       <div className="zk-cb-amount-chips">
-                        {tenders.map(method => (
+                        {[...tenders, 'Wallet'].map(method => (
                           <button
                             key={method}
                             type="button"
@@ -2201,7 +2214,7 @@ export function Repairs({ ctx }) {
                       return (
                         <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                           <div>
-                            <span>{receiptJob.mode === 'delivery' ? 'Final Charge: ' : 'Estimated Cost: '}</span>
+                            <span>{receiptJob.mode === 'delivery' ? 'Final Charge: ' : 'Assigned Repair Charge: '}</span>
                             <strong>{money(totalAmt)}</strong>
                           </div>
                           <div>

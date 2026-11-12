@@ -147,23 +147,7 @@ function BillingView({ ctx, data, onRefresh }) {
     setCustomer(idStr);
     setCustQuery('');
     setCustDropdownOpen(false);
-    setCart(prev => {
-      const nonRepair = prev.filter(item => !item.repair_id);
-      if (!idStr) return nonRepair;
-      const pending = (repairs || [])
-        .filter(j => {
-          if (String(j.customer_id) !== idStr || j.status === 'Cancelled') return false;
-          const charge = Number(j.final_charge || j.estimate || 0);
-          const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
-          return charge > paidAmt;
-        })
-        .map(j => {
-          const charge = Number(j.final_charge || j.estimate || 0);
-          const paidAmt = Number(j.paid_amount ?? j.advance_paid ?? 0);
-          return buildRepairCartLine({ ...j, balance: Math.max(0, charge - paidAmt) });
-        });
-      return [...pending, ...nonRepair];
-    });
+    setCart(prev => prev.filter(item => !item.repair_id));
   };
 
   const toggleRepairInCart = job => {
@@ -275,7 +259,7 @@ function BillingView({ ctx, data, onRefresh }) {
 
   const branchUnits = units.filter(
     u =>
-      u.state === 'Available' &&
+      u.state === 'Available' && !Number(u.reserved) &&
       (!ctx.branch || Number(u.branch_id) === Number(ctx.branch))
   );
 
@@ -287,7 +271,7 @@ function BillingView({ ctx, data, onRefresh }) {
     }
     if (ctx.branch > 0 && Array.isArray(p.branch_stocks)) {
       const hit = p.branch_stocks.find(bs => Number(bs.branch_id) === Number(ctx.branch));
-      return hit ? Number(hit.qty || 0) : 0;
+      return hit ? Number(hit.available_qty ?? hit.qty ?? 0) : 0;
     }
     return Number(p.qty || 0);
   };
@@ -335,21 +319,23 @@ function BillingView({ ctx, data, onRefresh }) {
   const staffInvalid = rawStaffQuery !== '' && !resolvedStaff;
 
   const subtotal = lines.reduce((sum, r) => sum + r.qty * r.product.price, 0);
+  const repairSubtotal = lines.reduce((sum, r) => sum + (r.repair_id ? r.product.price : 0), 0);
+  const retailSubtotal = subtotal - repairSubtotal;
   const maxFixedDiscount =
-    ctx.user.role === 'cashier' ? Math.floor((subtotal * 500 + 5000) / 10000) : subtotal;
+    ctx.user.role === 'cashier' ? Math.floor((retailSubtotal * 500 + 5000) / 10000) : retailSubtotal;
   const rawFixedCents = Math.max(0, cents(discountValue || 0));
   const clampedFixedCents = Math.min(maxFixedDiscount, rawFixedCents);
   const discountBps =
     discountType === 'fixed'
-      ? subtotal > 0
-        ? Math.min(10000, Math.round((clampedFixedCents * 10000) / subtotal))
+      ? retailSubtotal > 0
+        ? Math.min(10000, Math.round((clampedFixedCents * 10000) / retailSubtotal))
         : 0
       : Math.min(ctx.user.role === 'cashier' ? 500 : 10000, Math.max(0, cents(discountValue || 0)));
   const discount =
     discountType === 'fixed'
       ? clampedFixedCents
-      : Math.floor((subtotal * discountBps + 5000) / 10000);
-  const tax = Math.floor(((subtotal - discount) * settings.tax_bps + 5000) / 10000);
+      : Math.floor((retailSubtotal * discountBps + 5000) / 10000);
+  const tax = Math.floor(((retailSubtotal - discount) * settings.tax_bps + 5000) / 10000);
   const total = amountDue(subtotal, discount, tax);
   const reserved = new Set(cart.map(r => r.unit_id));
 
@@ -358,9 +344,10 @@ function BillingView({ ctx, data, onRefresh }) {
     let processed = 0;
     let allocated = 0;
     return lines.reduce((sum, r) => {
+      if (r.repair_id) return sum;
       const extended = r.qty * r.product.price;
       processed += extended;
-      const cumulative = subtotal ? Math.floor((processed * total) / subtotal) : 0;
+      const cumulative = retailSubtotal ? Math.floor((processed * (total - repairSubtotal)) / retailSubtotal) : 0;
       const lineTotal = cumulative - allocated;
       allocated = cumulative;
       const cType = r.product.commission_type || 'fixed';
@@ -982,43 +969,7 @@ function BillingView({ ctx, data, onRefresh }) {
                   ],
                   [
                     'Amount',
-                    r =>
-                      r.repair_id ? (
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>LKR</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={rupees(r.product.price)}
-                            onChange={e => {
-                              const newCents = Math.max(0, cents(e.target.value || 0));
-                              setCart(
-                                cart.map(item =>
-                                  Number(item.repair_id) === Number(r.repair_id)
-                                    ? {
-                                        ...item,
-                                        repairProduct: { ...item.repairProduct, price: newCents },
-                                      }
-                                    : item
-                                )
-                              );
-                            }}
-                            style={{
-                              width: '88px',
-                              padding: '4px 6px',
-                              border: '1px solid #cbd5e1',
-                              borderRadius: '6px',
-                              fontSize: '13px',
-                              fontWeight: 700,
-                              textAlign: 'right',
-                            }}
-                            aria-label={'Repair amount for ' + r.product.name}
-                          />
-                        </div>
-                      ) : (
-                        <strong>{money(r.product.price * r.qty)}</strong>
-                      ),
+                    r => <strong>{money(r.product.price * r.qty)}</strong>,
                   ],
                   [
                     'Action',

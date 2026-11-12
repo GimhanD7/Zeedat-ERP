@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS payments (
  id INT AUTO_INCREMENT PRIMARY KEY, sale_id INT NOT NULL, drawer_id INT NOT NULL, user_id INT NOT NULL,
- kind ENUM('Sale','Credit') NOT NULL DEFAULT 'Sale', method ENUM('Cash','Card','Bank Transfer','Koko') NOT NULL,
+ kind ENUM('Sale','Credit') NOT NULL DEFAULT 'Sale', method ENUM('Cash','Card','Bank Transfer','Koko','Wallet') NOT NULL,
  amount BIGINT UNSIGNED NOT NULL, reference VARCHAR(100) NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(method,reference), FOREIGN KEY(sale_id) REFERENCES sales(id), FOREIGN KEY(drawer_id) REFERENCES drawers(id),
  FOREIGN KEY(user_id) REFERENCES users(id)

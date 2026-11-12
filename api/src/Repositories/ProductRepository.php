@@ -17,10 +17,11 @@ class ProductRepository extends BaseRepository {
             {$costField}, CAST(COALESCE(s.qty, 0) AS UNSIGNED) qty FROM products p LEFT JOIN ({$qty}) s ON p.id=s.product_id WHERE COALESCE(p.active, 1)=1 ORDER BY p.id", $params);
 
         $branchStocks = self::rows(
-            'SELECT s.product_id, s.branch_id, b.name as branch_name, s.qty
+            "SELECT s.product_id, s.branch_id, b.name as branch_name, s.qty,
+                    CAST(s.qty AS SIGNED) - COALESCE((SELECT SUM(r.qty) FROM reservations r WHERE r.branch_id=s.branch_id AND r.product_id=s.product_id AND r.status='Held'),0) AS available_qty
              FROM stock s
              JOIN branches b ON b.id=s.branch_id
-             ORDER BY b.id'
+             ORDER BY b.id"
         );
 
         $stocksByProduct = [];
@@ -32,6 +33,7 @@ class ProductRepository extends BaseRepository {
                 'branch_id' => (int) $bs['branch_id'],
                 'branch_name' => (string) $bs['branch_name'],
                 'qty' => $qtyVal,
+                'available_qty' => max(0, (int) $bs['available_qty']),
             ];
             $totalsByProduct[$pid] = ($totalsByProduct[$pid] ?? 0) + $qtyVal;
         }
@@ -57,7 +59,8 @@ class ProductRepository extends BaseRepository {
         return self::rows(
             "SELECT u.id, u.branch_id, b.name AS branch_name, u.product_id,
                     p.name AS product_name, p.sku, p.category, p.cost, p.price,
-                    u.code, COALESCE(u.imei, '') AS imei, u.grade, u.state
+                    u.code, COALESCE(u.imei, '') AS imei, u.grade, u.state,
+                    CASE WHEN EXISTS (SELECT 1 FROM reservations r WHERE r.unit_id=u.id AND r.status='Held') THEN 1 ELSE 0 END AS reserved
              FROM units u
              JOIN products p ON p.id=u.product_id
              JOIN branches b ON b.id=u.branch_id
@@ -68,21 +71,32 @@ class ProductRepository extends BaseRepository {
     }
 
     public static function findAvailableUnit(int $unitId, int $branch, int $productId): ?array {
-        return self::one("SELECT id FROM units WHERE id=? AND branch_id=? AND product_id=? AND state='Available' FOR UPDATE", [$unitId, $branch, $productId]);
+        return self::one("SELECT id FROM units WHERE id=? AND branch_id=? AND product_id=? AND state='Available'
+            AND NOT EXISTS (SELECT 1 FROM reservations r WHERE r.unit_id=units.id AND r.status='Held') FOR UPDATE", [$unitId, $branch, $productId]);
+    }
+
+    public static function assertStockAvailable(int $branch, int $productId, int $qty, int $releasingHold = 0): void {
+        $stock = (int) self::scalar('SELECT qty FROM stock WHERE branch_id=? AND product_id=? FOR UPDATE', [$branch, $productId]);
+        $held = (int) self::scalar("SELECT COALESCE(SUM(qty),0) FROM reservations WHERE branch_id=? AND product_id=? AND status='Held' AND id<>?", [$branch, $productId, $releasingHold]);
+        if ($stock - $held < $qty) {
+            throw new \Zeedat\Support\ApiError('Insufficient available stock. Some items may be reserved for customers.', 409);
+        }
     }
 
     public static function adjustStock(int $branch, int $productId, int $delta, string $kind, ?string $reference = null, int $userId = 1): void {
-        $stockSql = \Zeedat\Config\Database::isSqlite()
-            ? 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON CONFLICT(branch_id, product_id) DO UPDATE SET qty=stock.qty+excluded.qty'
-            : 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)';
-        self::run($stockSql, [$branch, $productId, $delta]);
+        if ($delta < 0) {
+            self::assertStockAvailable($branch, $productId, -$delta);
+            self::run('UPDATE stock SET qty=qty-? WHERE branch_id=? AND product_id=?', [-$delta, $branch, $productId]);
+        } else {
+            $stockSql = \Zeedat\Config\Database::isSqlite()
+                ? 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON CONFLICT(branch_id, product_id) DO UPDATE SET qty=stock.qty+excluded.qty'
+                : 'INSERT INTO stock(branch_id, product_id, qty) VALUES (?,?,?) ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)';
+            self::run($stockSql, [$branch, $productId, $delta]);
+        }
         self::run(
             'INSERT INTO stock_movements(branch_id, product_id, user_id, qty, kind, reference, synced) VALUES (?,?,?,?,?,?,0)',
             [$branch, $productId, $userId, $delta, $kind, $reference ?? '']
         );
-        if ((int) self::scalar('SELECT qty FROM stock WHERE branch_id=? AND product_id=?', [$branch, $productId]) < 0) {
-            throw new \Zeedat\Support\ApiError('Stock cannot drop below zero.');
-        }
     }
 
     public static function stockMovements(int $branch, int $limit = 300, string $from = '', string $to = ''): array {

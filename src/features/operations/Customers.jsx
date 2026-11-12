@@ -99,7 +99,7 @@ export function Customers({ ctx }) {
   const [dirLimit, setDirLimit] = useState(60);
   const [selected, setSelected] = useState(null);
   const [detailTab, setDetailTab] = useState('receivables');
-  const [ledger, setLedger] = useState({ wallet_logs: [], credit_payments: [] });
+  const [ledger, setLedger] = useState({ wallet_logs: [], credit_payments: [], reservations: [] });
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const ledgerCacheRef = useRef(new Map());
@@ -251,6 +251,9 @@ export function Customers({ ctx }) {
           const normalized = {
             wallet_logs: res.wallet_logs || [],
             credit_payments: res.credit_payments || [],
+            reservations: res.reservations || [],
+            receivables: res.receivables,
+            customer_id: activePersonId,
           };
           ledgerCacheRef.current.set(activePersonId, normalized);
           setLedger(normalized);
@@ -302,7 +305,11 @@ export function Customers({ ctx }) {
 
         const person = activePerson;
         const personSales = person ? salesByCustomer.get(Number(person.id)) || [] : [];
-        const receivables = personSales.filter(s => Number(s.credit || 0) > 0);
+        const activeLedger = String(ledger.customer_id ?? '') === String(person?.id ?? '');
+        const reservations = activeLedger ? (ledger.reservations || []) : [];
+        const receivables = activeLedger && Array.isArray(ledger.receivables)
+          ? ledger.receivables
+          : personSales.filter(s => Number(s.credit || 0) > 0);
         const personRepairs = person ? repairsByCustomer.get(Number(person.id)) || [] : [];
 
         const openCreditPayment = (targetInvoice = null) => {
@@ -327,8 +334,8 @@ export function Customers({ ctx }) {
             fields: v => [
               { name: 'invoice', label: 'Credit Invoice', choices: invoiceChoices },
               { name: 'amount', label: 'Payment Amount (LKR)', type: 'money', min: 0.01 },
-              { name: 'method', label: 'Payment Method', choices: tenders },
-              ...(v.method !== 'Cash'
+              { name: 'method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
+              ...(!['Cash', 'Wallet'].includes(v.method)
                 ? [{ name: 'reference', label: 'Transaction Reference #' }]
                 : []),
             ],
@@ -395,22 +402,83 @@ export function Customers({ ctx }) {
           });
         };
 
-        const handleDeleteCustomer = async () => {
-          if (!person) return;
-          if (
-            !window.confirm(
-              `Delete customer "${person.name}" (${ref('CUS', person.id)})? This is only allowed when there are zero linked invoices, repairs, or wallet balance.`
-            )
-          ) {
-            return;
-          }
+        const handleDeleteCustomer = () => {
+          ctx.setDialog({
+            title: 'Delete customer · ' + person.name,
+            description: 'Customer accounts with financial history or wallet funds must be retained.',
+            route: 'customer.delete',
+            submit: 'Delete Account',
+            values: { id: person.id, branch: person.branch_id },
+            fields: [{ name: 'pin', label: 'Owner Delete PIN', type: 'password' }],
+            onSuccess: () => setSelected(null),
+          });
+        };
+
+        const repairBalance = repair => Math.max(0,
+          Number(repair.final_charge || repair.estimate || 0) - Number(repair.paid_amount ?? repair.advance_paid ?? 0));
+        const openRepairPayment = repair => {
+          const balance = repairBalance(repair);
+          ctx.setDialog({
+            title: 'Collect repair payment · ' + (repair.job_number || ref('RJ', repair.id)),
+            description: 'Outstanding balance ' + money(balance),
+            route: 'repair.payment',
+            submit: 'Record Payment',
+            values: { id: repair.id, branch: repair.branch_id, pay_amount: balance / 100, payment_method: 'Cash' },
+            fields: [
+              { name: 'pay_amount', label: 'Payment Amount (LKR)', type: 'money', min: 0.01, max: balance / 100 },
+              { name: 'payment_method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
+            ],
+            transform: v => ({ ...v, pay_amount: cents(v.pay_amount) }),
+          });
+        };
+
+        const reserveItem = async () => {
           try {
-            await ctx.mutate('customer.delete', { id: person.id, branch: person.branch_id });
-            setSelected(null);
-            ctx.setNotice(`Customer ${person.name} removed.`);
-          } catch (e) {
-            ctx.setNotice(e.message || 'Unable to delete customer.');
+            const [products, units] = await Promise.all([
+              ctx.get('products', { branch: person.branch_id }),
+              ctx.get('units', { branch: person.branch_id }),
+            ]);
+            const available = products.filter(p => p.category !== 'Services' &&
+              Number(p.branch_stocks?.find(s => Number(s.branch_id) === Number(person.branch_id))?.available_qty ?? p.qty) > 0);
+            ctx.setDialog({
+              title: 'Reserve item · ' + person.name,
+              route: 'reservation.create',
+              submit: 'Reserve & Record Deposit',
+              values: { customer_id: person.id, branch: person.branch_id, qty: 1, method: 'Cash' },
+              fields: v => {
+                const product = available.find(p => String(p.id) === String(v.product_id));
+                return [
+                  { name: 'product_id', label: 'Product', choices: available.map(p => [p.id, p.name + ' · ' + money(p.price)]) },
+                  product?.serialized
+                    ? { name: 'unit_id', label: 'Device Unit', choices: units.filter(u => String(u.product_id) === String(product.id) && u.state === 'Available' && !Number(u.reserved)).map(u => [u.id, u.code]) }
+                    : { name: 'qty', label: 'Quantity', type: 'number', min: 1 },
+                  { name: 'amount', label: 'Deposit (LKR)', type: 'money', min: 0.01 },
+                  { name: 'method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
+                ];
+              },
+              transform: v => ({ ...v, qty: available.find(p => String(p.id) === String(v.product_id))?.serialized ? 1 : v.qty, amount: cents(v.amount) }),
+            });
+          } catch (error) {
+            ctx.setNotice(error.message);
           }
+        };
+
+        const openReservationAction = (reservation, action) => {
+          const due = Math.max(0, Number(reservation.total) - Number(reservation.paid));
+          const titles = { pay: 'Collect Reservation Payment', deliver: 'Hand Over Reserved Item', cancel: 'Cancel Reservation' };
+          ctx.setDialog({
+            title: titles[action],
+            description: action === 'cancel' ? 'Deposits will be returned to the customer wallet.' : reservation.product + ' · ' + ref('RSV', reservation.id),
+            route: 'reservation.' + action,
+            submit: titles[action],
+            values: { id: reservation.id, branch: reservation.branch_id, amount: due / 100, method: 'Cash' },
+            fields: action === 'pay' ? [
+              { name: 'amount', label: 'Payment Amount (LKR)', type: 'money', min: 0.01, max: due / 100 },
+              { name: 'method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
+            ] : [],
+            transform: v => ({ ...v, amount: cents(v.amount) }),
+            onSuccess: result => { if (result.invoice) setReceipt(result.invoice); },
+          });
         };
 
         const handleViewInvoice = async saleRow => {
@@ -642,13 +710,13 @@ export function Customers({ ctx }) {
                         <Button icon={Pencil} onClick={() => openCustomerForm(person)}>
                           Edit
                         </Button>
-                        <Button
+                        {ctx.user.role === 'owner' && <Button
                           icon={Trash2}
                           className="icon-only text-red"
                           title="Delete customer"
                           aria-label={`Delete ${person.name}`}
                           onClick={handleDeleteCustomer}
-                        />
+                        />}
                       </div>
                     </div>
 
@@ -668,6 +736,9 @@ export function Customers({ ctx }) {
                           )}
                         </div>
                         <strong className="zk-cust-acct-val">{money(person.credit || 0)}</strong>
+                        {Number(person.repair_due || 0) > 0 && (
+                          <Button onClick={() => setDetailTab('repairs')}>Repair balance {money(person.repair_due)}</Button>
+                        )}
                         <small className="muted">
                           {receivables.length > 0
                             ? `${receivables.length} unpaid invoice(s)`
@@ -732,9 +803,31 @@ export function Customers({ ctx }) {
                           ['payments', `Credit Payments (${ledger.credit_payments.length})`],
                           ['wallet', `Wallet & Points (${ledger.wallet_logs.length})`],
                           ['repairs', `Repairs (${personRepairs.length})`],
+                          ['reservations', `Reservations (${reservations.length})`],
                         ]}
                       />
                     </div>
+                    {detailTab === 'reservations' && (
+                      <>
+                        <Button icon={Plus} variant="primary" onClick={reserveItem}>Reserve Item</Button>
+                        <Table rows={reservations} empty="No reserved items for this customer." columns={[
+                          ['Item', r => r.product + (r.unit_code ? ' · ' + r.unit_code : '')],
+                          ['Qty', r => r.qty],
+                          ['Total', r => money(r.total)],
+                          ['Paid', r => money(r.paid)],
+                          ['Balance', r => money(Math.max(0, r.total - r.paid))],
+                          ['Status', r => r.status],
+                          ['Actions', r => r.status === 'Held' && (
+                            <div className="row-actions">
+                              {Number(r.paid) < Number(r.total)
+                                ? <Button onClick={() => openReservationAction(r, 'pay')}>Collect Payment</Button>
+                                : <Button onClick={() => openReservationAction(r, 'deliver')}>Hand Over</Button>}
+                              {['owner', 'manager'].includes(ctx.user.role) && <Button onClick={() => openReservationAction(r, 'cancel')}>Cancel</Button>}
+                            </div>
+                          )],
+                        ]} />
+                      </>
+                    )}
                     {detailTab === 'receivables' && (
                       <Table
                         rows={receivables}
@@ -870,6 +963,9 @@ export function Customers({ ctx }) {
                         rows={personRepairs}
                         empty="No repair tickets recorded for this customer."
                         columns={[
+                          ['Balance Due', r => money(r.status === 'Cancelled' ? 0 : repairBalance(r))],
+                          ['Payment', r => r.status !== 'Cancelled' && repairBalance(r) > 0
+                            ? <Button onClick={() => openRepairPayment(r)}>Collect Payment</Button> : null],
                           ['Job #', r => <strong>{ref('REP', r.id)}</strong>],
                           ['Received', r => dateLabel(r.created_at)],
                           ['Device', r => r.device],

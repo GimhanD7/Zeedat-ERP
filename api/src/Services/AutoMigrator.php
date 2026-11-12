@@ -195,6 +195,36 @@ class AutoMigrator
      */
     private static function runIncrementalMigrations(PDO $db, string $driver): void
     {
+        $id = $driver === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT AUTO_INCREMENT PRIMARY KEY';
+        $reservationIndex = $driver === 'mysql' ? ', INDEX reservations_stock (branch_id, product_id, status)' : '';
+        $db->exec("CREATE TABLE IF NOT EXISTS reservations (
+            id {$id}, sync_uuid VARCHAR(64) NOT NULL UNIQUE, synced INT NOT NULL DEFAULT 0,
+            branch_id INT NOT NULL, customer_id INT NOT NULL, product_id INT NOT NULL, unit_id INT NULL,
+            qty INT NOT NULL, unit_price BIGINT NOT NULL, tax_bps INT NOT NULL,
+            total BIGINT NOT NULL, paid BIGINT NOT NULL DEFAULT 0, status VARCHAR(16) NOT NULL DEFAULT 'Held',
+            version INT NOT NULL DEFAULT 0, base_version INT NOT NULL DEFAULT 0, change_token VARCHAR(32) NOT NULL DEFAULT '',
+            sale_id INT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (branch_id) REFERENCES branches(id), FOREIGN KEY (customer_id) REFERENCES customers(id),
+            FOREIGN KEY (product_id) REFERENCES products(id), FOREIGN KEY (unit_id) REFERENCES units(id),
+            FOREIGN KEY (sale_id) REFERENCES sales(id){$reservationIndex}
+        )");
+        if ($driver === 'sqlite') {
+            $db->exec('CREATE INDEX IF NOT EXISTS reservations_stock ON reservations(branch_id, product_id, status)');
+            $db->exec('CREATE INDEX IF NOT EXISTS reservations_unit ON reservations(unit_id, status)');
+        }
+        $customerHasDeletion = $driver === 'sqlite'
+            ? in_array('deleted_at', array_column($db->query('PRAGMA table_info(customers)')->fetchAll(PDO::FETCH_ASSOC), 'name'), true)
+            : (bool) $db->query("SHOW COLUMNS FROM customers LIKE 'deleted_at'")->fetch();
+        if (!$customerHasDeletion) {
+            $db->exec('ALTER TABLE customers ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL');
+        }
+        if ($driver === 'mysql') {
+            $method = $db->query("SHOW COLUMNS FROM payments LIKE 'method'")->fetch(PDO::FETCH_ASSOC);
+            if ($method && !str_contains($method['Type'], "'Wallet'")) {
+                $db->exec("ALTER TABLE payments MODIFY method ENUM('Cash','Card','Bank Transfer','Koko','Wallet') NOT NULL");
+            }
+        }
+
         // Ensure role_permissions table exists
         PermissionRepository::ensureTable($db);
 

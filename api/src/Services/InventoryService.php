@@ -446,6 +446,9 @@ class InventoryService {
             }
 
             $targetBranch = (int) $unit['branch_id'];
+            if (!ProductRepository::findAvailableUnit($id, $targetBranch, (int) $unit['product_id'])) {
+                throw new ApiError('This device is reserved for a customer.', 409);
+            }
             BaseRepository::run("UPDATE units SET state='Inspection', synced=0 WHERE id=?", [$id]);
             ProductRepository::adjustStock($targetBranch, (int) $unit['product_id'], -1, 'Moved to inspection: ' . $reason, $unit['code'], (int) $user['id']);
 
@@ -492,7 +495,7 @@ class InventoryService {
 
         if ($id) {
             BaseRepository::run(
-                'UPDATE customers SET name=?, phone=?, email=?, notes=?, synced=0 WHERE id=? AND branch_id=?',
+                'UPDATE customers SET name=?, phone=?, email=?, notes=?, synced=0 WHERE id=? AND branch_id=? AND deleted_at IS NULL',
                 [$name, $phone, $email ?: '', $notes ?: '', $id, $branch]
             );
         } elseif (\Zeedat\Config\Database::isSqlite()) {
@@ -538,7 +541,7 @@ class InventoryService {
         $reference = Validator::str($body, 'reference', 100, false) ?: '';
 
         return BaseRepository::transaction(function () use ($user, $branch, $cid, $amount, $method, $reference) {
-            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$cid, $branch]);
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$cid, $branch]);
             if (!$cust) {
                 throw new ApiError('Customer not found in this branch.', 404);
             }
@@ -585,7 +588,7 @@ class InventoryService {
                 CAST(COALESCE(c.loyalty_points,0) AS UNSIGNED) AS loyalty_points,
                 CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) AS wallet_balance
              FROM customers c JOIN branches b ON b.id=c.branch_id
-             WHERE c.id=?' . ($branch > 0 ? ' AND c.branch_id=?' : ''),
+             WHERE c.id=? AND c.deleted_at IS NULL' . ($branch > 0 ? ' AND c.branch_id=?' : ''),
             $params
         );
         if (!$cust) {
@@ -616,6 +619,11 @@ class InventoryService {
             'customer' => $cust,
             'wallet_logs' => $walletLogs,
             'credit_payments' => $creditPayments,
+            'receivables' => BaseRepository::rows(
+                'SELECT id, branch_id, invoice_no, total, credit, due_date, created_at FROM sales WHERE customer_id=? AND credit>0 ORDER BY due_date, id',
+                [$cid]
+            ),
+            'reservations' => ReservationService::forCustomer($cid),
         ];
     }
 
@@ -628,7 +636,7 @@ class InventoryService {
         $reason = Validator::str($body, 'reason', 120, false) ?: ($delta > 0 ? 'Bonus / Adjustment' : 'Points Redemption');
 
         return BaseRepository::transaction(function () use ($user, $branch, $cid, $delta, $reason) {
-            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$cid, $branch]);
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$cid, $branch]);
             if (!$cust) {
                 throw new ApiError('Customer not found in this branch.', 404);
             }
@@ -658,9 +666,19 @@ class InventoryService {
     }
 
     public static function deleteCustomer(array $user, int $branch, array $body): array {
+        if ($user['role'] !== 'owner') {
+            throw new ApiError('Only the owner can delete a customer account.', 403);
+        }
+        $hash = (string) BaseRepository::scalar('SELECT delete_pin_hash FROM settings WHERE id=1');
+        if ($hash === '') {
+            throw new ApiError('Set a Delete PIN in Settings first.', 409);
+        }
+        if (!password_verify((string) ($body['pin'] ?? ''), $hash)) {
+            throw new ApiError('Incorrect Delete PIN.', 403);
+        }
         $cid = Validator::integer($body['id'] ?? null, 'Customer');
         return BaseRepository::transaction(function () use ($user, $branch, $cid) {
-            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? FOR UPDATE', [$cid]);
+            $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND deleted_at IS NULL FOR UPDATE', [$cid]);
             if (!$cust) {
                 throw new ApiError('Customer not found.', 404);
             }
@@ -669,15 +687,15 @@ class InventoryService {
             }
             $salesCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sales WHERE customer_id=?', [$cid]);
             $repairsCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM repairs WHERE customer_id=?', [$cid]);
-            if ($salesCount > 0 || $repairsCount > 0) {
-                throw new ApiError("Cannot delete '{$cust['name']}' because they have {$salesCount} invoice(s) and {$repairsCount} repair job(s) in history.");
+            $reservations = (int) BaseRepository::scalar('SELECT COUNT(*) FROM reservations WHERE customer_id=?', [$cid]);
+            if ($salesCount > 0 || $repairsCount > 0 || $reservations > 0) {
+                throw new ApiError('Customer accounts with invoices, repair jobs, or reservations must be retained.');
             }
             if ((int) ($cust['wallet_balance'] ?? 0) > 0) {
                 throw new ApiError("Cannot delete '{$cust['name']}' while wallet balance is non-zero.");
             }
 
-            BaseRepository::run('DELETE FROM customer_wallet_logs WHERE customer_id=?', [$cid]);
-            BaseRepository::run('DELETE FROM customers WHERE id=?', [$cid]);
+            BaseRepository::run('UPDATE customers SET deleted_at=NOW(), synced=0 WHERE id=?', [$cid]);
             UserRepository::logAudit((int) $user['id'], (int) $cust['branch_id'], 'customer.delete', [
                 'id' => $cid,
                 'name' => $cust['name'],
@@ -826,16 +844,20 @@ class InventoryService {
         if (!$product || (isset($product['active']) && (int) $product['active'] === 0)) {
             throw new ApiError('Product not found.', 404);
         }
-
         $saleCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM sale_items WHERE product_id=?', [$id]);
         $purchaseCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM purchases WHERE product_id=?', [$id]);
         $transferCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM transfers WHERE product_id=?', [$id]);
         $exchangeCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM exchanges WHERE product_id=?', [$id]);
         $unitCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM units WHERE product_id=?', [$id]);
 
-        $hasHistory = ($saleCount + $purchaseCount + $transferCount + $exchangeCount + $unitCount) > 0;
+        $reservationCount = (int) BaseRepository::scalar('SELECT COUNT(*) FROM reservations WHERE product_id=?', [$id]);
+        $hasHistory = ($saleCount + $purchaseCount + $transferCount + $exchangeCount + $unitCount + $reservationCount) > 0;
 
         return BaseRepository::transaction(function () use ($id, $product, $hasHistory, $user) {
+            BaseRepository::scalar('SELECT id FROM products WHERE id=? FOR UPDATE', [$id]);
+            if (BaseRepository::scalar("SELECT id FROM reservations WHERE product_id=? AND status='Held' LIMIT 1", [$id])) {
+                throw new ApiError('Settle or cancel the active reservations before deleting this product.', 409);
+            }
             BaseRepository::run('DELETE FROM stock WHERE product_id=?', [$id]);
 
             if ($hasHistory) {

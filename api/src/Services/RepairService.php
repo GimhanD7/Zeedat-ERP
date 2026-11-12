@@ -5,6 +5,7 @@ namespace Zeedat\Services;
 
 use Zeedat\Config\Constants;
 use Zeedat\Config\Database;
+use Zeedat\Middleware\RoleGuard;
 use Zeedat\Repositories\BaseRepository;
 use Zeedat\Repositories\DrawerRepository;
 use Zeedat\Repositories\UserRepository;
@@ -12,27 +13,34 @@ use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
 
 class RepairService {
-    private static function resolveCashDrawer(array $user, int $branch, string $closedMessage): array {
-        $drawer = DrawerRepository::openDrawerForBranch($branch);
-        if (!$drawer) {
-            if (in_array($user['role'] ?? '', ['owner', 'manager'], true)) {
-                DrawerService::open($user, $branch, ['opening' => 0]);
-                $drawer = DrawerRepository::openDrawerForBranch($branch);
-            } else {
-                throw new ApiError($closedMessage);
-            }
+    private static function collectPayment(array $user, int $branch, int $customer, int $id, int $amount, string $method, string $kind): void {
+        if (!in_array($user['role'], ['cashier', 'owner', 'manager'], true)) {
+            throw new ApiError('A cashier must collect this repair payment.', 403);
         }
-        if ((int) $drawer['user_id'] !== (int) ($user['id'] ?? 0) && !in_array($user['role'] ?? '', ['owner', 'manager'], true)) {
-            throw new ApiError('The active drawer is assigned to another cashier.');
+        if ($method !== 'Wallet' && !in_array($method, Constants::TENDERS, true)) {
+            throw new ApiError('Invalid payment method.');
         }
-        return $drawer;
+        $drawer = DrawerService::openDrawer($user, $branch);
+        $reference = sprintf('RJ-%06d', $id);
+        if ($method === 'Cash') {
+            DrawerRepository::addCashMovement((int) $user['id'], $drawer, $amount, $kind, $reference);
+        }
+        CustomerWallet::recordAppliedPayment($user, $branch, $customer, $amount, $kind, $method, $reference);
     }
 
     public static function create(int $branch, array $body, ?array $user = null): array {
         $actor = $user ?: ['id' => 1, 'role' => 'owner'];
+        $advance = Validator::money(['advance_payment' => $body['advance_payment'] ?? 0], 'advance_payment');
+        if ($advance > 0) {
+            RoleGuard::allow($actor, 'cashier', 'owner', 'manager');
+            DrawerService::openDrawer($actor, $branch);
+        }
+        if (($actor['role'] ?? '') === 'technician') {
+            $body['technician_id'] = $actor['id'];
+        }
         if (!empty($body['customer_id'])) {
             $customerId = Validator::integer($body['customer_id'], 'Customer');
-            $customerRow = BaseRepository::one('SELECT id, name, phone FROM customers WHERE id=? AND branch_id=?', [$customerId, $branch]);
+            $customerRow = BaseRepository::one('SELECT id, name, phone FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL', [$customerId, $branch]);
             if (!$customerRow) {
                 throw new ApiError('Customer not found.', 404);
             }
@@ -41,7 +49,7 @@ class RepairService {
             $digits = preg_replace('/\D+/', '', $custPhone);
             $customerRow = null;
             if (strlen($digits) >= 7) {
-                $branchCustomers = BaseRepository::rows('SELECT id, name, phone FROM customers WHERE branch_id=?', [$branch]);
+                $branchCustomers = BaseRepository::rows('SELECT id, name, phone FROM customers WHERE branch_id=? AND deleted_at IS NULL', [$branch]);
                 foreach ($branchCustomers as $bc) {
                     $bcDigits = preg_replace('/\D+/', '', (string) ($bc['phone'] ?? ''));
                     if ($bcDigits !== '' && ($bcDigits === $digits || (strlen($digits) >= 9 && str_ends_with($bcDigits, substr($digits, -9))))) {
@@ -104,14 +112,9 @@ class RepairService {
             $status = 'Received';
         }
 
-        $advance = !empty($body['advance_payment']) ? max(0, (int) $body['advance_payment']) : 0;
         $advanceMethod = (string) ($body['advance_method'] ?? 'Cash');
-        if (!in_array($advanceMethod, Constants::TENDERS, true)) {
-            $advanceMethod = 'Cash';
-        }
-        if ($advance > 0) {
-            $advanceNote = 'Advance Paid: ' . number_format($advance / 100, 2) . " LKR ({$advanceMethod})";
-            $notes = $notes ? "{$notes} | {$advanceNote}" : $advanceNote;
+        if ($advance > $estimate) {
+            throw new ApiError('The advance cannot exceed the assigned repair charge.');
         }
 
         $id = BaseRepository::transaction(function () use (
@@ -130,9 +133,9 @@ class RepairService {
             $advance,
             $advanceMethod
         ) {
-            $paidAtSql = $advance > 0 ? ($advance > 0 ? date('Y-m-d H:i:s') : null) : null;
+            $paidAtSql = $advance > 0 ? date('Y-m-d H:i:s') : null;
+            $uuid = 'rep_' . bin2hex(random_bytes(10));
             if (Database::isSqlite()) {
-                $uuid = 'rep_' . bin2hex(random_bytes(10));
                 $id = BaseRepository::insert(
                     "INSERT INTO repairs(uuid, sync_uuid, branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, advance_paid, final_charge, paid_amount, payment_method, paid_at, due_date, status, synced)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
@@ -140,25 +143,14 @@ class RepairService {
                 );
             } else {
                 $id = BaseRepository::insert(
-                    "INSERT INTO repairs(branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, advance_paid, final_charge, paid_amount, payment_method, paid_at, due_date, status, synced)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
-                    [$branch, $customerId, $technicianId, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $advance, $estimate, $advance, $advance > 0 ? $advanceMethod : '', $paidAtSql, $dueDate, $status]
+                    "INSERT INTO repairs(sync_uuid, branch_id, customer_id, technician_id, device, serial, issue, notes, accessories, estimate, advance_paid, final_charge, paid_amount, payment_method, paid_at, due_date, status, synced)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                    [$uuid, $branch, $customerId, $technicianId, $device, $serial ?: '', $issue, $notes ?: '', $accessories ?: '', $estimate, $advance, $estimate, $advance, $advance > 0 ? $advanceMethod : '', $paidAtSql, $dueDate, $status]
                 );
             }
 
-            if ($advance > 0 && $advanceMethod === 'Cash') {
-                $drawer = self::resolveCashDrawer(
-                    $actor,
-                    $branch,
-                    'Open today’s cash register before recording a cash repair advance.'
-                );
-                DrawerRepository::addCashMovement(
-                    (int) ($actor['id'] ?? 1),
-                    $drawer,
-                    $advance,
-                    'Repair Advance',
-                    sprintf('RJ-%06d', $id)
-                );
+            if ($advance > 0) {
+                self::collectPayment($actor, $branch, $customerId, $id, $advance, $advanceMethod, 'Repair Advance');
             }
 
             return $id;
@@ -236,6 +228,9 @@ class RepairService {
 
         $targetStatus = $job['status'];
         if ($next !== '' && $next !== $job['status']) {
+            if ($next === 'Cancelled' && (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0) > 0) {
+                throw new ApiError('A repair with recorded payments cannot be cancelled.', 409);
+            }
             $allowed = Constants::REPAIR_TRANSITIONS[$job['status']] ?? [];
             if ($user['role'] === 'cashier' && $next !== 'Delivered') {
                 throw new ApiError('Cashiers may only deliver ready repairs.', 403);
@@ -272,13 +267,14 @@ class RepairService {
     }
 
     public static function completeAndPay(array $user, int $branch, array $body): array {
-        if ($user['role'] === 'technician') {
-            throw new ApiError('Technicians cannot collect payments or deliver repairs.', 403);
+        if (!in_array($user['role'], ['cashier', 'owner', 'manager'], true)) {
+            throw new ApiError('A cashier must collect payment or deliver this repair.', 403);
         }
 
         $id = Validator::integer($body['id'] ?? null, 'Repair job');
 
         $out = BaseRepository::transaction(function () use ($user, $branch, $id, $body) {
+            DrawerService::openDrawer($user, $branch);
             $job = BaseRepository::one(
                 'SELECT r.*, c.name customer, c.phone customer_phone FROM repairs r JOIN customers c ON c.id=r.customer_id WHERE r.id=? AND r.branch_id=? FOR UPDATE',
                 [$id, $branch]
@@ -292,7 +288,8 @@ class RepairService {
             $existingFinal = (int) (($job['final_charge'] ?? 0) > 0 ? $job['final_charge'] : $job['estimate']);
             $alreadyPaid = (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
 
-            $finalCharge = array_key_exists('final_charge', $body)
+            $paymentOnly = !empty($body['payment_only']);
+            $finalCharge = !$paymentOnly && $user['role'] !== 'cashier' && $job['status'] !== 'Delivered' && array_key_exists('final_charge', $body)
                 ? Validator::money($body, 'final_charge')
                 : $existingFinal;
 
@@ -301,6 +298,12 @@ class RepairService {
                 ? Validator::money($body, 'pay_amount')
                 : $defaultPay;
 
+            if ($finalCharge < $alreadyPaid || $payAmount > $defaultPay) {
+                throw new ApiError('Payment exceeds the outstanding repair balance.');
+            }
+            if ($paymentOnly && $payAmount <= 0) {
+                throw new ApiError('Enter a payment amount greater than zero.');
+            }
             if ($job['status'] === 'Delivered' && $alreadyPaid >= $finalCharge && $payAmount <= 0) {
                 throw new ApiError('This repair job is already completed and fully paid.');
             }
@@ -309,9 +312,6 @@ class RepairService {
             }
 
             $method = (string) ($body['payment_method'] ?? 'Cash');
-            if (!in_array($method, Constants::TENDERS, true)) {
-                throw new ApiError('Invalid payment method.');
-            }
 
             $newTechId = $job['technician_id'] ? (int) $job['technician_id'] : null;
             if (!empty($body['technician_id'])) {
@@ -321,23 +321,13 @@ class RepairService {
                 }
             }
 
-            $cashAdded = false;
             $jobNumber = sprintf('RJ-%06d', $id);
-            if ($payAmount > 0 && $method === 'Cash') {
-                $drawer = self::resolveCashDrawer(
-                    $user,
-                    $branch,
-                    'Open today’s cash register before collecting cash payment.'
-                );
-                DrawerRepository::addCashMovement(
-                    (int) $user['id'],
-                    $drawer,
-                    $payAmount,
-                    'Repair Payment',
-                    $jobNumber
-                );
-                $cashAdded = true;
+            if ($payAmount > 0) {
+                self::collectPayment($user, $branch, (int) $job['customer_id'], $id, $payAmount, $method, 'Repair Payment');
             }
+            $status = $paymentOnly ? $job['status'] : 'Delivered';
+            $paidAt = $payAmount > 0 ? date('Y-m-d H:i:s') : $job['paid_at'];
+            $method = $payAmount > 0 ? $method : $job['payment_method'];
 
             $totalPaid = $alreadyPaid + $payAmount;
             $extraNote = trim((string) ($body['notes'] ?? ''));
@@ -347,11 +337,11 @@ class RepairService {
             }
 
             BaseRepository::run(
-                "UPDATE repairs SET status='Delivered', technician_id=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
-                [$newTechId, $finalCharge, $totalPaid, $method, date('Y-m-d H:i:s'), $mergedNotes, $id]
+                "UPDATE repairs SET status=?, technician_id=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
+                [$status, $newTechId, $finalCharge, $totalPaid, $method, $paidAt, $mergedNotes, $id]
             );
 
-            UserRepository::logAudit((int) $user['id'], $branch, 'repair.complete', [
+            UserRepository::logAudit((int) $user['id'], $branch, $paymentOnly ? 'repair.payment' : 'repair.complete', [
                 'repair_id' => $id,
                 'job_number' => $jobNumber,
                 'final_charge' => $finalCharge,
@@ -363,16 +353,21 @@ class RepairService {
             return [
                 'id' => $id,
                 'job_number' => $jobNumber,
-                'status' => 'Delivered',
+                'status' => $status,
                 'final_charge' => $finalCharge,
                 'pay_amount' => $payAmount,
                 'paid_amount' => $totalPaid,
                 'balance_due' => max(0, $finalCharge - $totalPaid),
                 'payment_method' => $method,
-                'cash_movement_added' => $cashAdded,
+                'cash_movement_added' => $payAmount > 0 && $method === 'Cash',
                 'job' => $job,
             ];
         });
+
+        if (!empty($body['payment_only'])) {
+            unset($out['job']);
+            return $out;
+        }
 
         $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];

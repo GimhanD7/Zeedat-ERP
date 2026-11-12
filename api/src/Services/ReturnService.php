@@ -68,7 +68,7 @@ class ReturnService {
             $device = null;
             if ($replacement['serialized']) {
                 $device = Validator::integer($body['replacement_unit_id'] ?? null, 'Replacement device');
-                if (!BaseRepository::scalar("SELECT id FROM units WHERE id=? AND branch_id=? AND product_id=? AND state='Available' FOR UPDATE", [$device, $branch, $replacement['id']])) {
+                if (!ProductRepository::findAvailableUnit($device, $branch, (int) $replacement['id'])) {
                     throw new ApiError('The replacement device is unavailable.', 409);
                 }
             }
@@ -131,7 +131,7 @@ class ReturnService {
         $replacementSaleId = null;
         if ($row['replacement_product_id']) {
             $p = ProductRepository::findById((int) $row['replacement_product_id']);
-            if ($row['replacement_unit_id'] && !BaseRepository::scalar("SELECT id FROM units WHERE id=? AND branch_id=? AND product_id=? AND state='Available' FOR UPDATE", [$row['replacement_unit_id'], $branch, $p['id']])) {
+            if ($row['replacement_unit_id'] && !ProductRepository::findAvailableUnit((int) $row['replacement_unit_id'], $branch, (int) $p['id'])) {
                 throw new ApiError('The selected replacement device is unavailable.', 409);
             }
 

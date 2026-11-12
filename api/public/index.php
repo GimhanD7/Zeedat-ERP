@@ -119,10 +119,6 @@ try {
 
         $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
-        if ($branch) {
-            BranchRepository::lock($branch);
-        }
-
         $result = Idempotency::execute($user, $action, function () use ($action, $user, $branch, $body) {
             return match ($action) {
                 'sale.checkout' => (function () use ($user, $branch, $body) {
@@ -162,7 +158,7 @@ try {
                     return ReturnController::resolve($user, $branch, $body);
                 })(),
                 'customer.save' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
                     return InventoryController::saveCustomer($branch, $body);
                 })(),
                 'customer.wallet.topup' => (function () use ($user, $branch, $body) {
@@ -174,8 +170,12 @@ try {
                     return InventoryController::adjustCustomerPoints($user, $branch, $body);
                 })(),
                 'customer.delete' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'customers');
+                    RoleGuard::allow($user, 'owner');
                     return InventoryController::deleteCustomer($user, $branch, $body);
+                })(),
+                'reservation.create', 'reservation.pay', 'reservation.deliver', 'reservation.cancel' => (function () use ($user, $branch, $body, $action) {
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                    return \Zeedat\Services\ReservationService::save($user, $branch, $body, $action);
                 })(),
                 'product.save' => (function () use ($user, $body) {
                     RoleGuard::allowPermission($user, 'inventory');
@@ -231,19 +231,23 @@ try {
                     return InventoryController::updateUnit($user, $body);
                 })(),
                 'repair.create' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'repairs');
+                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
                     return RepairController::create($branch, $body, $user);
                 })(),
                 'repair.status' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'repairs');
+                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
                     return RepairController::updateStatus($user, $branch, $body);
                 })(),
                 'repair.complete' => (function () use ($user, $branch, $body) {
                     RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
                     return RepairController::completeAndPay($user, $branch, $body);
                 })(),
+                'repair.payment' => (function () use ($user, $branch, $body) {
+                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                    return RepairController::completeAndPay($user, $branch, ['payment_only' => true] + $body);
+                })(),
                 'repair.sms' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'repairs');
+                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
                     return RepairController::sendSms($branch, $body);
                 })(),
                 'supplier.create' => (function () use ($user, $body) {
@@ -331,7 +335,7 @@ try {
                 })(),
                 default => throw new ApiError('Route not found.', 404),
             };
-        });
+        }, $branch);
 
         if ($action !== 'sync.auto') {
             $details = array_intersect_key($result, array_flip([
@@ -412,7 +416,7 @@ try {
                             THEN due_date ELSE NULL END) repair_next_due_date
                     FROM repairs GROUP BY customer_id
                 ) rp ON rp.customer_id=c.id
-                " . ($branch ? 'WHERE c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
+                WHERE c.deleted_at IS NULL" . ($branch ? ' AND c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
             );
         })(),
@@ -425,7 +429,7 @@ try {
             return RepairController::getRepairs($branch, $user);
         })(),
         'technicians' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'repairs');
+            RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
             return RepairController::getTechnicians($branch);
         })(),
         'drafts' => (function () use ($user, $branch) {
@@ -433,11 +437,11 @@ try {
             return SaleController::getDrafts($branch, $user);
         })(),
         'sales' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'sales');
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
             return SaleController::getSales($branch);
         })(),
         'invoice' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers');
+            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
             return SaleController::getInvoice($branch, $_GET);
         })(),
         'drawer' => (function () use ($user, $branch) {
@@ -493,8 +497,12 @@ try {
             return AdminController::getPermissions();
         })(),
         'settings' => (function () use ($user) {
-            RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers');
-            return AdminController::getSettings();
+            RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs');
+            $settings = AdminController::getSettings();
+            if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
+                unset($settings['cloud_api_key'], $settings['sms_api_key']);
+            }
+            return $settings;
         })(),
         'branches.summary' => (function () use ($user) {
             RoleGuard::allowPermission($user, 'settings');

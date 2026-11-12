@@ -178,8 +178,9 @@ function Workspace({ session, onLogout }) {
   );
 
   const available = useMemo(
-    () => pages.filter(page => hasPermission(page[3])),
-    [hasPermission]
+    () => pages.filter(page => hasPermission(page[3]) ||
+      (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers'].includes(page[0]))),
+    [hasPermission, user.role]
   );
 
   const getPage = useCallback(() => {

@@ -14,7 +14,7 @@ use Zeedat\Support\Helpers;
 use Zeedat\Support\Validator;
 
 class CheckoutService {
-    public static function checkout(array $user, int $branch, array $body): array {
+    public static function checkout(array $user, int $branch, array $body, ?array $reservation = null): array {
         $drawer = DrawerService::openDrawer($user, $branch);
         $lines = $body['items'] ?? null;
         if (!is_array($lines) || !$lines || count($lines) > 100) {
@@ -22,7 +22,7 @@ class CheckoutService {
         }
 
         $customerRow = !empty($body['customer_id'])
-            ? BaseRepository::one('SELECT id, name, phone, COALESCE(wallet_balance, 0) AS wallet_balance, COALESCE(loyalty_points, 0) AS loyalty_points FROM customers WHERE id=? AND branch_id=? FOR UPDATE', [$body['customer_id'], $branch])
+            ? BaseRepository::one('SELECT id, name, phone, COALESCE(wallet_balance, 0) AS wallet_balance, COALESCE(loyalty_points, 0) AS loyalty_points FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$body['customer_id'], $branch])
             : null;
         $customer = $customerRow ? (int) $customerRow['id'] : null;
 
@@ -40,6 +40,7 @@ class CheckoutService {
             if (!is_array($line)) throw new ApiError('Invalid bill line.');
 
             if (!empty($line['repair_id'])) {
+                RoleGuard::allow($user, 'cashier', 'owner', 'manager');
                 $repairId = Validator::integer($line['repair_id'], 'Repair job');
                 $job = BaseRepository::one(
                     'SELECT id, branch_id, customer_id, device, issue, estimate, final_charge, paid_amount, advance_paid, status, notes FROM repairs WHERE id=? AND branch_id=? FOR UPDATE',
@@ -47,6 +48,9 @@ class CheckoutService {
                 );
                 if (!$job || $job['status'] === 'Cancelled') {
                     throw new ApiError('Repair job is unavailable.', 404);
+                }
+                if ((int) $job['customer_id'] !== $customer || isset($repairLinks[$repairId])) {
+                    throw new ApiError('Bill each repair once under its registered customer.');
                 }
                 $serviceProduct = BaseRepository::one("SELECT * FROM products WHERE sku='SRV-REPAIR' LIMIT 1");
                 if (!$serviceProduct) {
@@ -64,22 +68,26 @@ class CheckoutService {
                     }
                     $serviceProduct = BaseRepository::one('SELECT * FROM products WHERE id=?', [$spId]);
                 }
-                $linePrice = Validator::money($line, 'price');
-                if ($linePrice <= 0) {
-                    throw new ApiError('Repair billing amount must be greater than zero.');
+                $charge = (int) ($job['final_charge'] ?: $job['estimate']);
+                $linePrice = $charge - (int) ($job['paid_amount'] ?? $job['advance_paid'] ?? 0);
+                if ($linePrice <= 0 || $linePrice !== Validator::money($line, 'price')) {
+                    throw new ApiError('The outstanding repair balance changed. Refresh the bill.', 409);
                 }
                 $lineName = trim((string) ($line['name'] ?? '')) ?: ('Repair ' . Helpers::ref('RJ', $repairId) . ' · ' . $job['device']);
                 $p = array_merge($serviceProduct, ['price' => $linePrice, 'name' => $lineName]);
                 $subtotal += $linePrice;
-                $items[] = [$p, 1, null, $linePrice];
-                $repairLinks[] = [$repairId, $linePrice, $job];
+                $items[] = [$p, 1, null, $linePrice, true];
+                $repairLinks[$repairId] = [$repairId, $linePrice, $job];
                 continue;
             }
 
             $product = Validator::integer($line['product_id'] ?? null, 'Product');
             $qty = Validator::integer($line['qty'] ?? null, 'Quantity', 1, 1000);
             $p = ProductRepository::findById($product);
-            if (!$p) throw new ApiError('Product is unavailable.', 404);
+            if (!$p || !(int) $p['active']) throw new ApiError('Product is unavailable.', 404);
+            if ($reservation !== null) {
+                $p['price'] = (int) $reservation['unit_price'];
+            }
 
             $unit = null;
             if ($p['serialized']) {
@@ -92,14 +100,16 @@ class CheckoutService {
 
             $extended = (int) $p['price'] * $qty;
             $subtotal += $extended;
-            $items[] = [$p, $qty, $unit, $extended];
+            $items[] = [$p, $qty, $unit, $extended, false];
         }
 
         if ($subtotal > 99999999999) throw new ApiError('Bill exceeds the transaction limit.');
 
+        $repairSubtotal = array_sum(array_column($repairLinks, 1));
+        $retailSubtotal = $subtotal - $repairSubtotal;
         $discountType = ($body['discount_type'] ?? 'percent') === 'fixed' ? 'fixed' : 'percent';
         if ($discountType === 'fixed') {
-            $maxFixed = $user['role'] === 'cashier' ? Helpers::rate($subtotal, 500) : $subtotal;
+            $maxFixed = $user['role'] === 'cashier' ? Helpers::rate($retailSubtotal, 500) : $retailSubtotal;
             $discount = Validator::money($body, 'discount_amount');
             if ($discount > $maxFixed) {
                 throw new ApiError(
@@ -108,14 +118,14 @@ class CheckoutService {
                         : 'Discount cannot exceed the bill subtotal.'
                 );
             }
-            $discountBps = $subtotal > 0 ? min(10000, (int) round(($discount * 10000) / $subtotal)) : 0;
+            $discountBps = $retailSubtotal > 0 ? min(10000, (int) round(($discount * 10000) / $retailSubtotal)) : 0;
         } else {
             $discountBps = Validator::integer($body['discount_bps'] ?? 0, 'Discount', 0, $user['role'] === 'cashier' ? 500 : 10000);
-            $discount = Helpers::rate($subtotal, $discountBps);
+            $discount = Helpers::rate($retailSubtotal, $discountBps);
         }
 
-        $taxBps = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
-        $tax = Helpers::rate($subtotal - $discount, $taxBps);
+        $taxBps = (int) ($reservation['tax_bps'] ?? BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1'));
+        $tax = Helpers::rate($retailSubtotal - $discount, $taxBps);
         $total = $subtotal - $discount + $tax;
 
         if ($total !== Validator::money($body, 'expected_total')) {
@@ -156,7 +166,7 @@ class CheckoutService {
             }
         }
 
-        $paid = $walletUsed;
+        $paid = $walletUsed + (int) ($reservation['paid'] ?? 0);
         $cashReceived = 0;
         $payments = [];
 
@@ -182,6 +192,9 @@ class CheckoutService {
         $credit = max(0, $total - $paid);
         $due = null;
         if ($credit) {
+            if ($repairLinks) {
+                throw new ApiError('Use the repair payment screen to record a partial payment.');
+            }
             RoleGuard::allow($user, 'owner', 'manager');
             if (!$customer || empty($body['allow_credit'])) {
                 throw new ApiError('Confirm credit and select a customer for the remaining balance.');
@@ -193,6 +206,9 @@ class CheckoutService {
         $methodLabels = array_keys($payments);
         if ($walletUsed > 0) {
             array_unshift($methodLabels, 'Wallet');
+        }
+        if ($reservation !== null) {
+            $methodLabels[] = 'Reservation';
         }
         $paymentMethods = !empty($methodLabels) ? implode(' + ', $methodLabels) : ($credit ? 'Credit' : 'Cash');
         $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
@@ -229,10 +245,14 @@ class CheckoutService {
 
         $processed = 0;
         $allocated = 0;
-        foreach ($items as [$p, $qty, $unit, $extended]) {
-            $processed += $extended;
-            $cumulative = $subtotal ? (int) bcdiv(bcmul((string) $processed, (string) $total, 0), (string) $subtotal, 0) : 0;
-            $lineTotal = $cumulative - $allocated;
+        foreach ($items as [$p, $qty, $unit, $extended, $isRepair]) {
+            $lineTotal = $extended;
+            if (!$isRepair && $retailSubtotal > 0) {
+                $processed += $extended;
+                $cumulative = (int) bcdiv(bcmul((string) $processed, (string) ($total - $repairSubtotal), 0), (string) $retailSubtotal, 0);
+                $lineTotal = $cumulative - $allocated;
+                $allocated = $cumulative;
+            }
             $commType = (string) ($p['commission_type'] ?? 'fixed');
             $commVal = (int) ($p['commission_value'] ?? 0);
             $lineCommission = $commType === 'percent'
@@ -247,7 +267,6 @@ class CheckoutService {
                 'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total, commission_amount) VALUES (?,?,?,?,?,?,?,?)',
                 [$id, $p['id'], $unit, $p['name'], $qty, $p['price'], $lineTotal, $lineCommission]
             );
-            $allocated = $cumulative;
         }
 
         foreach ($payments as $method => [$amount, $reference]) {
@@ -265,9 +284,11 @@ class CheckoutService {
             $billNote = "Billed in {$invoiceNo}";
             $newNotes = $oldNotes !== '' ? "{$oldNotes} | {$billNote}" : $billNote;
             BaseRepository::run(
-                "UPDATE repairs SET status='Delivered', final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
+                "UPDATE repairs SET final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
                 [$newFinal, $newPaid, $paymentMethods, date('Y-m-d H:i:s'), $newNotes, $repairId]
             );
+            CustomerWallet::entry($user, $branch, $customer, $linePrice, 'Repair paid via POS', $paymentMethods, $invoiceNo);
+            CustomerWallet::entry($user, $branch, $customer, -$linePrice, 'Repair payment applied', $paymentMethods, $invoiceNo);
         }
 
         if ($draft) BaseRepository::run('DELETE FROM drafts WHERE id=?', [$draft]);
@@ -288,8 +309,12 @@ class CheckoutService {
         if ($amount <= 0 || $amount > $sale['credit']) throw new ApiError('Payment exceeds the credit balance.');
 
         $method = $body['method'] ?? '';
-        if (!in_array($method, Constants::TENDERS, true)) throw new ApiError('Invalid payment method.');
-        $ref = $method === 'Cash' ? null : Validator::str($body, 'reference', 100, true);
+        if ($method !== 'Wallet' && !in_array($method, Constants::TENDERS, true)) throw new ApiError('Invalid payment method.');
+        if ($method === 'Wallet') {
+            if (empty($sale['customer_id'])) throw new ApiError('This invoice has no customer wallet.');
+            CustomerWallet::debit($user, $branch, (int) $sale['customer_id'], $amount, 'Credit settlement', Helpers::ref('INV', (int) $sale['id']));
+        }
+        $ref = in_array($method, ['Cash', 'Wallet'], true) ? null : Validator::str($body, 'reference', 100, true);
 
         self::salePayment($user, $drawer, $sale['id'], $amount, $method, $ref, 'Credit');
         $cashAdd = $method === 'Cash' ? $amount : 0;
