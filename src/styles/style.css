@@ -3083,43 +3083,70 @@
 }
 
 .zk-settings-grid.zk-bill-settings {
-  grid-template-columns: minmax(310px, 0.85fr) minmax(0, 1.15fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(var(--bill-preview-width), 55%));
   gap: 16px;
 }
 
 .zk-bill-settings .zk-settings-section {
-  padding: 12px 14px;
+  padding: 0;
+  margin-bottom: 12px;
 }
 
-.zk-bill-settings .zk-input-box,
-.zk-bill-settings select,
-.zk-bill-layout-fields input {
-  min-height: 32px;
-  font-size: 13px;
+.zk-bill-settings .zk-settings-card {
+  padding: 13px;
 }
 
-.zk-bill-settings .zk-input-box input,
-.zk-bill-settings .zk-input-box select {
-  padding-block: 5px;
+.zk-bill-settings .zk-card-header,
+.zk-bill-settings .zk-form-footer {
+  padding-block: 7px;
+  margin-block: 0 8px;
+  gap: 6px;
 }
+
+.zk-bill-settings .zk-settings-subtitle { margin-bottom: 6px; }
+.zk-bill-settings :is(.zk-form-row-2, .zk-paper-selector) { gap: 6px 8px; }
+.zk-bill-settings .zk-field-wrap { gap: 3px; }
+.zk-bill-settings .zk-field-wrap + .zk-field-wrap { margin-top: 6px; }
+.zk-bill-settings .zk-form-row-2 > .zk-field-wrap { margin-top: 0; }
+.zk-bill-settings :is(.zk-input-box, .zk-textarea-box) { padding: 3px 7px; gap: 5px; }
+.zk-bill-settings :is(.zk-paper-option, .zk-toggle-row) { padding: 5px 7px; gap: 6px; min-height: 0; }
+.zk-bill-settings .zk-paper-option svg { width: 14px; height: 14px; flex-shrink: 0; }
+.zk-bill-settings input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--teal); }
+.zk-bill-settings .button { min-height: 27px; padding: 3px 8px; font-size: 12px; }
+.zk-bill-settings .button svg { width: 14px; height: 14px; }
+
+.zk-bill-settings :is(input:not([type="checkbox"]), select, textarea) {
+  min-height: 26px;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 3px 6px;
+  min-width: 0;
+}
+
+.zk-bill-settings .zk-input-box :is(input, select) { min-height: 20px; padding: 0; }
+.zk-bill-settings textarea { resize: vertical; }
 
 .zk-bill-settings .zk-receipt-preview-box {
   position: static;
   min-width: 0;
-  padding: 12px;
+  width: min(100%, var(--bill-preview-width));
+  padding: 0;
   gap: 10px;
   align-items: stretch;
-  background: #f8fafc;
+  background: transparent;
+  border: 0;
 }
 
 .zk-bill-settings .zk-bill-preview {
-  background: #eaf0f6;
-  padding: 12px;
+  background: transparent;
+  padding: 0;
+  border: 0;
   min-width: 0;
 }
 
 .zk-bill-settings-preview-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -3128,7 +3155,7 @@
 .zk-bill-layout-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px 12px;
+  gap: 6px 8px;
 }
 
 .zk-bill-layout-fields > h4,

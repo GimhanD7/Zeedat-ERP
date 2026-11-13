@@ -1,5 +1,34 @@
-.app[data-accent="blue"] { --teal: #2563eb; --teal-dark: #1d4ed8; --teal-text: #1d4ed8; }
-.app[data-accent="violet"] { --teal: #7c3aed; --teal-dark: #6d28d9; --teal-text: #6d28d9; }
+.app[data-accent] { --theme-soft: #e8f5f4; --theme-workspace: #f2f6fa; }
+.app[data-accent="blue"] {
+  --teal: #2563eb;
+  --teal-dark: #1d4ed8;
+  --teal-text: #1d4ed8;
+  --theme-soft: #eaf1ff;
+  --theme-workspace: #f2f6fd;
+}
+.app[data-accent="violet"] {
+  --teal: #7c3aed;
+  --teal-dark: #6d28d9;
+  --teal-text: #6d28d9;
+  --theme-soft: #f1eaff;
+  --theme-workspace: #f7f4fc;
+}
+
+.app[data-accent] .workspace { background: var(--theme-workspace); }
+.app[data-accent] .sidebar .brand-mark,
+.app[data-accent] .topbar .profile .avatar,
+.app[data-accent] .button.primary {
+  background: var(--teal-dark);
+  border-color: var(--teal-dark);
+  color: #fff;
+}
+.app[data-accent] .sidebar .brand small { color: var(--teal-text); }
+.app[data-accent] .tabs button.selected {
+  background: var(--theme-soft);
+  color: var(--teal-text);
+  border-color: var(--teal);
+}
+.app[data-sidebar="dark"] .sidebar .brand small { color: #a7bad3; }
 
 .sidebar nav a .sidebar-icon {
   display: grid;

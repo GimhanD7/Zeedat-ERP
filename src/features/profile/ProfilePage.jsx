@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Building2, KeyRound, Mail, Palette, Save, UserRound } from 'lucide-react';
 import { Badge, Button, Field, Heading, Select } from '../../components/common';
 import { initials, roles } from '../../utils';
+import { colorThemes } from './appearance';
 
 const emptyPassword = { current_password: '', new_password: '', confirmation: '' };
 
@@ -78,8 +79,8 @@ export function ProfilePage({ ctx }) {
         <section className="account-panel">
           <h2><Palette size={18} /> Appearance</h2>
           <div className="account-form">
-            <Field label="Accent color">
-              <Select value={appearance.accent} options={[[ 'teal', 'Teal' ], [ 'blue', 'Blue' ], [ 'violet', 'Violet' ]]}
+            <Field label="Color theme">
+              <Select value={appearance.accent} options={colorThemes}
                 onChange={event => changeAppearance('accent', event.target.value)} />
             </Field>
             <Field label="Sidebar theme">

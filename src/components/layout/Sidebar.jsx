@@ -4,13 +4,13 @@ import { syncManager } from '../../utils/syncManager';
 export function Logo({ collapsed = false }) {
   return (
     <div className={'brand' + (collapsed ? ' collapsed' : '')}>
-      <span className="brand-mark" style={{ background: '#0d9488', color: '#ffffff' }}>
+      <span className="brand-mark">
         <Smartphone size={22} strokeWidth={2.4} />
       </span>
       {!collapsed && (
         <span className="brand-text">
           <strong>ZEEDAT POS</strong>
-          <small style={{ color: '#0d9488', fontWeight: 600 }}>Mobile Shop & Repair</small>
+          <small>Mobile Shop & Repair</small>
         </span>
       )}
     </div>

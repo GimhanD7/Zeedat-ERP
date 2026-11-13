@@ -1,7 +1,13 @@
 export const appearanceDefaults = { accent: 'teal', sidebar: 'light', density: 'comfortable' };
 
+export const colorThemes = [
+  ['teal', 'Standard · Teal'],
+  ['blue', 'Ocean · Blue'],
+  ['violet', 'Orchid · Violet'],
+];
+
 const choices = {
-  accent: ['teal', 'blue', 'violet'],
+  accent: colorThemes.map(([value]) => value),
   sidebar: ['light', 'dark'],
   density: ['comfortable', 'compact'],
 };

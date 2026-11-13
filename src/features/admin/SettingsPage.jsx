@@ -493,7 +493,7 @@ export function SettingsPage({ ctx }) {
 
               {/* TAB 1: STORE & RECEIPT SETTINGS + LIVE PREVIEW */}
               {activeTab === 'Store & Receipt' && (
-                <div className="zk-settings-grid zk-bill-settings">
+                <div className="zk-settings-grid zk-bill-settings" style={{ '--bill-preview-width': `${billPaperWidth(form)}mm` }}>
                   {/* LEFT: INLINE EDITABLE FORM */}
                   <form onSubmit={handleSaveStoreSettings} className="zk-settings-card">
                     <div className="zk-card-header">
@@ -512,7 +512,7 @@ export function SettingsPage({ ctx }) {
 
                     <div className="zk-settings-section">
                       <h4 className="zk-settings-subtitle">Business Identity</h4>
-                      <div className="zk-form-row-2" style={{ marginBottom: '16px' }}>
+                      <div className="zk-form-row-2">
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">Shop / Receipt Title *</label>
                           <div className="zk-input-box">
@@ -604,7 +604,7 @@ export function SettingsPage({ ctx }) {
 
                     <div className="zk-settings-section">
                       <h4 className="zk-settings-subtitle">Thermal Printer &amp; Receipt Layout</h4>
-                      <div className="zk-field-wrap" style={{ marginBottom: '16px' }}>
+                      <div className="zk-field-wrap">
                         <label className="zk-field-label">Thermal Receipt Paper Width</label>
                         <div className="zk-paper-selector">
                           <button
@@ -633,7 +633,7 @@ export function SettingsPage({ ctx }) {
                         </div>
                       </div>
 
-                      <div className="zk-field-wrap" style={{ marginBottom: '16px' }}>
+                      <div className="zk-field-wrap">
                         <label className="zk-field-label">Receipt Footer / Warranty Message</label>
                         <div className="zk-textarea-box">
                           <textarea
@@ -653,7 +653,7 @@ export function SettingsPage({ ctx }) {
                             type="checkbox"
                             checked={form.auto_print}
                             onChange={e => setForm({ ...form, auto_print: e.target.checked })}
-                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                           
                           />
                         </label>
 
@@ -663,7 +663,7 @@ export function SettingsPage({ ctx }) {
                             type="checkbox"
                             checked={form.show_tax_on_receipt}
                             onChange={e => setForm({ ...form, show_tax_on_receipt: e.target.checked })}
-                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                           
                           />
                         </label>
                       </div>
@@ -694,17 +694,17 @@ export function SettingsPage({ ctx }) {
                             type="checkbox"
                             checked={form.cash_drawer_enabled}
                             onChange={e => setForm({ ...form, cash_drawer_enabled: e.target.checked })}
-                            style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                           
                           />
                         </label>
                       </div>
 
                       {window.electronAPI?.openCashDrawer && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-                          <Button type="button" variant="outline" onClick={loadPrinters} style={{ fontSize: '12px', padding: '5px 10px' }}>
+                          <Button type="button" variant="outline" onClick={loadPrinters}>
                             Refresh Printers
                           </Button>
-                          <Button type="button" variant="outline" disabled={drawerTesting} onClick={handleTestDrawer} style={{ fontSize: '12px', padding: '5px 10px' }}>
+                          <Button type="button" variant="outline" disabled={drawerTesting} onClick={handleTestDrawer}>
                             {drawerTesting ? 'Opening Drawer...' : 'Test Cash Drawer Kick'}
                           </Button>
                         </div>
@@ -713,13 +713,13 @@ export function SettingsPage({ ctx }) {
 
                     <div className="zk-settings-section">
                       <div className="zk-settings-sec-title">Repair Intake &amp; Ready SMS Gateway</div>
-                      <label className="zk-toggle-row" style={{ marginBottom: '10px' }}>
+                      <label className="zk-toggle-row">
                         <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-send SMS when repair device is received</span>
                         <input
                           type="checkbox"
                           checked={form.sms_enabled}
                           onChange={e => setForm({ ...form, sms_enabled: e.target.checked })}
-                          style={{ width: '16px', height: '16px', accentColor: '#0d9488' }}
+                         
                         />
                       </label>
                       <div className="zk-form-row-2">
