@@ -42,6 +42,7 @@ import {
   SearchBox,
   Select,
   Table,
+  SearchSelect,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
 import {
@@ -812,17 +813,13 @@ export function Repairs({ ctx }) {
                           <label className="zk-field-label">Existing Customer (Optional)</label>
                           <div className="zk-input-box">
                             <UserRound size={15} style={{ color: '#64748b' }} />
-                            <select
+                            <SearchSelect
+                              hideIcon
                               value={selectedCustomerId || ''}
+                              blank="-- New / Search by Phone --"
+                              options={customers.map(c => [c.id, `${c.name} ${c.phone ? `(${c.phone})` : ''}`.trim()])}
                               onChange={e => handleCustomerChange(e.target.value)}
-                            >
-                              <option value="">-- New / Search by Phone --</option>
-                              {customers.map(c => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name} {c.phone ? `(${c.phone})` : ''}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
                         </div>
                       </div>

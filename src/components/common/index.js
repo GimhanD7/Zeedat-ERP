@@ -8,6 +8,7 @@ export * from './Panel';
 export * from './ProductArt';
 export * from './SearchBox';
 export * from './Select';
+export * from './SearchSelect';
 export * from './Stats';
 export * from './Table';
 export * from './BarcodeSvg';

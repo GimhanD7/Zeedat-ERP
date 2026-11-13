@@ -1,6 +1,10 @@
 import { ChevronDown } from 'lucide-react';
+import { SearchSelect } from './SearchSelect';
 
-export function Select({ children, options: choices = [], blank, ...props }) {
+export function Select({ children, options: choices = [], blank, searchable = false, ...props }) {
+  if (searchable) {
+    return <SearchSelect options={choices} blank={blank} {...props} />;
+  }
   return (
     <span className="select-wrap">
       <select {...props}>

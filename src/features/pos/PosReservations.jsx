@@ -212,7 +212,7 @@ export function PosReservations({
                 onChange={event => setCustomerSearch(event.target.value)} />
             </Field>
             <Field label="Customer">
-              <Select value={customerId} blank="Select customer" options={customerChoices.map(row => [row.id, row.name + ' · ' + row.phone])}
+              <Select searchable value={customerId} blank="Select customer" options={customerChoices.map(row => [row.id, row.name + ' · ' + row.phone])}
                 onChange={event => { setCustomerId(event.target.value); setSelectedId(null); resetAction(); }} />
             </Field>
           </fieldset>}
@@ -248,14 +248,14 @@ export function PosReservations({
           {!newCustomer && customer && tab === 'new' && (
             <fieldset disabled={busy} className="pos-reservation-body">
               <Field label="Item">
-                <Select value={productId} required blank="Select an item"
+                <Select searchable value={productId} required blank="Select an item"
                   options={available.map(row => [row.id, row.name + ' · ' + money(row.price)])}
                   onChange={event => { setProductId(event.target.value); setUnitId(''); setQty('1'); setAmount(''); setError(''); }} />
               </Field>
               {available.length === 0 && <p className="muted">This branch has no items available to reserve.</p>}
               {product && <>
                 {serialized ? <Field label="Device serial">
-                  <Select value={unitId} required blank="Select a device" options={availableUnits(product).map(unit => [unit.id, unit.code])}
+                  <Select searchable value={unitId} required blank="Select a device" options={availableUnits(product).map(unit => [unit.id, unit.code])}
                     onChange={event => setUnitId(event.target.value)} />
                 </Field> : <Field label={`Quantity (${quantity(product)} available)`}>
                   <input type="number" required min="1" max={quantity(product)} step="1" value={qty} onChange={event => setQty(event.target.value)} />

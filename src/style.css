@@ -1034,6 +1034,76 @@ textarea {
   color: #466079;
 }
 
+.ss-wrap {
+  display: flex;
+  width: 100%;
+}
+
+.ss-wrap .ss-input {
+  width: 100%;
+  padding-left: 31px;
+  padding-right: 29px;
+  text-overflow: ellipsis;
+}
+
+.select-wrap svg.ss-icon {
+  right: auto;
+  left: 10px;
+  color: #7a8ca3;
+}
+
+.ss-required {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  padding: 0;
+  border: 0;
+}
+
+.ss-list {
+  position: fixed;
+  z-index: 3000;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  box-shadow: 0 12px 32px #1c2f4a2b;
+}
+
+.ss-opt {
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #20314b;
+}
+
+.ss-opt.muted {
+  color: #7a8ca3;
+}
+
+.ss-opt.active {
+  background: var(--theme-soft, #e8f5f4);
+  color: var(--teal-text, #007476);
+}
+
+.ss-opt.picked {
+  font-weight: 700;
+}
+
+.ss-empty {
+  padding: 12px;
+  font-size: 13px;
+  color: #7a8ca3;
+  text-align: center;
+}
+
 .table-wrap {
   overflow: auto;
   min-width: 0;
@@ -2097,3 +2167,9 @@ td code {
     margin: 0;
   }
 }
+.ss-wrap.no-icon .ss-input,
+.zk-input-box .ss-wrap .ss-input {
+  padding-left: 0;
+  padding-right: 22px;
+}
+

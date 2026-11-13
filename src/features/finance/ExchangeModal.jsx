@@ -12,7 +12,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { Alert } from '../../components/feedback';
-import { Button, Modal } from '../../components/common';
+import { Button, Modal, SearchSelect } from '../../components/common';
 import { cents, money, ref, tenders } from '../../utils';
 import './exchange.css';
 
@@ -229,13 +229,10 @@ export function ExchangeModal({ ctx, invoice, item, catalog, settings, refundMet
               {priced.map((r, index) => (
                 <div className="xm-line" key={r.key}>
                   <div className="xm-line-top">
-                    <select value={r.product_id} aria-label={`Replacement product ${index + 1}`}
-                      onChange={ev => patchRow(r.key, { product_id: ev.target.value, unit_id: '' })}>
-                      <option value="">{index ? `Extra item ${index}` : 'Replacement product'}…</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} · {money(p.price)}</option>
-                      ))}
-                    </select>
+                    <SearchSelect value={r.product_id} aria-label={`Replacement product ${index + 1}`}
+                      blank={index ? `Extra item ${index} — type to search` : 'Replacement product — type to search'}
+                      options={products.map(p => [p.id, `${p.name} · ${money(p.price)}`])}
+                      onChange={ev => patchRow(r.key, { product_id: ev.target.value, unit_id: '' })} />
                     {rows.length > 1 && (
                       <button type="button" className="xm-icon-btn" aria-label="Remove item"
                         onClick={() => setRows(list => list.filter(x => x.key !== r.key))}><Trash2 size={15} /></button>
@@ -244,13 +241,11 @@ export function ExchangeModal({ ctx, invoice, item, catalog, settings, refundMet
                   {r.product && (
                     <div className="xm-line-bottom">
                       {r.product.serialized ? (
-                        <select value={r.unit_id} aria-label="Device"
-                          onChange={ev => patchRow(r.key, { unit_id: ev.target.value })}>
-                          <option value="">Choose device…</option>
-                          {unitsFor(r.product.id)
+                        <SearchSelect value={r.unit_id} aria-label="Device" blank="Choose device — type to search"
+                          options={unitsFor(r.product.id)
                             .filter(u => !rows.some(x => x.key !== r.key && String(x.unit_id) === String(u.id)))
-                            .map(u => <option key={u.id} value={u.id}>{u.code}</option>)}
-                        </select>
+                            .map(u => [u.id, u.code])}
+                          onChange={ev => patchRow(r.key, { unit_id: ev.target.value })} />
                       ) : (
                         <label className="xm-qty">Qty
                           <input type="number" min={1} value={r.qty}

@@ -13,7 +13,7 @@
 .xm-item small { color: var(--muted, #53637a); }
 .xm-field { display: grid; gap: 6px; font-size: 12.5px; }
 .xm-field > span { font-weight: 650; color: #334a63; }
-.xm-field input, .xm-field textarea, .xm-line select, .xm-line input, .xm-pay-row input {
+.xm-field input, .xm-field textarea, .xm-qty input, .xm-pay-row input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--line, #dce5ee); border-radius: 9px; background: #fff;
 }
 .xm-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
@@ -29,7 +29,7 @@
 .xm-line { display: grid; gap: 8px; padding: 10px; background: #f6f9fc; border-radius: 10px; }
 .xm-line-top { display: flex; gap: 8px; }
 .xm-line-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.xm-line-bottom select { flex: 1; }
+.xm-line-bottom .ss-wrap { flex: 1; }
 .xm-qty { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 650; }
 .xm-qty input { width: 80px; }
 .xm-icon-btn { flex: 0 0 36px; border: 1px solid #f1c9cd; background: #fff5f5; color: #b22733; border-radius: 9px; }

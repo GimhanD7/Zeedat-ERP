@@ -167,7 +167,12 @@ export function FormDialog({ spec, close, mutate }) {
                         }}
                       />
                     ) : choices ? (
-                      <Select {...props} options={choices} blank="Select…" />
+                      <Select
+                        {...props}
+                        options={choices}
+                        blank="Select…"
+                        searchable={/product|item|device|unit|part|supplier|customer/i.test(`${name} ${label}`) || choices.length > 12}
+                      />
                     ) : type === 'textarea' ? (
                       <textarea {...props} rows={3} />
                     ) : type === 'checkbox' ? (

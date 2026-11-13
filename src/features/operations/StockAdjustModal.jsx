@@ -9,7 +9,7 @@ import {
   Search,
   SlidersHorizontal,
 } from 'lucide-react';
-import { Badge, Button, Modal } from '../../components/common';
+import { Badge, Button, Modal, SearchSelect } from '../../components/common';
 import { categories, money, options } from '../../utils';
 
 const QUICK_REASONS = [
@@ -416,8 +416,13 @@ export function StockAdjustModal({
 
               <div className="zk-pb-filter-item">
                 <label>Product ({singleFilteredItems.length} eligible)</label>
-                <select
+                <SearchSelect
                   value={activeProduct ? String(activeProduct.id) : ''}
+                  placeholder="Type product name or SKU…"
+                  options={singleFilteredItems.map(p => [
+                    p.id,
+                    `${p.name} (${p.sku}) — Stock: ${getBranchQty(p, branchId)}`,
+                  ])}
                   onChange={e => {
                     const pid = e.target.value;
                     setSelectedProductId(pid);
@@ -427,13 +432,7 @@ export function StockAdjustModal({
                       setSingleQty(String(getBranchQty(nextP, branchId)));
                     }
                   }}
-                >
-                  {singleFilteredItems.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku}) — Stock: {getBranchQty(p, branchId)}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
 
