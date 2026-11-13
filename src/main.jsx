@@ -50,6 +50,7 @@ const finance = () => import('./features/finance');
 const admin = () => import('./features/admin');
 const lazyPage = (load, name) => lazy(async () => ({ default: (await load())[name] }));
 const DashboardPage = lazyPage(dashboard, 'DashboardPage');
+const ProfileModal = lazyPage(() => import('./features/profile/ProfilePage'), 'ProfileModal');
 
 const pages = [
   ['dashboard', 'Dashboard', LayoutDashboard, 'dashboard', DashboardPage],
@@ -66,7 +67,6 @@ const pages = [
   ['sales', 'Sales History', ReceiptText, 'sales', lazyPage(pos, 'SalesHistory')],
   ['staff', 'Staff & Permissions', ShieldCheck, 'staff', lazyPage(admin, 'StaffPage')],
   ['settings', 'Settings', Settings, 'settings', lazyPage(admin, 'SettingsPage')],
-  ['profile', 'My Profile', UserRound, null, lazyPage(() => import('./features/profile/ProfilePage'), 'ProfilePage')],
 ];
 
 function Login({ onLogin, error: initialError }) {
@@ -176,6 +176,7 @@ function Login({ onLogin, error: initialError }) {
 function Workspace({ session, onLogout }) {
   const { user: initialUser, csrf } = session;
   const [user, setUser] = useState(initialUser);
+  const [profileModal, setProfileModal] = useState(false);
   const [appearance, setAppearance] = useState(() => readAppearance(initialUser));
   const updateAppearance = next => {
     setAppearance(next);
@@ -538,6 +539,7 @@ function Workspace({ session, onLogout }) {
         setMenuOpen={setMenu}
         profileOpen={profile}
         setProfileOpen={setProfile}
+        onOpenProfileModal={() => setProfileModal(true)}
         onOpenSearch={() => {
           setSearch('');
           setQuick('search');
@@ -562,6 +564,12 @@ function Workspace({ session, onLogout }) {
           <Page key={page + '-' + activeBranch} ctx={context} />
         </Suspense>
       </WorkspaceLayout>
+
+      {profileModal && (
+        <Suspense fallback={null}>
+          <ProfileModal ctx={context} onClose={() => setProfileModal(false)} />
+        </Suspense>
+      )}
 
       {dialog && (
         <FormDialog

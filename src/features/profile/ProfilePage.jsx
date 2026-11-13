@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { Building2, KeyRound, Mail, Palette, Save, UserRound } from 'lucide-react';
-import { Badge, Button, Field, Heading, Select } from '../../components/common';
+import { Building2, Check, KeyRound, Mail, Palette, Save, UserRound } from 'lucide-react';
+import { Badge, Button, Field, Modal, Select } from '../../components/common';
 import { initials, roles } from '../../utils';
-import { colorThemes } from './appearance';
+import { themeCatalog } from './appearance';
 
 const emptyPassword = { current_password: '', new_password: '', confirmation: '' };
 
-export function ProfilePage({ ctx }) {
+export function ProfileModal({ ctx, onClose }) {
   const { user, appearance, updateAppearance } = ctx;
+  const [tab, setTab] = useState('appearance');
   const [password, setPassword] = useState(emptyPassword);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -44,22 +45,60 @@ export function ProfilePage({ ctx }) {
   }
 
   return (
-    <div className="account-page">
-      <Heading title="My Profile" description="Manage your password and workspace appearance." />
-      <section className="account-identity">
-        <span className="account-avatar" aria-hidden="true">{initials(user.name)}</span>
-        <div>
-          <h2>{user.name}</h2>
-          <div className="account-meta">
-            <span><Mail size={15} /> {user.email}</span>
-            <span><Building2 size={15} /> {user.role === 'owner' ? 'All branches' : branchNames.join(', ') || 'No assigned branches'}</span>
+    <Modal title="My Profile" description="Manage your account, password and workspace theme." onClose={onClose} wide>
+      <div className="modal-body profile-modal">
+        <section className="account-identity">
+          <span className="account-avatar" aria-hidden="true">{initials(user.name)}</span>
+          <div>
+            <h2>{user.name}</h2>
+            <div className="account-meta">
+              <span><Mail size={15} /> {user.email}</span>
+              <span><Building2 size={15} /> {user.role === 'owner' ? 'All branches' : branchNames.join(', ') || 'No assigned branches'}</span>
+            </div>
           </div>
+          <Badge tone="blue"><UserRound size={13} /> {roles[user.role] || user.role}</Badge>
+        </section>
+
+        <div className="profile-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'appearance'}
+            className={tab === 'appearance' ? 'selected' : ''} onClick={() => setTab('appearance')}>
+            <Palette size={15} /> Themes
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'password'}
+            className={tab === 'password' ? 'selected' : ''} onClick={() => setTab('password')}>
+            <KeyRound size={15} /> Password
+          </button>
         </div>
-        <Badge tone="blue"><UserRound size={13} /> {roles[user.role] || user.role}</Badge>
-      </section>
-      <div className="account-panels">
-        <section className="account-panel">
-          <h2><KeyRound size={18} /> Change password</h2>
+
+        {tab === 'appearance' && (
+          <section className="account-form">
+            <div className="theme-grid" role="radiogroup" aria-label="Color theme">
+              {themeCatalog.map(([id, label, primary, dark]) => (
+                <button key={id} type="button" role="radio" aria-checked={appearance.accent === id}
+                  className={'theme-card' + (appearance.accent === id ? ' active' : '')}
+                  onClick={() => changeAppearance('accent', id)}>
+                  <span className="theme-swatch" style={{ background: `linear-gradient(135deg, ${primary} 0%, ${dark} 100%)` }}>
+                    {appearance.accent === id && <Check size={16} />}
+                  </span>
+                  <span className="theme-name">{label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="profile-options">
+              <Field label="Sidebar theme">
+                <Select value={appearance.sidebar} options={[['light', 'Light'], ['dark', 'Dark']]}
+                  onChange={event => changeAppearance('sidebar', event.target.value)} />
+              </Field>
+              <Field label="Sidebar spacing">
+                <Select value={appearance.density} options={[['comfortable', 'Comfortable'], ['compact', 'Compact']]}
+                  onChange={event => changeAppearance('density', event.target.value)} />
+              </Field>
+            </div>
+            {appearanceMessage && <p role="status" className="text-green">{appearanceMessage}</p>}
+          </section>
+        )}
+
+        {tab === 'password' && (
           <form className="account-form" onSubmit={submit}>
             {[
               ['current_password', 'Current password', 'current-password'],
@@ -75,26 +114,8 @@ export function ProfilePage({ ctx }) {
             {feedback && <p role={feedback.error ? 'alert' : 'status'} className={feedback.error ? 'text-red' : 'text-green'}>{feedback.text}</p>}
             <Button type="submit" variant="primary" icon={Save} disabled={busy}>{busy ? 'Saving…' : 'Update Password'}</Button>
           </form>
-        </section>
-        <section className="account-panel">
-          <h2><Palette size={18} /> Appearance</h2>
-          <div className="account-form">
-            <Field label="Color theme">
-              <Select value={appearance.accent} options={colorThemes}
-                onChange={event => changeAppearance('accent', event.target.value)} />
-            </Field>
-            <Field label="Sidebar theme">
-              <Select value={appearance.sidebar} options={[[ 'light', 'Light' ], [ 'dark', 'Dark' ]]}
-                onChange={event => changeAppearance('sidebar', event.target.value)} />
-            </Field>
-            <Field label="Sidebar spacing">
-              <Select value={appearance.density} options={[[ 'comfortable', 'Comfortable' ], [ 'compact', 'Compact' ]]}
-                onChange={event => changeAppearance('density', event.target.value)} />
-            </Field>
-            {appearanceMessage && <p role="status">{appearanceMessage}</p>}
-          </div>
-        </section>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { Alert } from '../feedback/Alert';
 import { Spinner } from '../feedback/Spinner';
+import { themeVars } from '../../features/profile/appearance';
 
 export function WorkspaceLayout({
   user,
@@ -19,6 +20,7 @@ export function WorkspaceLayout({
   setMenuOpen,
   profileOpen,
   setProfileOpen,
+  onOpenProfileModal,
   onOpenSearch,
   onOpenAlerts,
   onLogout,
@@ -50,6 +52,7 @@ export function WorkspaceLayout({
 
   return (
     <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}
+      style={themeVars(appearance?.accent)}
       data-accent={appearance?.accent} data-sidebar={appearance?.sidebar} data-density={appearance?.density}>
       <Sidebar
         menu={menuOpen}
@@ -77,7 +80,7 @@ export function WorkspaceLayout({
           onLogout={onLogout}
           onOpenProfile={() => {
             setProfileOpen(false);
-            onNavigate('profile');
+            onOpenProfileModal?.();
           }}
           profileOpen={profileOpen}
           setProfileOpen={setProfileOpen}
