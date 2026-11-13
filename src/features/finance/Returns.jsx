@@ -20,6 +20,7 @@ import {
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
 import { cents, managers, money, options, printBill, printThermalReceipt, ref, returnToBill, tenders } from '../../utils';
+import { ExchangeModal } from './ExchangeModal';
 
 const canManage = ctx => managers.includes(ctx.user.role) || ctx.user.role === 'cashier';
 const exchangeDifference = row => Number(row.quoted_total) - Number(row.amount);
@@ -39,6 +40,27 @@ export function Returns({ ctx, embedded = false }) {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState(ctx.intent === 'pending' ? 'Pending' : 'All');
   const [lookupRevision, setLookupRevision] = useState(0);
+  const [exchangeItem, setExchangeItem] = useState(null);
+
+  const exchangeDone = async (outcome, settings) => {
+    if (!outcome.failed) setExchangeItem(null);
+    setLookupRevision(value => value + 1);
+    if (!outcome.processed) {
+      if (!outcome.failed) ctx.setNotice('Exchange request saved. Process it in Return History below.');
+      return;
+    }
+    const { result, difference } = outcome;
+    ctx.setNotice(difference > 0
+      ? `Exchange complete. Collected ${money(difference)}; change ${money(result.change)}.`
+      : difference < 0 ? `Exchange complete. Refunded ${money(-difference)}.` : 'Exchange complete. No cash changed hands.');
+    try {
+      const list = await ctx.get('returns');
+      const row = list.find(r => Number(r.id) === Number(outcome.id)) || { id: outcome.id };
+      printBill(returnToBill({ ...row, ...result }, settings), settings, { silent: true });
+    } catch {
+      /* bill can be reprinted from Return History */
+    }
+  };
 
   useEffect(() => {
     if (!invoice) return;
@@ -346,7 +368,7 @@ export function Returns({ ctx, embedded = false }) {
                             {refundMethods(invoice).length > 0 && (
                               <Button
                                 disabled={r.qty === r.refunded_qty || Boolean(invoice.credit)}
-                                onClick={() => request(r, true)}
+                                onClick={() => setExchangeItem(r)}
                               >
                                 Request exchange
                               </Button>
@@ -437,6 +459,18 @@ export function Returns({ ctx, embedded = false }) {
               />
             </Panel>
           </div>
+          {exchangeItem && invoice && (
+            <ExchangeModal
+              ctx={ctx}
+              invoice={invoice}
+              item={exchangeItem}
+              catalog={catalog}
+              settings={settings}
+              refundMethods={refundMethods(invoice)}
+              onClose={() => setExchangeItem(null)}
+              onDone={outcome => exchangeDone(outcome, settings)}
+            />
+          )}
         </>
       )}
     </DataView>
