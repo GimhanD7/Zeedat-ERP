@@ -5329,13 +5329,27 @@
 }
 
 /* Modal backdrop & Dialog stack elevation */
-.modal-backdrop {
-  z-index: 1000 !important;
+.modal-backdrop,
+.zk-checkout-modal-backdrop {
+  z-index: 99999 !important;
 }
 
-.modal {
+.modal,
+.zk-checkout-modal {
   position: relative;
-  z-index: 1001 !important;
+  z-index: 100000 !important;
 }
+
+/* Whenever any modal backdrop is active, completely dismiss/hide any floating dropdowns */
+body:has(.modal-backdrop) .zk-pos-cust-dropdown,
+body:has(.modal-backdrop) .search-results,
+body:has(.zk-checkout-modal-backdrop) .zk-pos-cust-dropdown,
+body:has(.zk-checkout-modal-backdrop) .search-results {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 
 

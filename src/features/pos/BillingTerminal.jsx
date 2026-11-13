@@ -138,9 +138,16 @@ function BillingView({ ctx, data, onRefresh }) {
 
   const customerActiveReservations = useMemo(() => {
     if (!selectedCustomerObj) return [];
-    return (reservations || []).filter(
-      r => String(r.customer_id) === String(selectedCustomerObj.id) && r.status === 'Held'
-    );
+    const custPhone = String(selectedCustomerObj.phone || '').replace(/\D/g, '');
+    return (reservations || []).filter(r => {
+      if (r.status !== 'Held') return false;
+      if (String(r.customer_id) === String(selectedCustomerObj.id)) return true;
+      if (custPhone && r.customer_phone) {
+        const rPhone = String(r.customer_phone).replace(/\D/g, '');
+        if (rPhone && (rPhone.endsWith(custPhone) || custPhone.endsWith(rPhone))) return true;
+      }
+      return false;
+    });
   }, [reservations, selectedCustomerObj]);
 
   const customerReservationCount = useMemo(() => {
@@ -229,6 +236,12 @@ function BillingView({ ctx, data, onRefresh }) {
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
+
+  useEffect(() => {
+    if (ctx.dialog) {
+      setCustDropdownOpen(false);
+    }
+  }, [ctx.dialog]);
 
   const openQuickAddCustomer = (prefillText = '') => {
     setCustDropdownOpen(false);
@@ -789,7 +802,7 @@ function BillingView({ ctx, data, onRefresh }) {
                     </div>
                   )}
 
-                  {custDropdownOpen && (
+                  {custDropdownOpen && !ctx.dialog && (
                     <div className="zk-pos-cust-dropdown">
                       <div className="zk-pos-cust-dd-head">
                         <span>{custQuery.trim() ? 'Matching Customers' : 'Popular Customers'}</span>
