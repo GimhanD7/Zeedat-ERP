@@ -23,11 +23,11 @@ import { cents, managers, money, options, printBill, printThermalReceipt, ref, r
 
 const canManage = ctx => managers.includes(ctx.user.role) || ctx.user.role === 'cashier';
 const exchangeDifference = row => Number(row.quoted_total) - Number(row.amount);
-const cashAction = difference =>
+const settlementAction = difference =>
   difference > 0 ? `Collect ${money(difference)}`
     : difference < 0 ? `Refund ${money(-difference)}`
-      : 'Even exchange · no cash due';
-const refundMethods = invoice => [...new Set(invoice.payments.map(p => p.method === 'Exchange Credit' ? 'Cash' : p.method))]
+      : 'Even exchange · no payment due';
+const refundMethods = invoice => [...new Set(invoice.payments.map(p => p.method === 'Exchange Credit' ? invoice.exchange_refund_method : p.method))]
   .filter(method => tenders.includes(method));
 
 export function Returns({ ctx, embedded = false }) {
@@ -63,7 +63,7 @@ export function Returns({ ctx, embedded = false }) {
     setInvoice(null);
     try {
       const found = await ctx.get('invoice', { id: lookup });
-      if (refundMethods(found).includes('Cash')) {
+      if (refundMethods(found).length) {
         const [products, units] = await Promise.all(
           ['products', 'units'].map(route => ctx.get(route, { branch: found.branch_id }))
         );
@@ -87,11 +87,60 @@ export function Returns({ ctx, embedded = false }) {
         branch: invoice.branch_id,
         item_id: item.id,
         qty: 1,
-        method: exchange ? 'Cash' : refundMethods(invoice)[0] || '',
+        method: refundMethods(invoice)[0] || '',
+        addon_ids: [],
+        next_addon_id: 1,
         replacement_qty: 1,
       },
+      transform: values => {
+        const { branch, item_id, qty, method, condition_note, reason, restock } = values;
+        const body = { branch, item_id, qty, method, condition_note, reason, restock };
+        if (!exchange) return body;
+        const itemValues = (productKey, qtyKey, unitKey) => {
+          const product = catalog.products.find(p => Number(p.id) === Number(values[productKey]));
+          return {
+            product_id: values[productKey],
+            qty: product?.serialized ? 1 : values[qtyKey] || 1,
+            unit_id: product?.serialized ? values[unitKey] : undefined,
+          };
+        };
+        const replacement = itemValues('replacement_product_id', 'replacement_qty', 'replacement_unit_id');
+        return {
+          ...body,
+          replacement_product_id: replacement.product_id,
+          replacement_qty: replacement.qty,
+          replacement_unit_id: replacement.unit_id,
+          addons: values.addon_ids.map(id => itemValues(`addon_${id}_product`, `addon_${id}_qty`, `addon_${id}_unit`)),
+        };
+      },
+      actions: exchange ? (values, update) => (
+        <div className="row-actions">
+          <Button variant="soft" disabled={values.addon_ids.length >= 99} onClick={() => {
+            update('addon_ids', [...values.addon_ids, values.next_addon_id]);
+            update('next_addon_id', values.next_addon_id + 1);
+          }}>Add another item</Button>
+          {!!values.addon_ids.length && <Button onClick={() => update('addon_ids', values.addon_ids.slice(0, -1))}>
+            Remove last item
+          </Button>}
+        </div>
+      ) : undefined,
       fields: v => {
-        const product = catalog.products.find(p => p.id === Number(v.replacement_product_id));
+        const products = catalog.products.filter(p =>
+          Number(p.branch_stocks?.find(s => Number(s.branch_id) === Number(invoice.branch_id))?.available_qty ?? p.qty) > 0 && p.category !== 'Services'
+        );
+        const itemFields = (productKey, qtyKey, unitKey, label) => {
+          const product = products.find(p => Number(p.id) === Number(v[productKey]));
+          return [
+            { name: productKey, label, choices: options(products) },
+            ...(product?.serialized
+              ? [{
+                name: unitKey, label: 'Device', choices: options(catalog.units.filter(
+                  u => Number(u.product_id) === Number(product.id) && u.state === 'Available' && !Number(u.reserved)
+                ), 'code'),
+              }]
+              : [{ name: qtyKey, label: 'Quantity (defaults to 1)', type: 'number', min: 1, optional: true }]),
+          ];
+        };
         return [
           {
             name: 'qty',
@@ -100,52 +149,16 @@ export function Returns({ ctx, embedded = false }) {
             min: 1,
             max: item.qty - item.refunded_qty,
           },
-          ...(!exchange
-            ? [
-              {
-                name: 'method',
-                label: 'Original payment method',
-                choices: refundMethods(invoice),
-              },
-            ]
-            : []),
+          { name: 'method', label: exchange ? 'Original method for any refund' : 'Original payment method', choices: refundMethods(invoice) },
           { name: 'condition_note', label: 'Item condition', full: true },
           { name: 'reason', label: 'Reason for return', type: 'textarea' },
           ...(!item.unit_id
             ? [{ name: 'restock', label: 'Item is sellable and can return to stock', type: 'checkbox' }]
             : []),
-          ...(exchange
-            ? [
-              {
-                name: 'replacement_product_id',
-                label: 'Replacement product',
-                choices: options(
-                  catalog.products.filter(p => Number(p.branch_stocks?.find(s => Number(s.branch_id) === Number(invoice.branch_id))?.available_qty ?? p.qty) > 0 && p.category !== 'Services')
-                ),
-              },
-              {
-                name: 'replacement_qty',
-                label: 'Replacement quantity',
-                type: 'number',
-                min: 1,
-                max: product?.serialized ? 1 : product?.qty,
-              },
-              ...(product?.serialized
-                ? [
-                  {
-                    name: 'replacement_unit_id',
-                    label: 'Replacement device',
-                    choices: options(
-                      catalog.units.filter(
-                        u => u.product_id === product.id && u.state === 'Available' && !Number(u.reserved)
-                      ),
-                      'code'
-                    ),
-                  },
-                ]
-                : []),
-            ]
-            : []),
+          ...(exchange ? [
+            ...itemFields('replacement_product_id', 'replacement_qty', 'replacement_unit_id', 'Replacement product'),
+            ...v.addon_ids.flatMap((id, index) => itemFields(`addon_${id}_product`, `addon_${id}_qty`, `addon_${id}_unit`, `Extra item ${index + 1}`)),
+          ] : []),
         ];
       },
       onSuccess: () => {
@@ -156,7 +169,7 @@ export function Returns({ ctx, embedded = false }) {
 
   const resolve = (row, decision) => {
     const difference = row.replacement ? exchangeDifference(row) : null;
-    const collectCash = decision === 'Completed' && difference > 0;
+    const collectPayment = decision === 'Completed' && difference > 0;
     ctx.setDialog({
       title:
         decision === 'Completed'
@@ -170,33 +183,56 @@ export function Returns({ ctx, embedded = false }) {
         row.product +
         ' · ' +
         (row.replacement
-          ? `Return credit: ${money(row.amount)} · Replacement: ${money(row.quoted_total)} · ${cashAction(difference)}`
+          ? `Return credit: ${money(row.amount)} · New items: ${money(row.quoted_total)} · ${settlementAction(difference)}${difference < 0 ? ` via ${row.method}` : ''}`
           : row.reason),
       route: 'return.resolve',
       submit:
         decision === 'Completed'
           ? row.replacement
-            ? difference > 0 ? 'Confirm cash received' : difference < 0 ? 'Confirm cash refund' : 'Complete exchange'
+            ? difference > 0 ? 'Record payment' : difference < 0 ? 'Confirm refund' : 'Complete exchange'
             : 'Process refund'
           : 'Reject request',
       danger: decision === 'Rejected',
-      values: { branch: row.branch_id, id: row.id, decision, ...(collectCash ? { cash_received: '' } : {}) },
-      transform: collectCash ? values => ({ ...values, cash_received: cents(values.cash_received) }) : undefined,
-      fields: values => collectCash
-        ? [
-          { name: 'cash_received', label: 'Cash received (LKR)', type: 'money', min: difference / 100 },
-          { name: 'change_preview', label: 'Change to give', readOnly: true, placeholder: money(Math.max(0, cents(values.cash_received) - difference)) },
-        ]
-        : decision === 'Completed' && row.method !== 'Cash' && row.amount > 0
-          ? [{ name: 'reference', label: 'Confirmed refund reference', full: true }]
-          : [],
+      values: { branch: row.branch_id, id: row.id, decision, method: 'Cash' },
+      transform: collectPayment ? ({ branch, id, decision, method, ...values }) => ({
+        branch, id, decision,
+        payments: (method === 'Split payment' ? tenders : [method]).flatMap(tender => {
+          const amount = method === 'Split payment' ? cents(values[tender]) : tender === 'Cash' ? cents(values.Cash) : difference;
+          return amount > 0 ? [{ method: tender, amount, reference: values[`${tender}_reference`] }] : [];
+        }),
+      }) : undefined,
+      fields: values => {
+        if (!collectPayment) {
+          return decision === 'Completed' && row.method !== 'Cash' && (row.replacement ? difference < 0 : true)
+            ? [{ name: 'reference', label: `Confirmed ${row.method} refund reference`, full: true }]
+            : [];
+        }
+        const split = values.method === 'Split payment';
+        const methods = split ? tenders : [values.method];
+        const entered = methods.reduce((sum, tender) => sum + cents(values[tender]), 0);
+        return [
+          { name: 'method', label: 'Payment method', choices: [...tenders, 'Split payment'], full: true },
+          ...methods.flatMap(tender => [
+            ...(split || tender === 'Cash' ? [{
+              name: tender, label: `${tender} received (LKR)`, type: 'money', min: split ? 0 : difference / 100, optional: split,
+            }] : []),
+            ...(tender !== 'Cash' && (!split || cents(values[tender]) > 0) ? [{
+              name: `${tender}_reference`, label: `${tender} payment reference`,
+            }] : []),
+          ]),
+          ...(split || values.method === 'Cash' ? [{
+            name: 'change_preview', label: entered < difference ? 'Remaining to pay' : 'Change to give',
+            readOnly: true, placeholder: money(Math.abs(entered - difference)),
+          }] : []),
+        ];
+      },
       onSuccess: result => {
         setLookupRevision(value => value + 1);
         if (decision === 'Completed') {
           if (row.replacement) {
             ctx.setNotice(difference > 0
               ? `Exchange complete. Collected ${money(difference)}; change ${money(result.change)}.`
-              : difference < 0 ? `Exchange complete. Cash refunded: ${money(-difference)}.` : 'Exchange complete. No cash changed hands.');
+              : difference < 0 ? `Exchange complete. Refunded via ${row.method}: ${money(-difference)}.` : 'Exchange complete. No cash changed hands.');
           }
           printBill(
             returnToBill({ ...row, ...result }, state.data?.settings),
@@ -307,7 +343,7 @@ export function Returns({ ctx, embedded = false }) {
                             >
                               Request return
                             </Button>
-                            {refundMethods(invoice).includes('Cash') && (
+                            {refundMethods(invoice).length > 0 && (
                               <Button
                                 disabled={r.qty === r.refunded_qty || Boolean(invoice.credit)}
                                 onClick={() => request(r, true)}
@@ -362,9 +398,9 @@ export function Returns({ ctx, embedded = false }) {
                       ),
                   ],
                   ['Refund method', 'method'],
-                  ['Cash settlement', r => r.replacement
+                  ['Settlement', r => r.replacement
                     ? r.status !== 'Completed'
-                      ? cashAction(exchangeDifference(r))
+                      ? settlementAction(exchangeDifference(r))
                       : exchangeDifference(r) > 0
                         ? `Collected ${money(exchangeDifference(r))}`
                         : exchangeDifference(r) < 0 ? `Refunded ${money(-exchangeDifference(r))}` : 'Even exchange'

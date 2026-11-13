@@ -93,6 +93,7 @@ class DrawerService {
             'payment_breakdown' => $paymentBreakdown,
             'history' => $history,
             'ledger' => $ledger,
+            'exchange_settlements' => DrawerRepository::exchangeSettlements($filterBranch),
             'summary' => [
                 'total_in' => $totalIn,
                 'total_out' => $totalOut,

@@ -46,9 +46,11 @@ class ReturnService
         if (!in_array($method, Constants::TENDERS, true)) {
             throw new ApiError('Invalid payment method.');
         }
-        // Exchange credit carries forward the original cash value.
         if (!BaseRepository::scalar(
-            "SELECT id FROM payments WHERE sale_id=? AND (method=? OR (?='Cash' AND method='Exchange Credit')) LIMIT 1",
+            "SELECT pm.id FROM payments pm
+             LEFT JOIN exchanges x ON x.replacement_sale_id=pm.sale_id
+             LEFT JOIN returns_log r ON r.id=x.return_id
+             WHERE pm.sale_id=? AND (pm.method=? OR (pm.method='Exchange Credit' AND r.method=?)) LIMIT 1",
             [$line['sale_id'], $method, $method]
         )) {
             throw new ApiError('Select a payment method used on the original invoice.');
@@ -63,39 +65,94 @@ class ReturnService
         );
 
         if (!empty($body['replacement_product_id'])) {
-            if ($method !== 'Cash') {
-                throw new ApiError('Exchanges require an original cash tender.');
+            $addons = $body['addons'] ?? [];
+            if (!is_array($addons) || count($addons) > 99) {
+                throw new ApiError('Add at most 99 extra items.');
             }
-            $replacement = BaseRepository::one(
-                'SELECT p.*, s.qty available FROM products p JOIN stock s ON s.product_id=p.id WHERE p.id=? AND s.branch_id=?',
-                [Validator::integer($body['replacement_product_id'], 'Replacement product'), $branch]
-            );
-            if (!$replacement || !$replacement['available']) {
-                throw new ApiError('Choose an available replacement product.');
-            }
-            ProductRepository::assertStockAvailable($branch, (int) $replacement['id'], (int) ($body['replacement_qty'] ?? 1));
-
-            $units = Validator::integer($body['replacement_qty'] ?? null, 'Replacement quantity', 1, $replacement['serialized'] ? 1 : min(1000, (int) $replacement['available']));
-            $device = null;
-            if ($replacement['serialized']) {
-                $device = Validator::integer($body['replacement_unit_id'] ?? null, 'Replacement device');
-                if (!ProductRepository::findAvailableUnit($device, $branch, (int) $replacement['id'])) {
-                    throw new ApiError('The replacement device is unavailable.', 409);
-                }
-            }
-
-            $taxRate = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
-            $lineSubtotal = (int) $replacement['price'] * $units;
-            $lineTax = Helpers::rate($lineSubtotal, $taxRate);
-            $quoted = $lineSubtotal + $lineTax;
-
+            $items = self::exchangeItems($branch, [
+                ['product_id' => $body['replacement_product_id'], 'unit_id' => $body['replacement_unit_id'] ?? null,
+                    'qty' => $body['replacement_qty'] ?? 1],
+                ...array_values($addons),
+            ]);
+            $replacement = array_shift($items);
+            $extraItems = $items;
             BaseRepository::run(
                 'INSERT INTO exchanges(return_id, product_id, unit_id, qty, quoted_total) VALUES (?,?,?,?,?)',
-                [$id, $replacement['id'], $device, $units, $quoted]
+                [$id, $replacement['product_id'], $replacement['unit_id'], $replacement['qty'], $replacement['total'] + array_sum(array_column($extraItems, 'total'))]
             );
+            foreach ($extraItems as $index => $extra) {
+                BaseRepository::run('INSERT INTO exchange_addons(return_id,line_no,product_id,unit_id,qty) VALUES (?,?,?,?,?)',
+                    [$id, $index + 1, $extra['product_id'], $extra['unit_id'], $extra['qty']]);
+            }
         }
 
         return ['id' => $id, 'amount' => $amount, 'status' => 'Pending'];
+    }
+
+    private static function exchangeItems(int $branch, array $lines): array
+    {
+        $taxRate = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
+        $items = [];
+        $quantities = [];
+        $units = [];
+        foreach ($lines as $line) {
+            if (!is_array($line)) throw new ApiError('Invalid exchange item.');
+            $productId = Validator::integer($line['product_id'] ?? null, 'Exchange product');
+            $product = ProductRepository::findById($productId);
+            if (!$product || !$product['active'] || $product['category'] === 'Services') {
+                throw new ApiError('Choose an available stock item.');
+            }
+            $qty = Validator::integer($line['qty'] ?? null, 'Exchange quantity', 1, $product['serialized'] ? 1 : 1000);
+            $unit = null;
+            if ($product['serialized']) {
+                $unit = Validator::integer($line['unit_id'] ?? null, 'Exchange device');
+                if (isset($units[$unit]) || !ProductRepository::findAvailableUnit($unit, $branch, $productId)) {
+                    throw new ApiError('The selected device is unavailable or already on the exchange.', 409);
+                }
+                $units[$unit] = true;
+            }
+            $quantities[$productId] = ($quantities[$productId] ?? 0) + $qty;
+            $subtotal = (int) $product['price'] * $qty;
+            $items[] = [
+                'product_id' => $productId, 'unit_id' => $unit, 'qty' => $qty,
+                'name' => $product['name'], 'price' => (int) $product['price'],
+                'subtotal' => $subtotal, 'total' => $subtotal + Helpers::rate($subtotal, $taxRate),
+            ];
+        }
+        foreach ($quantities as $productId => $qty) {
+            ProductRepository::assertStockAvailable($branch, $productId, $qty);
+        }
+        return $items;
+    }
+
+    private static function exchangePayments(array $body, int $due): array
+    {
+        $tenders = $body['payments'] ?? [['method' => 'Cash', 'amount' => $body['cash_received'] ?? $due]];
+        if (!is_array($tenders) || count($tenders) > count(Constants::TENDERS)) {
+            throw new ApiError('Invalid exchange payments.');
+        }
+
+        $payments = [];
+        foreach ($tenders as $tender) {
+            $method = is_array($tender) ? ($tender['method'] ?? '') : '';
+            if (!in_array($method, Constants::TENDERS, true) || isset($payments[$method])) {
+                throw new ApiError('Use one entry per supported payment method.');
+            }
+            $amount = Validator::money($tender, 'amount');
+            if ($amount <= 0) throw new ApiError('Payment amount must be greater than zero.');
+            $payments[$method] = [
+                'method' => $method,
+                'amount' => $amount,
+                'reference' => $method === 'Cash' ? null : Validator::str($tender, 'reference', 100),
+            ];
+        }
+        $paid = array_sum(array_column($payments, 'amount'));
+        $cashReceived = $payments['Cash']['amount'] ?? 0;
+        if ($paid < $due) throw new ApiError('Payments must cover the exchange difference.');
+        $change = $paid - $due;
+        if ($change > $cashReceived) throw new ApiError('Non-cash payments exceed the exchange difference.');
+        if ($change) $payments['Cash']['amount'] -= $change;
+        return [array_values(array_filter($payments, static fn($payment) => $payment['amount'] > 0)), $cashReceived, $change];
     }
 
     public static function resolve(array $user, int $branch, array $body): array
@@ -137,11 +194,14 @@ class ReturnService
         }
 
         $drawer = null;
-        if ($row['method'] === 'Cash') {
+        if ($row['method'] === 'Cash' || $row['replacement_product_id']) {
             $drawer = DrawerService::openDrawer($user, $branch);
         }
 
-        $reference = $row['method'] === 'Cash' ? null : Validator::str($body, 'reference', 100, true);
+        $needsRefund = !$row['replacement_product_id'] || (int) $row['quoted_total'] < (int) $row['amount'];
+        $reference = $needsRefund && $row['method'] !== 'Cash'
+            ? Validator::str($body, 'reference', 100)
+            : null;
 
         if ($row['unit_id']) {
             BaseRepository::run("UPDATE units SET state='Inspection', synced=0 WHERE id=?", [$row['unit_id']]);
@@ -151,40 +211,38 @@ class ReturnService
 
         BaseRepository::run('UPDATE sale_items SET refunded_qty=refunded_qty+? WHERE id=?', [$row['qty'], $row['sale_item_id']]);
 
+        $items = [];
+        $payments = [];
         $replacementSaleId = null;
         $diff = null;
         $cashReceived = 0;
         $change = 0;
         if ($row['replacement_product_id']) {
-            $p = ProductRepository::findById((int) $row['replacement_product_id']);
-            if ($row['replacement_unit_id'] && !ProductRepository::findAvailableUnit((int) $row['replacement_unit_id'], $branch, (int) $p['id'])) {
-                throw new ApiError('The selected replacement device is unavailable.', 409);
-            }
-
+            $items = self::exchangeItems($branch, [
+                ['product_id' => $row['replacement_product_id'], 'unit_id' => $row['replacement_unit_id'], 'qty' => $row['replacement_qty']],
+                ...BaseRepository::rows('SELECT product_id,unit_id,qty FROM exchange_addons WHERE return_id=? ORDER BY line_no', [$id]),
+            ]);
             $taxRate = (int) BaseRepository::scalar('SELECT tax_bps FROM settings WHERE id=1');
-            $lineSubtotal = (int) $p['price'] * (int) $row['replacement_qty'];
-            $lineTax = Helpers::rate($lineSubtotal, $taxRate);
-            $total = $lineSubtotal + $lineTax;
+            $lineSubtotal = array_sum(array_column($items, 'subtotal'));
+            $total = array_sum(array_column($items, 'total'));
+            $lineTax = $total - $lineSubtotal;
             if ($total !== (int) $row['quoted_total']) {
-                throw new ApiError('The replacement price changed. Reject this request and create a new exchange.', 409);
+                throw new ApiError('The exchange price changed. Reject this request and create a new exchange.', 409);
             }
 
             $diff = $total - (int) $row['amount'];
-            $cashDue = max(0, $diff);
-            $exchangeCredit = min($total, (int) $row['amount']);
-            if ($cashDue > 0) {
-                $cashReceived = array_key_exists('cash_received', $body)
-                    ? Validator::money($body, 'cash_received')
-                    : $cashDue;
-                if ($cashReceived < $cashDue) {
-                    throw new ApiError('Cash received must cover the exchange difference.');
-                }
-                $change = $cashReceived - $cashDue;
+            if ($diff < 0 && $row['method'] === 'Cash' && -$diff > $drawer['expected']) {
+                throw new ApiError('The drawer does not have enough cash for the exchange refund.', 409);
             }
-            $methods = implode(' + ', array_filter([
-                $exchangeCredit > 0 ? 'Exchange Credit' : null,
-                $cashDue > 0 ? 'Cash' : null,
-            ]));
+            $exchangeCredit = min($total, (int) $row['amount']);
+            if ($diff > 0) {
+                [$payments, $cashReceived, $change] = self::exchangePayments($body, $diff);
+            }
+            $settlement = $payments;
+            if ($exchangeCredit > 0) {
+                array_unshift($settlement, ['method' => 'Exchange Credit', 'amount' => $exchangeCredit, 'reference' => Helpers::ref('RET', $id)]);
+            }
+            $methods = implode(' + ', array_column($settlement, 'method'));
             $repUuid = 'SL-' . bin2hex(random_bytes(10));
             $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
             $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
@@ -199,37 +257,33 @@ class ReturnService
                     [$repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $cashReceived, $change, $methods]
                 );
             }
-            BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [Helpers::ref($prefixCode, $replacementSaleId), $replacementSaleId]);
-
-            if ($row['replacement_unit_id']) {
-                BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$row['replacement_unit_id']]);
+            $invoiceNo = Helpers::ref($prefixCode, $replacementSaleId);
+            BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [$invoiceNo, $replacementSaleId]);
+            foreach ($items as $item) {
+                if ($item['unit_id']) {
+                    BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$item['unit_id']]);
+                }
+                ProductRepository::adjustStock($branch, $item['product_id'], -$item['qty'], 'Exchange replacement', $invoiceNo, (int) $user['id']);
+                BaseRepository::run(
+                    'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total) VALUES (?,?,?,?,?,?,?)',
+                    [$replacementSaleId, $item['product_id'], $item['unit_id'], $item['name'], $item['qty'], $item['price'], $item['total']]
+                );
             }
-            if ($p['category'] !== 'Services') {
-                ProductRepository::adjustStock($branch, $p['id'], -(int) $row['replacement_qty'], 'Exchange replacement', Helpers::ref('INV', $replacementSaleId), (int) $user['id']);
-            }
 
-            BaseRepository::run(
-                'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total) VALUES (?,?,?,?,?,?,?)',
-                [$replacementSaleId, $p['id'], $row['replacement_unit_id'], $p['name'], $row['replacement_qty'], $p['price'], $total]
-            );
-
-            foreach (['Exchange Credit' => $exchangeCredit, 'Cash' => $cashDue] as $method => $amount) {
-                if ($amount === 0) continue;
+            foreach ($settlement as $payment) {
                 BaseRepository::run(
                     'INSERT INTO payments(sale_id, drawer_id, user_id, kind, method, amount, reference) VALUES (?,?,?,?,?,?,?)',
-                    [$replacementSaleId, $drawer['id'], $user['id'], 'Sale', $method, $amount, Helpers::ref('RET', $id)]
+                    [$replacementSaleId, $drawer['id'], $user['id'], 'Sale', $payment['method'], $payment['amount'], $payment['reference']]
                 );
             }
 
             BaseRepository::run('UPDATE exchanges SET replacement_sale_id=? WHERE return_id=?', [$replacementSaleId, $id]);
-
-            if ($diff !== 0) {
+            $cashNet = $diff < 0 && $row['method'] === 'Cash' ? $diff : $cashReceived - $change;
+            if ($cashNet !== 0) {
                 DrawerRepository::addCashMovement(
-                    $user['id'],
-                    $drawer,
-                    $diff,
-                    $diff > 0 ? 'Exchange Difference In' : 'Exchange Difference Out',
-                    Helpers::ref('INV', $replacementSaleId)
+                    $user['id'], $drawer, $cashNet,
+                    $cashNet > 0 ? 'Exchange Difference In' : 'Exchange Difference Out',
+                    $invoiceNo
                 );
             }
         } elseif ($drawer && $row['method'] === 'Cash') {
@@ -253,6 +307,9 @@ class ReturnService
             'amount' => (int) $row['amount'],
             'replacement_sale_id' => $replacementSaleId,
             'difference' => $diff,
+            'replacement_items' => $items,
+            'settlement_payments' => $payments,
+            'reference' => $reference,
             'cash_received' => $cashReceived,
             'change' => $change,
         ];

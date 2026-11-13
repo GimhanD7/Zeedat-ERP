@@ -720,6 +720,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
     payment_breakdown = [],
     history = [],
     ledger = [],
+    exchange_settlements: exchangeSettlements = [],
     categories = [],
     blocked = false,
   } = registerData || {};
@@ -769,6 +770,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
     return withBalance.reverse().filter(item => {
       const kindLow = String(item.kind || '').toLowerCase();
       const refLow = String(item.reference || '').toLowerCase();
+      const isRefund = kindLow.includes('refund') || kindLow.includes('return') || kindLow === 'exchange difference out';
       if (ledgerFilter === 'in' && item.amount <= 0) return false;
       if (ledgerFilter === 'out' && item.amount >= 0) return false;
       if (ledgerFilter === 'sales' && !kindLow.includes('sale') && !refLow.includes('inv-')) {
@@ -779,14 +781,14 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
       }
       if (
         ledgerFilter === 'expenses' &&
-        (item.amount >= 0 || kindLow.includes('return') || kindLow.includes('supplier'))
+        (item.amount >= 0 || isRefund || kindLow.includes('supplier'))
       ) {
         return false;
       }
       if (ledgerFilter === 'suppliers' && !kindLow.includes('supplier')) {
         return false;
       }
-      if (ledgerFilter === 'refunds' && !kindLow.includes('refund') && !kindLow.includes('return')) {
+      if (ledgerFilter === 'refunds' && !isRefund) {
         return false;
       }
       const itemDate = (item.created_at || '').substring(0, 10);
@@ -941,6 +943,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
   const visibleTabs = [
     ['register', "Today's Register"],
     ['ledger', 'Cashbook Ledger'],
+    ['exchanges', 'Exchange Payments'],
     ['categories', 'Categories'],
     ['sessions', 'Closed Shifts'],
   ];
@@ -1048,6 +1051,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
             >
               {id === 'register' && <Wallet size={14} />}
               {id === 'ledger' && <FileSpreadsheet size={14} />}
+              {id === 'exchanges' && <FileSpreadsheet size={14} />}
               {id === 'categories' && <Layers size={14} />}
               {id === 'sessions' && <LockKeyhole size={14} />}
               <span>{label}</span>
@@ -1200,6 +1204,24 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
       )}
 
       {/* TAB 2: STANDARD DOUBLE-COLUMN CASHBOOK LEDGER */}
+      {activeTab === 'exchanges' && (
+        <div className="zk-cb-main-card">
+          <Table
+            rows={exchangeSettlements}
+            empty="No exchange payments or refunds recorded."
+            columns={[
+              ['Date & time', r => timeLabel(r.created_at)],
+              ['Branch', 'branch_name'],
+              ['Invoice', 'invoice_no'],
+              ['Customer', r => r.customer || 'Walk-in'],
+              ['Method', 'method'],
+              ['Type', 'direction'],
+              ['Amount', r => money(r.amount)],
+              ['Reference', r => r.reference || '—'],
+            ]}
+          />
+        </div>
+      )}
       {activeTab === 'ledger' && (
         <div className="zk-cb-main-card">
           <div className="zk-cb-section-head">

@@ -60,6 +60,10 @@ class SaleRepository extends BaseRepository {
             WHERE si.sale_id=? ORDER BY si.id', [$id]);
 
         $sale['payments'] = self::rows('SELECT method, amount, reference, kind, created_at FROM payments WHERE sale_id=? ORDER BY id', [$id]);
+        $sale['exchange_refund_method'] = self::scalar(
+            'SELECT r.method FROM exchanges x JOIN returns_log r ON r.id=x.return_id WHERE x.replacement_sale_id=?',
+            [$id]
+        ) ?: null;
         $sale['refunded'] = (int) self::scalar(
             "SELECT COALESCE(SUM(r.amount),0) FROM returns_log r JOIN sale_items i ON i.id=r.sale_item_id WHERE i.sale_id=? AND r.status='Completed'",
             [$id]

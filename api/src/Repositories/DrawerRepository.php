@@ -32,6 +32,31 @@ class DrawerRepository extends BaseRepository {
         );
     }
 
+    public static function exchangeSettlements(int $branch): array {
+        $scope = $branch > 0 ? ' AND r.branch_id=?' : '';
+        $params = $branch > 0 ? [$branch, $branch] : [];
+        return self::rows(
+            "SELECT pm.created_at AS created_at, r.branch_id, b.name branch_name, c.name customer,
+                    rs.invoice_no, r.id return_id, pm.method,
+                    CASE WHEN pm.amount > CAST(x.quoted_total AS SIGNED)-CAST(r.amount AS SIGNED)
+                         THEN CAST(x.quoted_total AS SIGNED)-CAST(r.amount AS SIGNED) ELSE pm.amount END amount,
+                    pm.reference, 'Payment' direction
+             FROM exchanges x JOIN returns_log r ON r.id=x.return_id
+             JOIN sales rs ON rs.id=x.replacement_sale_id JOIN payments pm ON pm.sale_id=rs.id
+             JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=rs.customer_id
+             WHERE r.status='Completed' AND x.quoted_total>r.amount AND pm.kind='Sale' AND pm.method<>'Exchange Credit' {$scope}
+             UNION ALL
+             SELECT rs.created_at, r.branch_id, b.name branch_name, c.name customer,
+                    rs.invoice_no, r.id return_id, r.method, CAST(r.amount AS SIGNED)-CAST(x.quoted_total AS SIGNED), r.reference, 'Refund'
+             FROM exchanges x JOIN returns_log r ON r.id=x.return_id
+             JOIN sales rs ON rs.id=x.replacement_sale_id
+             JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=rs.customer_id
+             WHERE r.status='Completed' AND r.amount>x.quoted_total {$scope}
+             ORDER BY created_at DESC LIMIT 500",
+            $params
+        );
+    }
+
     public static function cashbookLedger(int $branch = 0, string $startDate = '', string $endDate = '', string $type = 'all', int $limit = 300): array {
         $where = ['1=1'];
         $params = [];

@@ -195,6 +195,17 @@ class AutoMigrator
      */
     private static function runIncrementalMigrations(PDO $db, string $driver): void
     {
+        $db->exec('CREATE TABLE IF NOT EXISTS exchange_addons (
+            return_id INT NOT NULL,
+            line_no INT NOT NULL,
+            product_id INT NOT NULL,
+            unit_id INT NULL,
+            qty INT NOT NULL,
+            PRIMARY KEY (return_id, line_no),
+            FOREIGN KEY (return_id) REFERENCES exchanges(return_id),
+            FOREIGN KEY (product_id) REFERENCES products(id),
+            FOREIGN KEY (unit_id) REFERENCES units(id)
+        )' . ($driver === 'mysql' ? ' ENGINE=InnoDB' : ''));
         $hasBillLayout = $driver === 'sqlite'
             ? in_array('bill_layout', array_column($db->query('PRAGMA table_info(settings)')->fetchAll(PDO::FETCH_ASSOC), 'name'), true)
             : (bool) $db->query("SHOW COLUMNS FROM settings LIKE 'bill_layout'")->fetch();

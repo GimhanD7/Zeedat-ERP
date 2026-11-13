@@ -191,6 +191,7 @@ export function FormDialog({ spec, close, mutate }) {
               }
             )}
           </div>
+          {spec.actions?.(values, update)}
         </div>
         <div className="modal-footer">
           <Button onClick={close} disabled={busy}>

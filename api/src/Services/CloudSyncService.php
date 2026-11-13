@@ -365,12 +365,14 @@ class CloudSyncService {
             'RET',
             self::safeRows(
                 'SELECT rl.*, COALESCE(b.name, "") AS branch_name, COALESCE(s.sync_uuid, s.uuid, "") AS sale_sync_uuid,
-                        p.sku AS product_sku, si.name AS sale_item_name, COALESCE(d.sync_uuid, "") AS drawer_sync_uuid
+                        p.sku AS product_sku, si.name AS sale_item_name, un.code AS sale_unit_code,
+                        COALESCE(d.sync_uuid, "") AS drawer_sync_uuid
                  FROM returns_log rl
                  LEFT JOIN branches b ON b.id=rl.branch_id
                  JOIN sale_items si ON si.id=rl.sale_item_id
                  JOIN sales s ON s.id=si.sale_id
                  JOIN products p ON p.id=si.product_id
+                 LEFT JOIN units un ON un.id=si.unit_id
                  LEFT JOIN drawers d ON d.id=rl.processed_drawer_id
                  WHERE ' . $pendingWhere('rl') . ' ORDER BY rl.id ASC LIMIT 100'
             ),
@@ -387,6 +389,14 @@ class CloudSyncService {
                  WHERE ex.return_id=?',
                 [$ret['id']]
             );
+            if ($exch) {
+                $exch['addons'] = BaseRepository::rows(
+                    'SELECT a.line_no, a.qty, p.sku product_sku, u.code unit_code FROM exchange_addons a
+                     JOIN products p ON p.id=a.product_id LEFT JOIN units u ON u.id=a.unit_id
+                     WHERE a.return_id=? ORDER BY a.line_no',
+                    [$ret['id']]
+                );
+            }
             $ret['exchange'] = $exch ?: null;
             $returnsPayload[] = $ret;
         }
@@ -1495,7 +1505,7 @@ class CloudSyncService {
                 ? self::resolveDrawerIdBySync((string) $ret['drawer_sync_uuid'], $drawerMap, $bid, 1, substr($createdAt, 0, 10))
                 : null;
 
-            $existing = BaseRepository::one('SELECT id, synced, status FROM returns_log WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
+            $existing = BaseRepository::one('SELECT id, sale_item_id, synced, status FROM returns_log WHERE sync_uuid=? LIMIT 1', [$syncUuid]);
             if ($existing) {
                 if ((!$respectDirtyLocal || (int) ($existing['synced'] ?? 1) === 1)
                     && $existing['status'] !== ($ret['status'] ?? 'Pending')) {
@@ -1507,10 +1517,12 @@ class CloudSyncService {
             } else {
                 $saleItemId = 0;
                 if (!empty($ret['sale_sync_uuid']) && !empty($ret['product_sku'])) {
+                    $unitCode = (string) ($ret['sale_unit_code'] ?? '');
                     $saleItemId = (int) BaseRepository::scalar(
                         'SELECT si.id FROM sale_items si JOIN sales s ON s.id=si.sale_id JOIN products p ON p.id=si.product_id
-                         WHERE s.sync_uuid=? AND p.sku=? LIMIT 1',
-                        [$ret['sale_sync_uuid'], $ret['product_sku']]
+                         LEFT JOIN units un ON un.id=si.unit_id
+                         WHERE s.sync_uuid=? AND p.sku=? AND (? = \'\' OR un.code=?) ORDER BY si.id LIMIT 1',
+                        [$ret['sale_sync_uuid'], $ret['product_sku'], $unitCode, $unitCode]
                     );
                 }
                 if ($saleItemId <= 0) {
@@ -1535,21 +1547,43 @@ class CloudSyncService {
                     ]
                 );
 
-                if (!empty($ret['exchange']) && is_array($ret['exchange'])) {
-                    $ex = $ret['exchange'];
-                    $exPid = !empty($ex['product_sku']) ? (int) BaseRepository::scalar('SELECT id FROM products WHERE sku=? LIMIT 1', [$ex['product_sku']]) : 0;
-                    if ($exPid > 0) {
-                        $exUid = !empty($ex['unit_code']) ? (BaseRepository::scalar('SELECT id FROM units WHERE code=? LIMIT 1', [$ex['unit_code']]) ?: null) : null;
-                        $repSaleId = !empty($ex['replacement_sale_sync_uuid'])
-                            ? (BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid=? LIMIT 1', [$ex['replacement_sale_sync_uuid']]) ?: null)
-                            : null;
-                        $exSql = Database::isSqlite()
-                            ? 'INSERT OR IGNORE INTO exchanges (return_id, product_id, unit_id, qty, quoted_total, replacement_sale_id) VALUES (?,?,?,?,?,?)'
-                            : 'INSERT IGNORE INTO exchanges (return_id, product_id, unit_id, qty, quoted_total, replacement_sale_id) VALUES (?,?,?,?,?,?)';
-                        BaseRepository::run($exSql, [$newRetId, $exPid, $exUid, (int) ($ex['qty'] ?? 1), (int) ($ex['quoted_total'] ?? 0), $repSaleId]);
-                    }
-                }
                 $count++;
+            }
+
+            $saleItemId = $existing['sale_item_id'] ?? $saleItemId;
+            BaseRepository::run(
+                "UPDATE sale_items SET refunded_qty=(SELECT COALESCE(SUM(qty),0) FROM returns_log
+                    WHERE sale_item_id=? AND status='Completed')
+                 WHERE id=? AND refunded_qty<(SELECT COALESCE(SUM(qty),0) FROM returns_log
+                    WHERE sale_item_id=? AND status='Completed')",
+                [$saleItemId, $saleItemId, $saleItemId]
+            );
+
+            if ((!$existing || !$respectDirtyLocal || (int) $existing['synced'] === 1)
+                && !empty($ret['exchange']) && is_array($ret['exchange'])) {
+                $returnId = $existing['id'] ?? $newRetId;
+                $ex = $ret['exchange'];
+                $exPid = (int) BaseRepository::scalar('SELECT id FROM products WHERE sku=?', [$ex['product_sku'] ?? '']);
+                $exUid = BaseRepository::scalar('SELECT id FROM units WHERE code=?', [$ex['unit_code'] ?? '']) ?: null;
+                if (!$exPid || (!empty($ex['unit_code']) && !$exUid)) continue;
+                $repSaleId = BaseRepository::scalar('SELECT id FROM sales WHERE sync_uuid=?', [$ex['replacement_sale_sync_uuid'] ?? '']) ?: null;
+                $insert = Database::isSqlite() ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
+                BaseRepository::run(
+                    "$insert INTO exchanges (return_id, product_id, unit_id, qty, quoted_total, replacement_sale_id) VALUES (?,?,?,?,?,?)",
+                    [$returnId, $exPid, $exUid, (int) ($ex['qty'] ?? 1), (int) ($ex['quoted_total'] ?? 0), $repSaleId]
+                );
+                if ($repSaleId) {
+                    BaseRepository::run('UPDATE exchanges SET replacement_sale_id=? WHERE return_id=? AND replacement_sale_id IS NULL', [$repSaleId, $returnId]);
+                }
+                foreach ($ex['addons'] ?? [] as $addon) {
+                    $pid = BaseRepository::scalar('SELECT id FROM products WHERE sku=?', [$addon['product_sku'] ?? '']);
+                    $uid = BaseRepository::scalar('SELECT id FROM units WHERE code=?', [$addon['unit_code'] ?? '']) ?: null;
+                    if (!$pid || (!empty($addon['unit_code']) && !$uid)) continue 2;
+                    BaseRepository::run(
+                        "$insert INTO exchange_addons (return_id,line_no,product_id,unit_id,qty) VALUES (?,?,?,?,?)",
+                        [$returnId, (int) $addon['line_no'], $pid, $uid, (int) $addon['qty']]
+                    );
+                }
             }
 
             if (isset($ret['id'])) {
@@ -2174,12 +2208,14 @@ class CloudSyncService {
             'RET',
             self::safeRows(
                 "SELECT rl.*, b.name AS branch_name, COALESCE(s.sync_uuid, '') AS sale_sync_uuid,
-                        p.sku AS product_sku, si.name AS sale_item_name, COALESCE(d.sync_uuid, '') AS drawer_sync_uuid
+                        p.sku AS product_sku, si.name AS sale_item_name, un.code AS sale_unit_code,
+                        COALESCE(d.sync_uuid, '') AS drawer_sync_uuid
                  FROM returns_log rl
                  JOIN branches b ON b.id=rl.branch_id
                  JOIN sale_items si ON si.id=rl.sale_item_id
                  JOIN sales s ON s.id=si.sale_id
                  JOIN products p ON p.id=si.product_id
+                 LEFT JOIN units un ON un.id=si.unit_id
                  LEFT JOIN drawers d ON d.id=rl.processed_drawer_id
                  ORDER BY rl.id DESC"
             ),
@@ -2196,6 +2232,14 @@ class CloudSyncService {
                  WHERE ex.return_id=?",
                 [$retRow['id']]
             );
+            if ($exch) {
+                $exch['addons'] = BaseRepository::rows(
+                    'SELECT a.line_no, a.qty, p.sku product_sku, u.code unit_code FROM exchange_addons a
+                     JOIN products p ON p.id=a.product_id LEFT JOIN units u ON u.id=a.unit_id
+                     WHERE a.return_id=? ORDER BY a.line_no',
+                    [$retRow['id']]
+                );
+            }
             $retRow['exchange'] = $exch ?: null;
         }
         unset($retRow);

@@ -11,7 +11,7 @@ class ReturnController
     public static function getReturns(int $branch): array
     {
         $params = $branch ? [$branch] : [];
-        return BaseRepository::rows(
+        $returns = BaseRepository::rows(
             "SELECT r.*, i.sale_id, i.name product, COALESCE(c.name, 'Walk-in') customer,
             x.replacement_sale_id, x.qty replacement_qty, x.quoted_total, p.name replacement,
             rs.cash_tendered cash_received, rs.change_amount `change` FROM returns_log r
@@ -24,6 +24,17 @@ class ReturnController
             " . ($branch ? 'WHERE r.branch_id=?' : '') . ' ORDER BY r.id DESC LIMIT 100',
             $params
         );
+        foreach ($returns as &$return) {
+            if (!$return['replacement_sale_id']) continue;
+            $return['replacement_items'] = BaseRepository::rows(
+                'SELECT name,qty,price,total FROM sale_items WHERE sale_id=? ORDER BY id', [$return['replacement_sale_id']]
+            );
+            $return['settlement_payments'] = BaseRepository::rows(
+                "SELECT method,amount,reference FROM payments WHERE sale_id=? AND method<>'Exchange Credit' ORDER BY id",
+                [$return['replacement_sale_id']]
+            );
+        }
+        return $returns;
     }
 
     public static function request(int $branch, array $body): array
