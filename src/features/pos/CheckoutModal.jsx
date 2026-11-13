@@ -183,14 +183,19 @@ export function CheckoutModal({
       customer: customerName || 'Walk-in customer',
       items: lines.map(l => ({
         name: l.product?.name || 'Item',
+        sku: l.product?.sku || '',
+        code: l.unit?.code || '',
+        imei: l.unit?.imei || '',
         qty: l.qty,
         price: l.product?.price || 0,
         total: l.qty * (l.product?.price || 0),
       })),
       subtotal,
       discount,
+      discount_bps: discountBps,
       tax,
       total,
+      wallet_used: walletUsedCents,
       payments: activeMethods
         .filter(key => cents(tender[key] || 0) > 0)
         .map(key => ({ method: key, amount: cents(tender[key] || 0) })),

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ArrowLeftRight, Plus } from 'lucide-react';
+import { ArrowLeftRight, Plus, Printer } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillModal,
   Button,
   FilterTabs,
   Heading,
@@ -10,7 +11,7 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { managers, options, ref } from '../../utils';
+import { managers, options, ref, transferToBill } from '../../utils';
 
 const branchOf = ctx => ctx.branch || ctx.branches[0]?.id;
 const canManage = ctx => managers.includes(ctx.user.role);
@@ -21,8 +22,10 @@ export function StockTransfers({ ctx }) {
     items: ['products', { branch: source }],
     units: ['units', { branch: source }],
     transfers: 'transfers',
+    settings: 'settings',
   });
   const [filter, setFilter] = useState('All');
+  const [transferBill, setTransferBill] = useState(null);
 
   const request = (items, units) =>
     ctx.setDialog({
@@ -101,7 +104,7 @@ export function StockTransfers({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ items, units, transfers }) => (
+      {({ items, units, transfers, settings }) => (
         <>
           <Heading
             title="Stock Transfers"
@@ -134,37 +137,55 @@ export function StockTransfers({ ctx }) {
                 ['Status', r => <Badge>{r.status}</Badge>],
                 [
                   'Actions',
-                  r =>
-                    r.status === 'Requested' &&
-                      canManage(ctx) &&
-                      (ctx.user.role === 'owner' || ctx.branch === r.from_branch) ? (
-                      <div className="row-actions">
+                  r => (
+                    <div className="row-actions">
+                      <Button
+                        icon={Printer}
+                        variant="outline"
+                        onClick={() => setTransferBill(transferToBill(r, settings))}
+                      >
+                        Bill
+                      </Button>
+                      {r.status === 'Requested' &&
+                        canManage(ctx) &&
+                        (ctx.user.role === 'owner' || ctx.branch === r.from_branch) && (
+                        <>
+                          <Button
+                            variant="soft"
+                            onClick={() => update(r, 'Dispatched', r.from_branch)}
+                          >
+                            Dispatch
+                          </Button>
+                          <Button
+                            variant="outline-red"
+                            onClick={() => update(r, 'Rejected', r.from_branch)}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                      {r.status === 'Dispatched' &&
+                        (ctx.user.role === 'owner' || ctx.branch === r.to_branch) && (
                         <Button
                           variant="soft"
-                          onClick={() => update(r, 'Dispatched', r.from_branch)}
+                          onClick={() => update(r, 'Received', r.to_branch)}
                         >
-                          Dispatch
+                          Receive
                         </Button>
-                        <Button
-                          variant="outline-red"
-                          onClick={() => update(r, 'Rejected', r.from_branch)}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    ) : r.status === 'Dispatched' &&
-                      (ctx.user.role === 'owner' || ctx.branch === r.to_branch) ? (
-                      <Button
-                        variant="soft"
-                        onClick={() => update(r, 'Received', r.to_branch)}
-                      >
-                        Receive
-                      </Button>
-                    ) : null,
+                      )}
+                    </div>
+                  ),
                 ],
               ]}
             />
           </Panel>
+          {transferBill && (
+            <BillModal
+              bill={transferBill}
+              settings={settings}
+              onClose={() => setTransferBill(null)}
+            />
+          )}
         </>
       )}
     </DataView>

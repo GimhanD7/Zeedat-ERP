@@ -4,11 +4,13 @@ import {
   CircleCheck,
   Clock3,
   FileText,
+  Printer,
   Search,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillModal,
   Button,
   Field,
   FilterTabs,
@@ -19,7 +21,7 @@ import {
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
 import { ReceiptModal } from '../pos/ReceiptModal';
-import { managers, money, options, ref } from '../../utils';
+import { managers, money, options, ref, returnToBill } from '../../utils';
 
 const canManage = ctx => managers.includes(ctx.user.role);
 
@@ -29,6 +31,7 @@ export function Returns({ ctx }) {
   const [invoice, setInvoice] = useState(null);
   const [catalog, setCatalog] = useState({ products: [], units: [] });
   const [viewReceipt, setViewReceipt] = useState(false);
+  const [returnBill, setReturnBill] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState(ctx.intent === 'pending' ? 'Pending' : 'All');
@@ -322,17 +325,27 @@ export function Returns({ ctx }) {
                   ['Status', r => <Badge>{r.status}</Badge>],
                   [
                     'Actions',
-                    r =>
-                      r.status === 'Pending' && canManage(ctx) ? (
-                        <div className="row-actions">
-                          <Button variant="soft" onClick={() => resolve(r, 'Completed')}>
-                            Approve
-                          </Button>
-                          <Button variant="outline-red" onClick={() => resolve(r, 'Rejected')}>
-                            Reject
-                          </Button>
-                        </div>
-                      ) : null,
+                    r => (
+                      <div className="row-actions">
+                        <Button
+                          icon={Printer}
+                          variant="outline"
+                          onClick={() => setReturnBill(returnToBill(r, settings))}
+                        >
+                          Bill
+                        </Button>
+                        {r.status === 'Pending' && canManage(ctx) && (
+                          <>
+                            <Button variant="soft" onClick={() => resolve(r, 'Completed')}>
+                              Approve
+                            </Button>
+                            <Button variant="outline-red" onClick={() => resolve(r, 'Rejected')}>
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    ),
                   ],
                 ]}
               />
@@ -344,6 +357,14 @@ export function Returns({ ctx }) {
               invoice={invoice}
               settings={settings}
               onClose={() => setViewReceipt(false)}
+            />
+          )}
+
+          {returnBill && (
+            <BillModal
+              bill={returnBill}
+              settings={settings}
+              onClose={() => setReturnBill(null)}
             />
           )}
         </>

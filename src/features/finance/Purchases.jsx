@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Package, Plus, ShoppingBag, Truck, Wallet } from 'lucide-react';
+import { Package, Plus, Printer, ShoppingBag, Truck, Wallet } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillModal,
   Button,
   Heading,
   Panel,
@@ -11,7 +12,7 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { cents, managers, money, options, ref } from '../../utils';
+import { cents, managers, money, options, purchaseToBill, ref } from '../../utils';
 
 const branchOf = ctx => ctx.branch || ctx.branches[0]?.id;
 const canManage = ctx => managers.includes(ctx.user.role);
@@ -27,9 +28,11 @@ export function Purchases({ ctx }) {
     purchases: 'purchases',
     suppliers: 'suppliers',
     products: 'products',
+    settings: 'settings',
   });
   const [query, setQuery] = useState('');
   const [onlyUnpaid, setOnlyUnpaid] = useState(false);
+  const [poBill, setPoBill] = useState(null);
 
   const supplier = () =>
     ctx.setDialog({
@@ -87,7 +90,7 @@ export function Purchases({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ purchases, suppliers, products }) => (
+      {({ purchases, suppliers, products, settings }) => (
         <>
           <Heading
             title="Purchasing & Suppliers"
@@ -168,12 +171,22 @@ export function Purchases({ ctx }) {
                   ],
                   [
                     'Actions',
-                    r =>
-                      canManage(ctx) && Boolean(r.balance) ? (
-                        <Button variant="soft" onClick={() => pay(r)}>
-                          Pay supplier
+                    r => (
+                      <div className="row-actions">
+                        <Button
+                          icon={Printer}
+                          variant="outline"
+                          onClick={() => setPoBill(purchaseToBill(r, settings))}
+                        >
+                          Bill
                         </Button>
-                      ) : null,
+                        {canManage(ctx) && Boolean(r.balance) && (
+                          <Button variant="soft" onClick={() => pay(r)}>
+                            Pay supplier
+                          </Button>
+                        )}
+                      </div>
+                    ),
                   ],
                 ]}
               />
@@ -188,6 +201,13 @@ export function Purchases({ ctx }) {
               />
             </Panel>
           </div>
+          {poBill && (
+            <BillModal
+              bill={poBill}
+              settings={settings}
+              onClose={() => setPoBill(null)}
+            />
+          )}
         </>
       )}
     </DataView>

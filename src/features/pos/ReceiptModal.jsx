@@ -1,7 +1,16 @@
 import { useState } from 'react';
-import { Banknote, FileText, LockKeyhole, Printer, Unlock } from 'lucide-react';
-import { Badge, Button, Modal, Table } from '../../components/common';
-import { dateLabel, hasCashInPayments, money, printThermalReceipt, ref, timeLabel } from '../../utils';
+import { Banknote, LockKeyhole, Printer, Unlock } from 'lucide-react';
+import { Badge, BillPreview, Button, Modal } from '../../components/common';
+import {
+  billPaperWidth,
+  buildThermalReceiptHtml,
+  dateLabel,
+  hasCashInPayments,
+  money,
+  printThermalReceipt,
+  ref,
+  timeLabel,
+} from '../../utils';
 
 export function ReceiptModal({ invoice, settings, onClose }) {
   const [printing, setPrinting] = useState(false);
@@ -19,17 +28,9 @@ export function ReceiptModal({ invoice, settings, onClose }) {
     Number(invoice.paid_amount || 0) ||
     (invoice.payments || []).reduce((sum, p) => sum + Number(p?.amount || 0), 0);
   const changeAmount = Number(invoice.change ?? invoice.change_amount ?? 0);
-  const showTax =
-    settings?.show_tax_on_receipt !== 0 && settings?.show_tax_on_receipt !== '0';
   const invNumber =
     invoice.invoice_no ||
     ref(String(settings?.invoice_prefix || 'INV').replace(/-+$/, '') || 'INV', invoice.id);
-  const discPct = invoice.discount_bps
-    ? ` (${(Number(invoice.discount_bps) / 100).toFixed(Number(invoice.discount_bps) % 100 === 0 ? 0 : 1)}%)`
-    : '';
-  const taxPct = invoice.tax_bps
-    ? ` (${(Number(invoice.tax_bps) / 100).toFixed(Number(invoice.tax_bps) % 100 === 0 ? 0 : 1)}%)`
-    : '';
 
   const handlePrint = async () => {
     setPrinting(true);
@@ -132,95 +133,7 @@ export function ReceiptModal({ invoice, settings, onClose }) {
           </div>
         </div>
 
-        <div className="receipt-print" style={{ '--paper': (settings?.paper_width || 80) + 'mm' }}>
-          <h2>{settings?.shop_name || 'ZEEDAT POS'}</h2>
-          <p>{invoice.branch}</p>
-          <p>
-            {invNumber} · {dateLabel(invoice.created_at)}
-            {invoice.cashier ? ` · Cashier: ${invoice.cashier}` : ''}
-          </p>
-          <p>
-            {invoice.customer}
-            {invoice.customer_phone ? ` (${invoice.customer_phone})` : ''}
-          </p>
-          <Table
-            rows={invoice.items || []}
-            columns={[
-              [
-                'Item',
-                r => (
-                  <>
-                    <strong>{r.name}</strong>
-                    {(r.sku || r.code) && (
-                      <small className="subtext">
-                        {r.sku ? `SKU: ${r.sku}` : ''}
-                        {r.code ? `${r.sku ? ' · ' : ''}${r.code}` : ''}
-                        {r.imei ? ' · ' + r.imei : ''}
-                      </small>
-                    )}
-                  </>
-                ),
-              ],
-              ['Qty', 'qty'],
-              ['Price', r => money(r.price)],
-              ['Total', r => money(r.total)],
-            ]}
-          />
-          <div className="totals">
-            <div>
-              <span>Subtotal</span>
-              <strong>{money(invoice.subtotal)}</strong>
-            </div>
-            <div>
-              <span>Discount{discPct}</span>
-              <strong>− {money(invoice.discount)}</strong>
-            </div>
-            {showTax && (
-              <div>
-                <span>Tax{taxPct}</span>
-                <strong>{money(invoice.tax)}</strong>
-              </div>
-            )}
-            <div className="total">
-              <span>Total</span>
-              <strong>{money(invoice.total)}</strong>
-            </div>
-            {(invoice.payments || []).map((p, i) => (
-              <div key={i}>
-                <span>
-                  {p.method}
-                  {p.kind === 'Credit' ? ' repayment' : ''}
-                  {p.reference ? ` (${p.reference})` : ''}
-                </span>
-                <strong>{money(p.amount)}</strong>
-              </div>
-            ))}
-            {Boolean(invoice.credit) && (
-              <div>
-                <span>Balance due · {dateLabel(invoice.due_date)}</span>
-                <strong>{money(invoice.credit)}</strong>
-              </div>
-            )}
-            {Boolean(changeAmount) && (
-              <div>
-                <span>Change returned</span>
-                <strong>{money(changeAmount)}</strong>
-              </div>
-            )}
-            {Boolean(invoice.refunded) && (
-              <div>
-                <span>Refunded</span>
-                <strong>{money(invoice.refunded)}</strong>
-              </div>
-            )}
-          </div>
-          {invoice.notes && (
-            <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.65rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'left', fontSize: '0.82rem', color: '#334155' }}>
-              <FileText size={13} style={{ verticalAlign: 'text-bottom', marginRight: '5px' }} />
-              <strong>Notes:</strong> {invoice.notes}
-            </div>
-          )}
-        </div>
+        <BillPreview html={buildThermalReceiptHtml(invoice, settings)} paperWidth={billPaperWidth(settings)} />
       </div>
       <div className="modal-footer">
         <Button onClick={onClose}>Close</Button>

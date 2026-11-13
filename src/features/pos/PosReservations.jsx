@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Printer } from 'lucide-react';
 import { Badge, Button, Field, FilterTabs, Modal, Select } from '../../components/common';
 import { Alert } from '../../components/feedback';
 import { useData } from '../../hooks/useData';
-import { cents, money, ref } from '../../utils';
+import { cents, money, printBill, ref, reservationToBill } from '../../utils';
 import { reservationPaymentMethods, reservationStock } from '../operations/ReservationActions';
 import './posReservations.css';
 
@@ -259,14 +260,22 @@ export function PosReservations({
                   {Number(selected.points_earned) > 0 && selected.status !== 'Cancelled' && (
                     <small className="muted">{Number(selected.points_earned).toLocaleString()} loyalty points earned</small>
                   )}
-                  {selected.status === 'Held' && !action && (
+                  {!action && (
                     <div className="pos-reservation-actions">
-                      <Button type="button" variant="primary" disabled={!canSubmit} onClick={() => {
-                        setAction(due > 0 ? 'pay' : 'deliver');
-                        setAmount(due > 0 ? (due / 100).toFixed(2) : '');
-                        setMethod('Cash');
-                      }}>{due > 0 ? 'Collect Payment' : 'Hand Over'}</Button>
-                      {canCancel && <Button type="button" disabled={!canSubmit} onClick={() => setAction('cancel')}>Cancel reservation</Button>}
+                      <Button type="button" icon={Printer} variant="outline" onClick={() => {
+                        const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
+                        printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, {}, brName));
+                      }}>Print Bill</Button>
+                      {selected.status === 'Held' && (
+                        <>
+                          <Button type="button" variant="primary" disabled={!canSubmit} onClick={() => {
+                            setAction(due > 0 ? 'pay' : 'deliver');
+                            setAmount(due > 0 ? (due / 100).toFixed(2) : '');
+                            setMethod('Cash');
+                          }}>{due > 0 ? 'Collect Payment' : 'Hand Over'}</Button>
+                          {canCancel && <Button type="button" disabled={!canSubmit} onClick={() => setAction('cancel')}>Cancel reservation</Button>}
+                        </>
+                      )}
                     </div>
                   )}
                   {action === 'pay' && <fieldset disabled={busy} className="pos-reservation-body">

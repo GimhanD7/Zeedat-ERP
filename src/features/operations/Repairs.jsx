@@ -32,6 +32,7 @@ import { OpenRegisterModal } from '../finance/CashRegister';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillPreview,
   Button,
   Empty,
   FilterTabs,
@@ -44,11 +45,14 @@ import {
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
 import {
+  billPaperWidth,
+  buildBillHtml,
   cents,
   dateLabel,
   money,
-  printHtmlDocument,
+  printBill,
   ref,
+  repairJobToBill,
   rupees,
   tenders,
   today,
@@ -123,69 +127,7 @@ function buildClientSmsText(job, settings, branchName, kind = 'intake') {
 }
 
 function printRepairSlip(job, settings, branchName, mode = 'intake') {
-  const escape = value => String(value ?? '').replace(/[&<>"']/g, char => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
-  ));
-  const shopName = escape(settings?.shop_name || 'ZEEDAT MOBILE & REPAIR');
-  const shopPhone = settings?.shop_phone ? `Tel: ${escape(settings.shop_phone)}` : '';
-  const shopAddr = escape(settings?.shop_address);
-  const jobNo = escape(job.job_number || ref('RJ', job.id));
-  const totalCost = Number(job.final_charge || job.estimate || 0);
-  const paid = Number(job.paid_amount ?? job.advance_paid ?? job.advance ?? 0);
-  const balance = Math.max(0, totalCost - paid);
-  const title = mode === 'delivery' ? 'REPAIR DELIVERY & PAYMENT BILL' : 'REPAIR INTAKE RECEIPT';
-
-  return printHtmlDocument(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>${title} - ${jobNo}</title>
-<style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 18px; max-width: 420px; }
-  .head { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
-  .head h2 { margin: 0; font-size: 16px; letter-spacing: 0.4px; }
-  .head p { margin: 3px 0; font-size: 11px; color: #475569; }
-  .job-tag { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 999px; background: #0f172a; color: #fff; font-weight: 700; font-size: 12px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11.5px; margin-bottom: 10px; }
-  .box { border-top: 1px dashed #cbd5e1; padding: 8px 0; font-size: 11.5px; }
-  .row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 12px; }
-  .row.total { border-top: 1.5px solid #0f172a; padding-top: 6px; margin-top: 6px; font-size: 13.5px; font-weight: 800; }
-  .foot { border-top: 1px dashed #94a3b8; margin-top: 14px; padding-top: 8px; text-align: center; font-size: 10.5px; color: #64748b; }
-</style>
-</head>
-<body>
-  <div class="head">
-    <h2>${shopName}</h2>
-    <p>${escape(branchName || 'Main Branch')} ${shopPhone ? '· ' + shopPhone : ''}</p>
-    ${shopAddr ? `<p>${shopAddr}</p>` : ''}
-    <div style="margin-top:6px;font-weight:700;font-size:11px;color:#0f766e;">${title}</div>
-    <span class="job-tag">${jobNo}</span>
-  </div>
-  <div class="grid">
-    <div><span style="color:#64748b">Customer:</span><br/><strong>${escape(job.customer || 'Walk-in')}</strong></div>
-    <div><span style="color:#64748b">Phone:</span><br/><strong>${escape(job.phone || job.customer_phone || '—')}</strong></div>
-    <div><span style="color:#64748b">Device:</span><br/><strong>${escape(job.device)}</strong></div>
-    <div><span style="color:#64748b">IMEI / Serial:</span><br/><strong>${escape(job.serial || 'N/A')}</strong></div>
-    <div><span style="color:#64748b">Technician:</span><br/><strong>${escape(job.technician || 'Unassigned')}</strong></div>
-    <div><span style="color:#64748b">Promised Date:</span><br/><strong>${dateLabel(job.due_date || today())}</strong></div>
-  </div>
-  <div class="box">
-    <div><strong>Reported Issue:</strong> ${escape(job.issue || '—')}</div>
-    ${job.accessories ? `<div style="margin-top:4px;"><strong>Accessories:</strong> ${escape(job.accessories)}</div>` : ''}
-    ${job.notes ? `<div style="margin-top:4px;"><strong>Notes:</strong> ${escape(job.notes)}</div>` : ''}
-  </div>
-  <div class="box">
-    <div class="row"><span>${mode === 'delivery' ? 'Final Repair Charge' : 'Assigned Repair Charge'}</span><strong>${money(totalCost)}</strong></div>
-    <div class="row"><span>${mode === 'delivery' ? 'Total Paid' : 'Advance Paid'}</span><strong style="color:#15803d;">${money(paid)}</strong></div>
-    ${job.payment_method ? `<div class="row"><span>Payment Method</span><strong>${escape(job.payment_method)}</strong></div>` : ''}
-    <div class="row total"><span>Balance Due</span><span>${money(balance)}</span></div>
-  </div>
-  <div class="foot">
-    Please bring this slip when collecting your device.<br/>
-    ${escape(settings?.receipt_footer || 'Thank you for choosing us!')}
-  </div>
-</body>
-</html>`);
+  return printBill(repairJobToBill(job, settings, branchName, mode), settings);
 }
 
 export function Repairs({ ctx }) {
@@ -2142,95 +2084,20 @@ export function Repairs({ ctx }) {
                     );
                   })()}
 
-                  {/* PRINTABLE RECEIPT PREVIEW */}
-                  <div
-                    style={{
-                      background: '#ffffff',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '10px',
-                      padding: '16px',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                    }}
-                  >
-                    <div style={{ textAlign: 'center', borderBottom: '2px solid #0f172a', paddingBottom: '8px', marginBottom: '12px' }}>
-                      <h3 style={{ margin: 0, fontSize: '16px' }}>
-                        {settings?.shop_name || 'ZEEDAT POS'} — {receiptJob.mode === 'delivery' ? 'REPAIR BILL' : 'REPAIR INTAKE SLIP'}
-                      </h3>
-                      <p style={{ margin: '2px 0', fontSize: '12px', color: '#64748b' }}>
-                        {receiptJob.branch_name || currentBranchName}
-                        {settings?.shop_phone ? ` · Tel: ${settings.shop_phone}` : ''}
-                      </p>
-                      <h4 style={{ margin: '6px 0 0', fontSize: '15px', color: '#0d9488' }}>
-                        {receiptJob.job_number}
-                      </h4>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Customer: </span>
-                        <strong>{receiptJob.customer}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Phone: </span>
-                        <strong>{receiptJob.phone || '—'}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Device: </span>
-                        <strong>{receiptJob.device}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>IMEI / Serial: </span>
-                        <strong>{receiptJob.serial || 'N/A'}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Technician: </span>
-                        <strong>{receiptJob.technician || 'Unassigned'}</strong>
-                      </div>
-                      <div>
-                        <span style={{ color: '#64748b' }}>Promised Date: </span>
-                        <strong>{dateLabel(receiptJob.due_date || today())}</strong>
-                      </div>
-                    </div>
-
-                    <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px', marginBottom: '8px' }}>
-                      <div><strong>Issue: </strong>{receiptJob.issue}</div>
-                      {receiptJob.accessories && (
-                        <div style={{ marginTop: '4px' }}>
-                          <strong>Accessories: </strong>{receiptJob.accessories}
-                        </div>
-                      )}
-                      {receiptJob.notes && (
-                        <div style={{ marginTop: '4px' }}>
-                          <strong>Notes: </strong>{receiptJob.notes}
-                        </div>
-                      )}
-                    </div>
-
-                    {(() => {
-                      const totalAmt = Number(receiptJob.final_charge || receiptJob.estimate || 0);
-                      const paidAmt = Number(receiptJob.paid_amount ?? receiptJob.advance_paid ?? receiptJob.advance ?? 0);
-                      const balAmt = Math.max(0, totalAmt - paidAmt);
-                      return (
-                        <div style={{ borderTop: '1px dashed #cbd5e1', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                          <div>
-                            <span>{receiptJob.mode === 'delivery' ? 'Final Charge: ' : 'Assigned Repair Charge: '}</span>
-                            <strong>{money(totalAmt)}</strong>
-                          </div>
-                          <div>
-                            <span>{receiptJob.mode === 'delivery' ? 'Total Paid: ' : 'Advance Paid: '}</span>
-                            <strong style={{ color: '#15803d' }}>{money(paidAmt)}</strong>
-                          </div>
-                          <div>
-                            <span>Balance Due: </span>
-                            <strong style={{ color: balAmt > 0 ? '#dc2626' : '#0f766e' }}>{money(balAmt)}</strong>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
+                  {/* PRINTABLE RECEIPT PREVIEW (unified bill design) */}
+                  <BillPreview
+                    html={buildBillHtml(
+                      repairJobToBill(
+                        receiptJob,
+                        settings,
+                        receiptJob.branch_name || currentBranchName,
+                        receiptJob.mode === 'delivery' ? 'delivery' : 'intake'
+                      ),
+                      settings
+                    )}
+                    paperWidth={billPaperWidth(settings)}
+                  />
                 </div>
-
                 <div className="modal-footer">
                   <Button variant="outline" onClick={() => setReceiptJob(null)}>
                     Close

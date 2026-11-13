@@ -79,7 +79,7 @@ export function openReservationAction(ctx, reservation, action, onSuccess) {
   });
 }
 
-export function ReservationTable({ rows, onAction, canCancel = false, disabled = false }) {
+export function ReservationTable({ rows, onAction, onPrint, canCancel = false, disabled = false }) {
   return (
     <Table rows={rows} empty="No reserved items for this customer." columns={[
       ['Item', row => row.product + (row.unit_code ? ' · ' + row.unit_code : '')],
@@ -88,12 +88,17 @@ export function ReservationTable({ rows, onAction, canCancel = false, disabled =
       ['Paid', row => money(row.paid)],
       ['Balance', row => money(balance(row))],
       ['Status', row => row.status],
-      ['Actions', row => row.status === 'Held' && (
+      ['Actions', row => (
         <div className="row-actions">
-          {balance(row) > 0
-            ? <Button disabled={disabled} onClick={() => onAction(row, 'pay')}>Collect Payment</Button>
-            : <Button disabled={disabled} onClick={() => onAction(row, 'deliver')}>Hand Over</Button>}
-          {canCancel && <Button disabled={disabled} onClick={() => onAction(row, 'cancel')}>Cancel</Button>}
+          {onPrint && <Button variant="outline" onClick={() => onPrint(row)}>Bill</Button>}
+          {row.status === 'Held' && (
+            <>
+              {balance(row) > 0
+                ? <Button disabled={disabled} onClick={() => onAction(row, 'pay')}>Collect Payment</Button>
+                : <Button disabled={disabled} onClick={() => onAction(row, 'deliver')}>Hand Over</Button>}
+              {canCancel && <Button disabled={disabled} onClick={() => onAction(row, 'cancel')}>Cancel</Button>}
+            </>
+          )}
         </div>
       )],
     ]} />

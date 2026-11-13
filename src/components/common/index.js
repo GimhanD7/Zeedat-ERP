@@ -11,4 +11,5 @@ export * from './Select';
 export * from './Stats';
 export * from './Table';
 export * from './BarcodeSvg';
+export * from './BillPreview';
 export { Empty } from '../feedback/Empty';

@@ -20,6 +20,7 @@ import {
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillModal,
   Button,
   FilterTabs,
   Heading,
@@ -37,6 +38,8 @@ import {
   options,
   printHtmlDocument,
   ref,
+  repairJobToBill,
+  reservationToBill,
   tenders,
   timeLabel,
   today,
@@ -103,6 +106,7 @@ export function Customers({ ctx }) {
   const [ledger, setLedger] = useState({ wallet_logs: [], credit_payments: [], reservations: [] });
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  const [custBill, setCustBill] = useState(null);
   const ledgerCacheRef = useRef(new Map());
   const lastRevisionRef = useRef(ctx.revision);
 
@@ -799,6 +803,15 @@ export function Customers({ ctx }) {
                         <ReservationTable
                           rows={reservations}
                           canCancel={['owner', 'manager'].includes(ctx.user.role)}
+                          onPrint={row =>
+                            setCustBill(
+                              reservationToBill(
+                                { ...row, customer_name: person?.name, customer_phone: person?.phone },
+                                settings || {},
+                                person?.branch || ''
+                              )
+                            )
+                          }
                           onAction={(row, action) => openReservationAction(ctx, row, action, result => {
                             if (result.invoice) setReceipt(result.invoice);
                           })}
@@ -957,6 +970,33 @@ export function Customers({ ctx }) {
                             ),
                           ],
                           ['Paid / Est.', r => money(r.paid_amount || r.estimate || 0)],
+                          [
+                            'Bill',
+                            r => (
+                              <Button
+                                size="sm"
+                                icon={Printer}
+                                variant="outline"
+                                onClick={() =>
+                                  setCustBill(
+                                    repairJobToBill(
+                                      {
+                                        ...r,
+                                        customer: person?.name,
+                                        phone: person?.phone,
+                                        technician: r.technician_name || r.technician,
+                                      },
+                                      settings || {},
+                                      person?.branch || '',
+                                      r.status === 'Delivered' ? 'delivery' : 'intake'
+                                    )
+                                  )
+                                }
+                              >
+                                Bill
+                              </Button>
+                            ),
+                          ],
                         ]}
                       />
                     )}
@@ -971,6 +1011,10 @@ export function Customers({ ctx }) {
 
             {receipt && (
               <ReceiptModal invoice={receipt} settings={settings || {}} onClose={() => setReceipt(null)} />
+            )}
+
+            {custBill && (
+              <BillModal bill={custBill} settings={settings || {}} onClose={() => setCustBill(null)} />
             )}
           </>
         );
