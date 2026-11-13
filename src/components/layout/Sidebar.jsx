@@ -1,21 +1,34 @@
-import { ChevronRight, RefreshCw, Smartphone } from 'lucide-react';
+import { ChevronRight, PanelLeftClose, PanelLeftOpen, RefreshCw, Smartphone } from 'lucide-react';
 import { syncManager } from '../../utils/syncManager';
 
-export function Logo() {
+export function Logo({ collapsed = false }) {
   return (
-    <div className="brand">
+    <div className={'brand' + (collapsed ? ' collapsed' : '')}>
       <span className="brand-mark" style={{ background: '#0d9488', color: '#ffffff' }}>
-        <Smartphone size={24} strokeWidth={2.4} />
+        <Smartphone size={22} strokeWidth={2.4} />
       </span>
-      <span>
-        <strong>ZEEDAT POS</strong>
-        <small style={{ color: '#0d9488', fontWeight: 600 }}>Mobile Shop & Repair</small>
-      </span>
+      {!collapsed && (
+        <span className="brand-text">
+          <strong>ZEEDAT POS</strong>
+          <small style={{ color: '#0d9488', fontWeight: 600 }}>Mobile Shop & Repair</small>
+        </span>
+      )}
     </div>
   );
 }
 
-export function Sidebar({ menu, setMenu, pages, currentPage, onNavigate, online }) {
+export function Sidebar({
+  menu,
+  setMenu,
+  pages,
+  currentPage,
+  onNavigate,
+  online,
+  collapsed = false,
+  onToggleCollapse,
+}) {
+  const isCompact = collapsed && !menu;
+
   return (
     <>
       {menu && (
@@ -26,62 +39,69 @@ export function Sidebar({ menu, setMenu, pages, currentPage, onNavigate, online 
         />
       )}
 
-      <aside className={'sidebar ' + (menu ? 'shown' : '')}>
-        <Logo />
+      <aside className={'sidebar' + (menu ? ' shown' : '') + (isCompact ? ' collapsed' : '')}>
+        <div className="sidebar-head">
+          <Logo collapsed={isCompact} />
+          {onToggleCollapse && (
+            <button
+              type="button"
+              className="sidebar-toggle-btn"
+              onClick={onToggleCollapse}
+              title={isCompact ? 'Expand sidebar' : 'Collapse sidebar (icons only)'}
+              aria-label={isCompact ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {isCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+          )}
+        </div>
+
         <div className="side-scroll">
-          <div className="nav-caption">WORKSPACE</div>
+          {!isCompact && <div className="nav-caption">WORKSPACE</div>}
           <nav aria-label="Main navigation">
             {pages.map(([id, label, Icon]) => (
               <a
                 key={id}
                 href={'#' + id}
+                title={isCompact ? label : undefined}
+                data-tooltip={isCompact ? label : undefined}
                 className={currentPage === id ? 'active' : ''}
                 aria-current={currentPage === id ? 'page' : undefined}
                 onClick={() => onNavigate(id)}
               >
-                <Icon size={19} />
-                <span>{label}</span>
-                {currentPage === id && <ChevronRight size={14} className="active-arrow" />}
+                <Icon size={20} />
+                {!isCompact && <span>{label}</span>}
+                {!isCompact && currentPage === id && <ChevronRight size={14} className="active-arrow" />}
               </a>
             ))}
           </nav>
         </div>
 
-        <div style={{ padding: '10px 14px 4px' }}>
+        <div className="side-sync-wrap">
           <button
             type="button"
+            className="side-sync-btn"
+            title={isCompact ? 'Sync Now' : undefined}
             onClick={() => syncManager.triggerSync()}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '9px 12px',
-              borderRadius: '8px',
-              border: '1.5px solid #0d9488',
-              background: '#f0fdfa',
-              color: '#0f766e',
-              fontSize: '13px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
           >
             <RefreshCw size={15} />
-            <span>Sync Now</span>
+            {!isCompact && <span>Sync Now</span>}
           </button>
         </div>
 
-        <div className="side-footer">
+        <div className="side-footer" title={isCompact ? `ZEEDAT POS · ${online ? 'Online' : 'Offline'}` : undefined}>
           <div className="side-footer-icon">
-            <Smartphone size={20} />
+            <Smartphone size={19} />
+            {isCompact && <span className={'dot mini-dot ' + (!online ? 'offline' : '')} />}
           </div>
-          <div>
-            <strong>ZEEDAT POS</strong>
-            <small>Retail & Repair Suite</small>
-          </div>
-          <span className={'dot ' + (!online ? 'offline' : '')} />
+          {!isCompact && (
+            <>
+              <div>
+                <strong>ZEEDAT POS</strong>
+                <small>Retail & Repair Suite</small>
+              </div>
+              <span className={'dot ' + (!online ? 'offline' : '')} />
+            </>
+          )}
         </div>
       </aside>
     </>

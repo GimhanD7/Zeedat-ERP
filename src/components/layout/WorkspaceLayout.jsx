@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Store } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
@@ -25,10 +26,29 @@ export function WorkspaceLayout({
   appError,
   children,
 }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('zeedat_sidebar_collapsed');
+      return saved === null ? true : saved === '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('zeedat_sidebar_collapsed', next ? '1' : '0');
+      } catch {}
+      return next;
+    });
+  };
+
   const selectedName = branches.find(b => b.id === activeBranch)?.name || 'All Branches';
 
   return (
-    <div className="app">
+    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
       <Sidebar
         menu={menuOpen}
         setMenu={setMenuOpen}
@@ -36,6 +56,8 @@ export function WorkspaceLayout({
         currentPage={currentPage}
         onNavigate={onNavigate}
         online={online}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapsed}
       />
 
       <div className="workspace">
@@ -46,6 +68,8 @@ export function WorkspaceLayout({
           onBranchChange={onBranchChange}
           online={online}
           onOpenMenu={() => setMenuOpen(true)}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={toggleSidebarCollapsed}
           onOpenSearch={onOpenSearch}
           onOpenAlerts={onOpenAlerts}
           onLogout={onLogout}

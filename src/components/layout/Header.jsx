@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Building2, ChevronDown, LogOut, Menu, RefreshCw, Search } from 'lucide-react';
+import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Select } from '../common/Select';
 import { initials, roles, managers, setServerImageState } from '../../utils';
@@ -13,6 +13,8 @@ export function Header({
   onBranchChange,
   online,
   onOpenMenu,
+  sidebarCollapsed,
+  onToggleSidebar,
   onOpenSearch,
   onOpenAlerts,
   onLogout,
@@ -71,6 +73,15 @@ export function Header({
           aria-label="Open menu"
           onClick={onOpenMenu}
         />
+        {onToggleSidebar && (
+          <Button
+            icon={sidebarCollapsed ? PanelLeftOpen : PanelLeftClose}
+            className="icon-only desktop-sidebar-toggle"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar (icons only)'}
+            onClick={onToggleSidebar}
+          />
+        )}
         <div className="branch-control">
           <Building2 size={18} />
           <Select

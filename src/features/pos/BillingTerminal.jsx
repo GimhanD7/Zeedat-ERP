@@ -197,28 +197,17 @@ function BillingView({ ctx, data, onRefresh }) {
     });
   };
 
-  const popularCustomers = useMemo(() => {
-    return [...customers]
-      .sort(
-        (a, b) =>
-          Number(b.sales_count || 0) - Number(a.sales_count || 0) ||
-          Number(b.total || 0) - Number(a.total || 0) ||
-          Number(b.loyalty_points || 0) - Number(a.loyalty_points || 0)
-      )
-      .slice(0, 4);
-  }, [customers]);
-
   const matchingCustomers = useMemo(() => {
     const qCust = custQuery.trim().toLowerCase();
-    const list = qCust
-      ? customers.filter(
+    if (!qCust) return customers.slice(0, 8);
+    return customers
+      .filter(
         c =>
           String(c.phone || '').toLowerCase().includes(qCust) ||
           String(c.name || '').toLowerCase().includes(qCust)
       )
-      : popularCustomers;
-    return list.slice(0, 8);
-  }, [customers, popularCustomers, custQuery]);
+      .slice(0, 8);
+  }, [customers, custQuery]);
 
   useEffect(() => {
     const handleOutside = e => {
@@ -738,7 +727,7 @@ function BillingView({ ctx, data, onRefresh }) {
               </div>
             }
           >
-            {/* CUSTOMER PHONE SEARCH / POPULAR CUSTOMERS / WALLET & POINTS */}
+            {/* CUSTOMER PHONE SEARCH / WALLET & POINTS */}
             <div className="zk-pos-customer-box" ref={custPickerRef}>
               {!selectedCustomerObj ? (
                 <>
@@ -748,10 +737,12 @@ function BillingView({ ctx, data, onRefresh }) {
                       <input
                         type="text"
                         value={custQuery}
-                        onFocus={() => setCustDropdownOpen(true)}
+                        onFocus={() => {
+                          if (custQuery.trim()) setCustDropdownOpen(true);
+                        }}
                         onChange={e => {
                           setCustQuery(e.target.value);
-                          setCustDropdownOpen(true);
+                          setCustDropdownOpen(Boolean(e.target.value.trim()));
                         }}
                         placeholder="Search customer phone # or name (Default: Walk-in)…"
                         aria-label="Search customer by phone or name"
@@ -771,28 +762,10 @@ function BillingView({ ctx, data, onRefresh }) {
                     </Button>
                   </div>
 
-                  {popularCustomers.length > 0 && !custDropdownOpen && (
-                    <div className="zk-pos-pop-strip">
-                      <span className="zk-pos-pop-label">Popular:</span>
-                      {popularCustomers.map(c => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          className="zk-pos-pop-chip"
-                          onClick={() => selectCustomer(c.id)}
-                        >
-                          <UserRound size={11} />
-                          <span>{c.name}</span>
-                          <small>{c.phone}</small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {custDropdownOpen && (
+                  {custDropdownOpen && custQuery.trim() && (
                     <div className="zk-pos-cust-dropdown">
                       <div className="zk-pos-cust-dd-head">
-                        <span>{custQuery.trim() ? 'Matching Customers' : 'Popular Customers'}</span>
+                        <span>Matching Customers</span>
                         <button
                           type="button"
                           className="zk-pos-dd-close"
