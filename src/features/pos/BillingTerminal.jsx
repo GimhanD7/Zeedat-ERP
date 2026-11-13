@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Archive,
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUpRight,
   Award,
@@ -52,6 +53,7 @@ import {
 } from '../../utils';
 import { CheckoutModal } from './CheckoutModal';
 import { ReceiptModal } from './ReceiptModal';
+import { Returns } from '../finance/Returns';
 import { PosReservations } from './PosReservations';
 import {
   CashRegisterModal,
@@ -99,6 +101,7 @@ function BillingView({ ctx, data, onRefresh }) {
   const [checkout, setCheckout] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [reservationEntry, setReservationEntry] = useState(null);
+  const [returnsOpen, setReturnsOpen] = useState(false);
   const [held, setHeld] = useState(false);
   const [cashMoveDir, setCashMoveDir] = useState(null);
   const [cashbookOpen, setCashbookOpen] = useState(() => ctx.intent === 'cashbook');
@@ -559,6 +562,7 @@ function BillingView({ ctx, data, onRefresh }) {
         description={'Create bills, sell products and record payments — ' + branch?.name}
       >
         {canReserve && <Button icon={Archive} onClick={() => reserveFromPos()}>Reservations</Button>}
+        {canReserve && <Button icon={ArrowLeftRight} onClick={() => setReturnsOpen(true)}>Returns &amp; Exchanges</Button>}
         <Button
           icon={Wallet}
           onClick={() => {
@@ -1436,6 +1440,16 @@ function BillingView({ ctx, data, onRefresh }) {
           settings={settings}
           onClose={() => setReceipt(null)}
         />
+      )}
+
+      {returnsOpen && (
+        <Modal title="Returns & Exchanges" description={branch?.name} xl onClose={() => setReturnsOpen(false)}>
+          <div className="modal-body">
+            {!current && <Alert>{shiftMessage}</Alert>}
+            <Returns ctx={ctx} embedded />
+          </div>
+          <div className="modal-footer"><Button onClick={() => setReturnsOpen(false)}>Back to Billing</Button></div>
+        </Modal>
       )}
 
       {reservationEntry && (

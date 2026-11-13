@@ -46,6 +46,9 @@ class ReturnService
         if (!in_array($method, Constants::TENDERS, true)) {
             throw new ApiError('Invalid payment method.');
         }
+        if (!BaseRepository::scalar('SELECT id FROM payments WHERE sale_id=? AND method=? LIMIT 1', [$line['sale_id'], $method])) {
+            throw new ApiError('Select a payment method used on the original invoice.');
+        }
 
         $amount = self::refundAmount((int) $line['total'], (int) $line['qty'], (int) $line['refunded_qty'], $qty);
         $restock = !empty($body['restock']) && !$line['unit_id'] && $line['category'] !== 'Services';
@@ -66,6 +69,7 @@ class ReturnService
             if (!$replacement || !$replacement['available']) {
                 throw new ApiError('Choose an available replacement product.');
             }
+            ProductRepository::assertStockAvailable($branch, (int) $replacement['id'], (int) ($body['replacement_qty'] ?? 1));
 
             $units = Validator::integer($body['replacement_qty'] ?? null, 'Replacement quantity', 1, $replacement['serialized'] ? 1 : min(1000, (int) $replacement['available']));
             $device = null;
@@ -92,6 +96,10 @@ class ReturnService
 
     public static function resolve(array $user, int $branch, array $body): array
     {
+        if (!in_array($user['role'], ['owner', 'manager', 'cashier'], true)) {
+            throw new ApiError('A cashier or manager must process a return.', 403);
+        }
+        if ($user['role'] === 'cashier') DrawerService::openDrawer($user, $branch);
         $id = Validator::integer($body['id'] ?? null, 'Return request');
         $row = BaseRepository::one(
             'SELECT r.*, si.sale_id, si.product_id, si.unit_id, si.name product, s.customer_id, s.branch_id,
@@ -115,6 +123,13 @@ class ReturnService
         if ($decision === 'Rejected') {
             BaseRepository::run("UPDATE returns_log SET status='Rejected', synced=0 WHERE id=?", [$id]);
             return ['id' => $id, 'status' => 'Rejected'];
+        }
+        $line = BaseRepository::one(
+            'SELECT i.qty, i.refunded_qty, s.credit FROM sale_items i JOIN sales s ON s.id=i.sale_id WHERE i.id=? FOR UPDATE',
+            [$row['sale_item_id']]
+        );
+        if (!$line || (int) $line['credit'] > 0 || (int) $line['refunded_qty'] + (int) $row['qty'] > (int) $line['qty']) {
+            throw new ApiError('The invoice balance changed. Review this return request.', 409);
         }
 
         $drawer = null;
@@ -143,6 +158,9 @@ class ReturnService
             $lineSubtotal = (int) $p['price'] * (int) $row['replacement_qty'];
             $lineTax = Helpers::rate($lineSubtotal, $taxRate);
             $total = $lineSubtotal + $lineTax;
+            if ($total !== (int) $row['quoted_total']) {
+                throw new ApiError('The replacement price changed. Reject this request and create a new exchange.', 409);
+            }
 
             $repUuid = 'SL-' . bin2hex(random_bytes(10));
             $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));

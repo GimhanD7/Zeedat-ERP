@@ -21,9 +21,9 @@ import {
 import { Alert, DataView } from '../../components/feedback';
 import { managers, money, options, printBill, printThermalReceipt, ref, returnToBill } from '../../utils';
 
-const canManage = ctx => managers.includes(ctx.user.role);
+const canManage = ctx => managers.includes(ctx.user.role) || ctx.user.role === 'cashier';
 
-export function Returns({ ctx }) {
+export function Returns({ ctx, embedded = false }) {
   const state = useData(ctx, { returns: 'returns', settings: 'settings' });
   const [lookup, setLookup] = useState('');
   const [invoice, setInvoice] = useState(null);
@@ -31,6 +31,16 @@ export function Returns({ ctx }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState(ctx.intent === 'pending' ? 'Pending' : 'All');
+  const [lookupRevision, setLookupRevision] = useState(0);
+
+  useEffect(() => {
+    if (!invoice) return;
+    let active = true;
+    ctx.get('invoice', { id: invoice.id, branch: invoice.branch_id })
+      .then(found => { if (active) setInvoice(found); })
+      .catch(failure => { if (active) setError(failure.message); });
+    return () => { active = false; };
+  }, [ctx.revision, lookupRevision]);
 
   useEffect(() => {
     if (ctx.intent === 'pending') {
@@ -51,7 +61,7 @@ export function Returns({ ctx }) {
           ['products', 'units'].map(route => ctx.get(route, { branch: found.branch_id }))
         );
         setCatalog({ products, units });
-      }
+      } else setCatalog({ products: [], units: [] });
       setInvoice(found);
     } catch (e) {
       setError(e.message);
@@ -105,7 +115,7 @@ export function Returns({ ctx }) {
                 name: 'replacement_product_id',
                 label: 'Replacement product',
                 choices: options(
-                  catalog.products.filter(p => p.qty > 0 && p.category !== 'Services')
+                  catalog.products.filter(p => Number(p.branch_stocks?.find(s => Number(s.branch_id) === Number(invoice.branch_id))?.available_qty ?? p.qty) > 0 && p.category !== 'Services')
                 ),
               },
               {
@@ -122,7 +132,7 @@ export function Returns({ ctx }) {
                     label: 'Replacement device',
                     choices: options(
                       catalog.units.filter(
-                        u => u.product_id === product.id && u.state === 'Available'
+                        u => u.product_id === product.id && u.state === 'Available' && !Number(u.reserved)
                       ),
                       'code'
                     ),
@@ -133,10 +143,10 @@ export function Returns({ ctx }) {
             : []),
         ];
       },
-      onSuccess: () =>
-        ctx.setNotice(
-          exchange ? 'Exchange submitted for approval' : 'Return submitted for approval'
-        ),
+      onSuccess: () => {
+        setLookupRevision(value => value + 1);
+        ctx.setNotice(exchange ? 'Exchange request saved. Process it in Return History below.' : 'Return request saved. Process it in Return History below.');
+      },
     });
 
   const resolve = (row, decision) =>
@@ -170,6 +180,7 @@ export function Returns({ ctx }) {
           ? [{ name: 'reference', label: 'Confirmed refund reference', full: true }]
           : [],
       onSuccess: () => {
+        setLookupRevision(value => value + 1);
         if (decision === 'Completed') {
           printBill(
             returnToBill({ ...row, status: decision }, state.data?.settings),
@@ -184,10 +195,10 @@ export function Returns({ ctx }) {
     <DataView state={state}>
       {({ returns, settings }) => (
         <>
-          <Heading
+          {!embedded && <Heading
             title="Returns & Exchanges"
             description="Look up an invoice, record returned items and review refund or exchange requests."
-          />
+          />}
           <Stats
             items={[
               {
@@ -353,7 +364,7 @@ export function Returns({ ctx }) {
                         {r.status === 'Pending' && canManage(ctx) && (
                           <>
                             <Button variant="soft" onClick={() => resolve(r, 'Completed')}>
-                              Approve
+                              Process
                             </Button>
                             <Button variant="outline-red" onClick={() => resolve(r, 'Rejected')}>
                               Reject

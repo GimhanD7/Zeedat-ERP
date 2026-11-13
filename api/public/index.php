@@ -152,11 +152,12 @@ try {
                         return DrawerController::closeCycle($branch, $body);
                     })(),
                 'return.request' => (function () use ($user, $branch, $body) {
-                        RoleGuard::allowPermission($user, 'returns');
+                        RoleGuard::allowAnyPermission($user, 'returns', 'pos');
+                        if ($user['role'] === 'cashier') \Zeedat\Services\DrawerService::openDrawer($user, $branch);
                         return ReturnController::request($branch, $body);
                     })(),
                 'return.resolve' => (function () use ($user, $branch, $body) {
-                        RoleGuard::allowPermission($user, 'returns');
+                        RoleGuard::allowAnyPermission($user, 'returns', 'pos');
                         return ReturnController::resolve($user, $branch, $body);
                     })(),
                 'customer.save' => (function () use ($user, $branch, $body) {
@@ -510,7 +511,7 @@ try {
                 return DrawerController::getRegister($branch, $user, $_GET);
             })(),
         'returns' => (function () use ($user, $branch) {
-                RoleGuard::allowPermission($user, 'returns');
+                RoleGuard::allowAnyPermission($user, 'returns', 'pos');
                 return ReturnController::getReturns($branch);
             })(),
         'purchases' => (function () use ($user, $branch) {
