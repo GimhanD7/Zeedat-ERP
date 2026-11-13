@@ -3,7 +3,6 @@ import { Package, Plus, Printer, ShoppingBag, Truck, Wallet } from 'lucide-react
 import { useData } from '../../hooks/useData';
 import {
   Badge,
-  BillModal,
   Button,
   Heading,
   Panel,
@@ -12,7 +11,7 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { cents, managers, money, options, purchaseToBill, ref } from '../../utils';
+import { cents, managers, money, options, printBill, purchaseToBill, ref } from '../../utils';
 
 const branchOf = ctx => ctx.branch || ctx.branches[0]?.id;
 const canManage = ctx => managers.includes(ctx.user.role);
@@ -32,7 +31,6 @@ export function Purchases({ ctx }) {
   });
   const [query, setQuery] = useState('');
   const [onlyUnpaid, setOnlyUnpaid] = useState(false);
-  const [poBill, setPoBill] = useState(null);
 
   const supplier = () =>
     ctx.setDialog({
@@ -75,6 +73,11 @@ export function Purchases({ ctx }) {
         ];
       },
       transform: v => ({ ...v, unit_cost: cents(v.unit_cost) }),
+      onSuccess: res => {
+        if (res?.id) {
+          printBill(purchaseToBill(res, state.data?.settings), state.data?.settings, { silent: true });
+        }
+      },
     });
 
   const pay = r =>
@@ -176,7 +179,10 @@ export function Purchases({ ctx }) {
                         <Button
                           icon={Printer}
                           variant="outline"
-                          onClick={() => setPoBill(purchaseToBill(r, settings))}
+                          onClick={() => {
+                            printBill(purchaseToBill(r, settings), settings, { silent: true });
+                            ctx.setNotice(`Purchase bill ${ref('PO', r.id)} printed.`);
+                          }}
                         >
                           Bill
                         </Button>
@@ -201,13 +207,6 @@ export function Purchases({ ctx }) {
               />
             </Panel>
           </div>
-          {poBill && (
-            <BillModal
-              bill={poBill}
-              settings={settings}
-              onClose={() => setPoBill(null)}
-            />
-          )}
         </>
       )}
     </DataView>

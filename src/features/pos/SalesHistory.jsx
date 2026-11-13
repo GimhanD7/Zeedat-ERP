@@ -5,7 +5,7 @@ import {
   CreditCard,
   Download,
   FileText,
-  ReceiptText,
+  Printer,
   RotateCcw,
 } from 'lucide-react';
 import { useData } from '../../hooks/useData';
@@ -20,8 +20,7 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { money, ref, timeLabel, today } from '../../utils';
-import { ReceiptModal } from './ReceiptModal';
+import { money, printThermalReceipt, ref, timeLabel, today } from '../../utils';
 
 export function SalesHistory({ ctx }) {
   const state = useData(ctx, { sales: 'sales', settings: 'settings' });
@@ -29,7 +28,6 @@ export function SalesHistory({ ctx }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [methodFilter, setMethodFilter] = useState('all');
   const [dateRange, setDateRange] = useState('all');
-  const [receipt, setReceipt] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -353,14 +351,16 @@ export function SalesHistory({ ctx }) {
                     'Invoice',
                     r => (
                       <Button
-                        icon={ReceiptText}
+                        icon={Printer}
                         variant="outline"
                         disabled={loading}
                         onClick={async () => {
                           setError('');
                           setLoading(true);
                           try {
-                            setReceipt(await ctx.get('invoice', { id: r.id }));
+                            const inv = await ctx.get('invoice', { id: r.id });
+                            printThermalReceipt(inv, settings, { silent: true });
+                            ctx.setNotice(`Invoice ${r.invoice_no || ref(prefix, r.id)} printed.`);
                           } catch (e) {
                             setError(e.message);
                           } finally {
@@ -368,21 +368,13 @@ export function SalesHistory({ ctx }) {
                           }
                         }}
                       >
-                        Full View
+                        Print Bill
                       </Button>
                     ),
                   ],
                 ]}
               />
             </Panel>
-
-            {receipt && (
-              <ReceiptModal
-                invoice={receipt}
-                settings={settings}
-                onClose={() => setReceipt(null)}
-              />
-            )}
           </div>
         );
       }}

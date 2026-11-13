@@ -1417,23 +1417,20 @@ function BillingView({ ctx, data, onRefresh }) {
               ...invoice,
               hasCashSettlement: isCash,
             };
-            setReceipt(enriched);
-            ctx.setNotice('Sale posted');
+            ctx.setNotice(
+              invoice.shouldAutoPrint !== false ? 'Sale posted · Bill printed' : 'Sale posted'
+            );
 
-            const tasks = [];
-            tasks.push(
+            const tasks = [
               triggerCashDrawerForSettlement({
                 settings,
                 hasCashSettlement: isCash,
-              })
-            );
-            if (invoice.shouldAutoPrint) {
+              }),
+            ];
+            if (invoice.shouldAutoPrint !== false) {
               tasks.push(printThermalReceipt(enriched, settings, { silent: true }));
             }
-            const [drawerRes] = await Promise.all(tasks);
-            if (drawerRes?.opened) {
-              setReceipt(prev => (prev && prev.id === enriched.id ? { ...prev, drawerOpened: true } : prev));
-            }
+            await Promise.all(tasks);
           }}
           onUpdateQty={increment}
           customerName={
@@ -1475,6 +1472,7 @@ function BillingView({ ctx, data, onRefresh }) {
           products={products}
           units={units}
           reservations={reservations}
+          settings={settings}
           taxBps={settings.tax_bps}
           initialCustomer={reservationEntry.customerId}
           initialProduct={reservationEntry.productId}
@@ -1484,7 +1482,8 @@ function BillingView({ ctx, data, onRefresh }) {
           onStockRefresh={onRefresh}
           onInvoice={invoice => {
             setReservationEntry(null);
-            setReceipt(invoice);
+            printThermalReceipt(invoice, settings, { silent: true });
+            ctx.setNotice('Reservation handed over · Bill printed');
           }}
         />
       )}

@@ -3,7 +3,7 @@ import { Printer } from 'lucide-react';
 import { Badge, Button, Field, FilterTabs, Modal, Select } from '../../components/common';
 import { Alert } from '../../components/feedback';
 import { useData } from '../../hooks/useData';
-import { cents, money, printBill, ref, reservationToBill } from '../../utils';
+import { cents, money, printBill, printThermalReceipt, ref, reservationToBill } from '../../utils';
 import { reservationPaymentMethods, reservationStock } from '../operations/ReservationActions';
 import './posReservations.css';
 
@@ -36,7 +36,7 @@ function Amounts({ total, paid, paidLabel = 'Paid' }) {
 }
 
 export function PosReservations({
-  ctx, customers, products, units, taxBps, initialCustomer, initialProduct,
+  ctx, customers, products, units, settings = {}, taxBps, initialCustomer, initialProduct,
   current, shiftMessage, onClose, onInvoice, onStockRefresh,
 }) {
   const [tab, setTab] = useState(initialProduct ? 'new' : 'manage');
@@ -148,10 +148,37 @@ export function PosReservations({
       setTab('manage');
       setSelectedId(result.id);
       setInvoice(result.invoice || null);
-      const notice = creating ? 'Reservation created and deposit recorded.' : action === 'deliver'
-        ? 'Item handed over. Invoice created.' : action === 'cancel'
+      const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
+      if (result.invoice) {
+        printThermalReceipt(result.invoice, settings, { silent: true });
+      } else {
+        printBill(
+          reservationToBill(
+            {
+              id: result.id,
+              product: creating ? product?.name : selected?.product,
+              unit_code: creating
+                ? availableUnits(product).find(u => String(u.id) === unitId)?.code
+                : selected?.unit_code,
+              qty: creating ? count : selected?.qty,
+              total: creating ? total : selected?.total,
+              paid: creating ? deposit : Number(selected?.paid || 0) + (action === 'pay' ? deposit : 0),
+              status: action === 'cancel' ? 'Cancelled' : 'Held',
+              points_earned: result.points_earned || selected?.points_earned || 0,
+              customer_name: customer?.name,
+              customer_phone: customer?.phone,
+            },
+            settings,
+            brName
+          ),
+          settings,
+          { silent: true }
+        );
+      }
+      const notice = creating ? 'Reservation created, deposit recorded & bill printed.' : action === 'deliver'
+        ? 'Item handed over & invoice printed.' : action === 'cancel'
           ? 'Reservation cancelled. Deposit returned to the customer wallet.'
-          : result.balance === 0 ? 'Payment recorded. The item is ready for handover.' : 'Payment recorded.';
+          : result.balance === 0 ? 'Payment recorded & bill printed. Ready for handover.' : 'Payment recorded & bill printed.';
       setMessage(result.points_earned > 0 ? notice + ' +' + result.points_earned + ' loyalty points.' : notice);
       state.refresh();
       if (creating) {
@@ -264,7 +291,8 @@ export function PosReservations({
                     <div className="pos-reservation-actions">
                       <Button type="button" icon={Printer} variant="outline" onClick={() => {
                         const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
-                        printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, {}, brName));
+                        printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, settings, brName), settings, { silent: true });
+                        setMessage('Reservation bill sent to printer.');
                       }}>Print Bill</Button>
                       {selected.status === 'Held' && (
                         <>

@@ -331,6 +331,9 @@ try {
                         RoleGuard::allowPermission($user, 'settings');
                         return \Zeedat\Services\CloudSyncService::pullFromCloud();
                     })(),
+                'bill.print' => (function () use ($body) {
+                        return \Zeedat\Services\ThermalPrintService::printBill($body);
+                    })(),
                 'sync.auto' => (function () use ($user) {
                         $bId = $user['branch_id'] ? (int) $user['branch_id'] : null;
                         return \Zeedat\Services\CloudSyncService::runAutoSyncAndBackup($bId);
@@ -339,7 +342,7 @@ try {
             };
         }, $branch);
 
-        if ($action !== 'sync.auto') {
+        if ($action !== 'sync.auto' && $action !== 'bill.print') {
             $details = array_intersect_key($result, array_flip([
                 'id',
                 'invoice_no',

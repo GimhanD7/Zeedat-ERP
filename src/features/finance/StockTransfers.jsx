@@ -3,7 +3,6 @@ import { ArrowLeftRight, Plus, Printer } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
-  BillModal,
   Button,
   FilterTabs,
   Heading,
@@ -11,7 +10,7 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { managers, options, ref, transferToBill } from '../../utils';
+import { managers, options, printBill, ref, transferToBill } from '../../utils';
 
 const branchOf = ctx => ctx.branch || ctx.branches[0]?.id;
 const canManage = ctx => managers.includes(ctx.user.role);
@@ -25,9 +24,8 @@ export function StockTransfers({ ctx }) {
     settings: 'settings',
   });
   const [filter, setFilter] = useState('All');
-  const [transferBill, setTransferBill] = useState(null);
 
-  const request = (items, units) =>
+  const request = (items, units, settings) =>
     ctx.setDialog({
       title: 'Request stock transfer',
       description: 'From ' + ctx.branches.find(b => b.id === source)?.name,
@@ -70,9 +68,25 @@ export function StockTransfers({ ctx }) {
             : []),
         ];
       },
+      onSuccess: (res, submitted) => {
+        const prod = items.find(p => Number(p.id) === Number(submitted?.product_id));
+        const srcBranch = ctx.branches.find(b => Number(b.id) === Number(source))?.name || 'Source';
+        const dstBranch = ctx.destinations.find(b => Number(b.id) === Number(submitted?.to_branch))?.name || 'Destination';
+        const billRow = {
+          id: res?.id || 0,
+          source: srcBranch,
+          destination: dstBranch,
+          product: prod?.name || 'Product',
+          qty: Number(submitted?.qty || 1),
+          status: 'Requested',
+          requested_by: ctx.user?.name || 'Staff',
+        };
+        printBill(transferToBill(billRow, settings), settings, { silent: true });
+        ctx.setNotice('Transfer requested · Bill printed.');
+      },
     });
 
-  const update = (r, status, branch) =>
+  const update = (r, status, branch, settings) =>
     ctx.setDialog({
       title:
         status === 'Dispatched'
@@ -100,6 +114,10 @@ export function StockTransfers({ ctx }) {
       danger: status === 'Rejected',
       values: { id: r.id, status, branch },
       fields: [],
+      onSuccess: () => {
+        printBill(transferToBill({ ...r, status }, settings), settings, { silent: true });
+        ctx.setNotice(`Transfer ${ref('ST', r.id)} ${status.toLowerCase()} · Bill printed.`);
+      },
     });
 
   return (
@@ -110,7 +128,7 @@ export function StockTransfers({ ctx }) {
             title="Stock Transfers"
             description="Move inventory between branches and confirm receipt at the destination."
           >
-            <Button icon={Plus} variant="primary" onClick={() => request(items, units)}>
+            <Button icon={Plus} variant="primary" onClick={() => request(items, units, settings)}>
               Request transfer
             </Button>
           </Heading>
@@ -142,7 +160,10 @@ export function StockTransfers({ ctx }) {
                       <Button
                         icon={Printer}
                         variant="outline"
-                        onClick={() => setTransferBill(transferToBill(r, settings))}
+                        onClick={() => {
+                          printBill(transferToBill(r, settings), settings, { silent: true });
+                          ctx.setNotice(`Transfer bill ${ref('ST', r.id)} printed.`);
+                        }}
                       >
                         Bill
                       </Button>
@@ -152,13 +173,13 @@ export function StockTransfers({ ctx }) {
                         <>
                           <Button
                             variant="soft"
-                            onClick={() => update(r, 'Dispatched', r.from_branch)}
+                            onClick={() => update(r, 'Dispatched', r.from_branch, settings)}
                           >
                             Dispatch
                           </Button>
                           <Button
                             variant="outline-red"
-                            onClick={() => update(r, 'Rejected', r.from_branch)}
+                            onClick={() => update(r, 'Rejected', r.from_branch, settings)}
                           >
                             Reject
                           </Button>
@@ -168,7 +189,7 @@ export function StockTransfers({ ctx }) {
                         (ctx.user.role === 'owner' || ctx.branch === r.to_branch) && (
                         <Button
                           variant="soft"
-                          onClick={() => update(r, 'Received', r.to_branch)}
+                          onClick={() => update(r, 'Received', r.to_branch, settings)}
                         >
                           Receive
                         </Button>
@@ -179,13 +200,6 @@ export function StockTransfers({ ctx }) {
               ]}
             />
           </Panel>
-          {transferBill && (
-            <BillModal
-              bill={transferBill}
-              settings={settings}
-              onClose={() => setTransferBill(null)}
-            />
-          )}
         </>
       )}
     </DataView>

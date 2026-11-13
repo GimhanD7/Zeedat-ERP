@@ -1,3 +1,4 @@
+import { apiClient } from '../api/client.js';
 import { dateLabel, money, ref } from './formatters.js';
 
 /* =====================================================================
@@ -608,9 +609,16 @@ export function transferToBill(tr = {}, settings = {}) {
 --------------------------------------------------------------------- */
 
 /**
- * Print an isolated HTML document via hidden iframe without printing the main app workspace.
+ * Print an isolated HTML document via Electron silent print or hidden iframe fallback.
  */
 export function printHtmlDocument(html) {
+  if (window.electronAPI?.printReceiptHtml) {
+    return window.electronAPI
+      .printReceiptHtml({ html, paperWidth: 80, silent: true })
+      .then(res => ({ success: res?.success ?? res?.ok ?? true, ...res }))
+      .catch(err => ({ success: false, error: err?.message || 'Print failed' }));
+  }
+
   return new Promise(resolve => {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -658,9 +666,10 @@ export function printHtmlDocument(html) {
 }
 
 /**
- * Print any unified bill via the configured thermal printer (Electron) or browser fallback.
+ * Silently print any unified bill directly to the configured thermal printer
+ * without showing any browser or OS print preview dialog.
  */
-export async function printBill(bill, settings = {}, options = {}) {
+export async function printBill(bill, settings = {}, _options = {}) {
   const html = buildBillHtml(bill, settings);
   if (window.electronAPI?.printReceiptHtml) {
     try {
@@ -668,14 +677,19 @@ export async function printBill(bill, settings = {}, options = {}) {
         html,
         paperWidth: billPaperWidth(settings),
         deviceName: settings?.receipt_printer_name || '',
-        silent: options.silent ?? true,
+        silent: true,
       });
       return { success: res?.success ?? res?.ok ?? true, ...res };
     } catch (err) {
       return { success: false, error: err?.message || 'Print failed' };
     }
   }
-  return printHtmlDocument(html);
+  try {
+    const res = await apiClient.post('bill.print', { bill, settings });
+    return { success: res?.success ?? true, ...res };
+  } catch (err) {
+    return { success: false, error: err?.message || 'Silent print failed' };
+  }
 }
 
 /** Backwards-compatible helpers for the POS sales invoice. */

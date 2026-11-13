@@ -20,7 +20,6 @@ import {
 import { useData } from '../../hooks/useData';
 import {
   Badge,
-  BillModal,
   Button,
   FilterTabs,
   Heading,
@@ -36,7 +35,9 @@ import {
   initials,
   money,
   options,
+  printBill,
   printHtmlDocument,
+  printThermalReceipt,
   ref,
   repairJobToBill,
   reservationToBill,
@@ -44,7 +45,6 @@ import {
   timeLabel,
   today,
 } from '../../utils';
-import { ReceiptModal } from '../pos/ReceiptModal';
 import { openReservationAction, openReserveItem, ReservationTable } from './ReservationActions';
 import { buildCustomerDirectoryHtml, buildCustomerStatementHtml } from './customerStatementPrint';
 
@@ -105,8 +105,6 @@ export function Customers({ ctx }) {
   const [detailTab, setDetailTab] = useState('receivables');
   const [ledger, setLedger] = useState({ wallet_logs: [], credit_payments: [], reservations: [] });
   const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [receipt, setReceipt] = useState(null);
-  const [custBill, setCustBill] = useState(null);
   const ledgerCacheRef = useRef(new Map());
   const lastRevisionRef = useRef(ctx.revision);
 
@@ -434,6 +432,27 @@ export function Customers({ ctx }) {
               { name: 'payment_method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
             ],
             transform: v => ({ ...v, pay_amount: cents(v.pay_amount) }),
+            onSuccess: (_res, submitted) => {
+              const paidAdd = Number(submitted?.pay_amount || 0);
+              const updatedRepair = {
+                ...repair,
+                paid_amount: Number(repair.paid_amount ?? repair.advance_paid ?? 0) + paidAdd,
+                customer: person?.name,
+                phone: person?.phone,
+                technician: repair.technician_name || repair.technician,
+              };
+              printBill(
+                repairJobToBill(
+                  updatedRepair,
+                  settings || {},
+                  person?.branch || '',
+                  updatedRepair.status === 'Delivered' ? 'delivery' : 'intake'
+                ),
+                settings || {},
+                { silent: true }
+              );
+              ctx.setNotice('Repair payment recorded · Bill printed.');
+            },
           });
         };
 
@@ -443,26 +462,48 @@ export function Customers({ ctx }) {
               ctx.get('products', { branch: person.branch_id }),
               ctx.get('units', { branch: person.branch_id }),
             ]);
-            openReserveItem(ctx, person, products, units);
+            openReserveItem(ctx, person, products, units, {
+              onSuccess: result => {
+                if (result?.reservation) {
+                  printBill(
+                    reservationToBill(
+                      { ...result.reservation, customer_name: person?.name, customer_phone: person?.phone },
+                      settings || {},
+                      person?.branch || ''
+                    ),
+                    settings || {},
+                    { silent: true }
+                  );
+                  ctx.setNotice('Reservation created · Bill printed.');
+                }
+              },
+            });
           } catch (error) {
             ctx.setNotice(error.message);
           }
         };
 
         const handleViewInvoice = async saleRow => {
+          const invCode = saleRow.invoice_no || ref('INV', saleRow.id);
           try {
             const fullInv = await ctx.get('invoice', { id: saleRow.id, branch: saleRow.branch_id || 0 });
-            setReceipt(fullInv);
+            printThermalReceipt(fullInv, settings || {}, { silent: true });
+            ctx.setNotice(`Invoice ${invCode} printed.`);
           } catch {
-            setReceipt({
-              ...saleRow,
-              customer: person?.name || 'Customer',
-              customer_phone: person?.phone || '',
-              customer_email: person?.email || '',
-              customer_id: person?.id,
-              items: [],
-              payments: [],
-            });
+            printThermalReceipt(
+              {
+                ...saleRow,
+                customer: person?.name || 'Customer',
+                customer_phone: person?.phone || '',
+                customer_email: person?.email || '',
+                customer_id: person?.id,
+                items: [],
+                payments: [],
+              },
+              settings || {},
+              { silent: true }
+            );
+            ctx.setNotice(`Invoice ${invCode} printed.`);
           }
         };
 
@@ -803,17 +844,34 @@ export function Customers({ ctx }) {
                         <ReservationTable
                           rows={reservations}
                           canCancel={['owner', 'manager'].includes(ctx.user.role)}
-                          onPrint={row =>
-                            setCustBill(
+                          onPrint={row => {
+                            printBill(
                               reservationToBill(
                                 { ...row, customer_name: person?.name, customer_phone: person?.phone },
                                 settings || {},
                                 person?.branch || ''
-                              )
-                            )
-                          }
+                              ),
+                              settings || {},
+                              { silent: true }
+                            );
+                            ctx.setNotice(`Reservation bill ${ref('RSV', row.id)} printed.`);
+                          }}
                           onAction={(row, action) => openReservationAction(ctx, row, action, result => {
-                            if (result.invoice) setReceipt(result.invoice);
+                            if (result?.invoice) {
+                              printThermalReceipt(result.invoice, settings || {}, { silent: true });
+                              ctx.setNotice('Handover bill printed.');
+                            } else if (result?.reservation) {
+                              printBill(
+                                reservationToBill(
+                                  { ...result.reservation, customer_name: person?.name, customer_phone: person?.phone },
+                                  settings || {},
+                                  person?.branch || ''
+                                ),
+                                settings || {},
+                                { silent: true }
+                              );
+                              ctx.setNotice(`Reservation bill ${ref('RSV', row.id)} printed.`);
+                            }
                           })}
                         />
                       </>
@@ -883,11 +941,11 @@ export function Customers({ ctx }) {
                             r => (
                               <Button
                                 size="sm"
-                                icon={ReceiptText}
+                                icon={Printer}
                                 variant="ghost"
                                 onClick={() => handleViewInvoice(r)}
                               >
-                                View
+                                Print Bill
                               </Button>
                             ),
                           ],
@@ -977,8 +1035,8 @@ export function Customers({ ctx }) {
                                 size="sm"
                                 icon={Printer}
                                 variant="outline"
-                                onClick={() =>
-                                  setCustBill(
+                                onClick={() => {
+                                  printBill(
                                     repairJobToBill(
                                       {
                                         ...r,
@@ -989,9 +1047,12 @@ export function Customers({ ctx }) {
                                       settings || {},
                                       person?.branch || '',
                                       r.status === 'Delivered' ? 'delivery' : 'intake'
-                                    )
-                                  )
-                                }
+                                    ),
+                                    settings || {},
+                                    { silent: true }
+                                  );
+                                  ctx.setNotice(`Repair bill ${ref('REP', r.id)} printed.`);
+                                }}
                               >
                                 Bill
                               </Button>
@@ -1008,14 +1069,6 @@ export function Customers({ ctx }) {
                 </Panel>
               )}
             </div>
-
-            {receipt && (
-              <ReceiptModal invoice={receipt} settings={settings || {}} onClose={() => setReceipt(null)} />
-            )}
-
-            {custBill && (
-              <BillModal bill={custBill} settings={settings || {}} onClose={() => setCustBill(null)} />
-            )}
           </>
         );
       }}

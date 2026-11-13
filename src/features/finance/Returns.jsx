@@ -10,7 +10,6 @@ import {
 import { useData } from '../../hooks/useData';
 import {
   Badge,
-  BillModal,
   Button,
   Field,
   FilterTabs,
@@ -20,8 +19,7 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { ReceiptModal } from '../pos/ReceiptModal';
-import { managers, money, options, ref, returnToBill } from '../../utils';
+import { managers, money, options, printBill, printThermalReceipt, ref, returnToBill } from '../../utils';
 
 const canManage = ctx => managers.includes(ctx.user.role);
 
@@ -30,8 +28,6 @@ export function Returns({ ctx }) {
   const [lookup, setLookup] = useState('');
   const [invoice, setInvoice] = useState(null);
   const [catalog, setCatalog] = useState({ products: [], units: [] });
-  const [viewReceipt, setViewReceipt] = useState(false);
-  const [returnBill, setReturnBill] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState(ctx.intent === 'pending' ? 'Pending' : 'All');
@@ -173,6 +169,15 @@ export function Returns({ ctx }) {
         decision === 'Completed' && row.method !== 'Cash' && row.amount > 0
           ? [{ name: 'reference', label: 'Confirmed refund reference', full: true }]
           : [],
+      onSuccess: () => {
+        if (decision === 'Completed') {
+          printBill(
+            returnToBill({ ...row, status: decision }, state.data?.settings),
+            state.data?.settings,
+            { silent: true }
+          );
+        }
+      },
     });
 
   return (
@@ -245,7 +250,15 @@ export function Returns({ ctx }) {
                       <small>Total</small>
                       <strong>{money(invoice.total)}</strong>
                     </div>
-                    <Button onClick={() => setViewReceipt(true)}>View receipt</Button>
+                    <Button
+                      icon={Printer}
+                      onClick={() => {
+                        printThermalReceipt(invoice, settings, { silent: true });
+                        ctx.setNotice(`Invoice ${ref('INV', invoice.id)} printed.`);
+                      }}
+                    >
+                      Print Bill
+                    </Button>
                   </div>
                   <Table
                     rows={invoice.items}
@@ -330,7 +343,10 @@ export function Returns({ ctx }) {
                         <Button
                           icon={Printer}
                           variant="outline"
-                          onClick={() => setReturnBill(returnToBill(r, settings))}
+                          onClick={() => {
+                            printBill(returnToBill(r, settings), settings, { silent: true });
+                            ctx.setNotice(`Return bill ${ref('RET', r.id)} printed.`);
+                          }}
                         >
                           Bill
                         </Button>
@@ -351,22 +367,6 @@ export function Returns({ ctx }) {
               />
             </Panel>
           </div>
-
-          {viewReceipt && (
-            <ReceiptModal
-              invoice={invoice}
-              settings={settings}
-              onClose={() => setViewReceipt(false)}
-            />
-          )}
-
-          {returnBill && (
-            <BillModal
-              bill={returnBill}
-              settings={settings}
-              onClose={() => setReturnBill(null)}
-            />
-          )}
         </>
       )}
     </DataView>

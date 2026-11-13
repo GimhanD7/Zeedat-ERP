@@ -380,7 +380,7 @@ export function Repairs({ ctx }) {
 
       ctx.setNotice(`Repair Job ${res.job_number} saved${smsNotice}${cashNotice}.`);
 
-      if (printReceiptOnSave || sendSmsOnSave) {
+      if (printReceiptOnSave) {
         const slip = {
           id: res.id,
           branch_id: intakeBranch,
@@ -404,11 +404,7 @@ export function Repairs({ ctx }) {
           sms_message: res.sms_message,
           mode: 'intake',
         };
-        setReceiptJob(slip);
-        if (printReceiptOnSave) {
-          const print = await printRepairSlip(slip, state.data?.settings, slip.branch_name);
-          if (!print.success) ctx.setNotice('Repair saved. Use Print Bill to retry printing.');
-        }
+        await printRepairSlip(slip, state.data?.settings, slip.branch_name);
       }
 
       clearForm();
@@ -554,7 +550,7 @@ export function Repairs({ ctx }) {
         completeJob.technician ||
         'Unassigned';
 
-      setReceiptJob({
+      const deliveredSlip = {
         ...completeJob,
         job_number: res.job_number,
         phone: completeJob.customer_phone || '',
@@ -566,8 +562,14 @@ export function Repairs({ ctx }) {
         sms: res.sms,
         sms_message: res.sms_message,
         mode: 'delivery',
-      });
+      };
       setCompleteJob(null);
+      await printRepairSlip(
+        deliveredSlip,
+        state.data?.settings,
+        completeJob.branch_name || ctx.branches.find(b => b.id === completeJob.branch_id)?.name || '',
+        'delivery'
+      );
       state.refresh();
     } catch (err) {
       setCompleteError(err.message || 'Failed to complete and record payment.');
@@ -1604,20 +1606,19 @@ export function Repairs({ ctx }) {
                                       type="button"
                                       className="zk-repair-mini-btn"
                                       title="Print Repair Bill"
-                                      onClick={() =>
-                                        setReceiptJob({
-                                          ...j,
-                                          job_number: j.job_number || ref('RJ', j.id),
-                                          phone: j.customer_phone || '',
-                                          sms_message: buildClientSmsText(
-                                            j,
-                                            settings,
-                                            j.branch_name || currentBranchName,
-                                            j.status === 'Delivered' ? 'delivered' : 'intake'
-                                          ),
-                                          mode: j.status === 'Delivered' ? 'delivery' : 'intake',
-                                        })
-                                      }
+                                      onClick={() => {
+                                        printRepairSlip(
+                                          {
+                                            ...j,
+                                            job_number: j.job_number || ref('RJ', j.id),
+                                            phone: j.customer_phone || '',
+                                          },
+                                          settings,
+                                          j.branch_name || currentBranchName,
+                                          j.status === 'Delivered' ? 'delivery' : 'intake'
+                                        );
+                                        ctx.setNotice(`Repair bill ${j.job_number || ref('RJ', j.id)} printed.`);
+                                      }}
                                     >
                                       <Printer size={14} />
                                     </button>
@@ -1710,20 +1711,19 @@ export function Repairs({ ctx }) {
                               <Button
                                 icon={Printer}
                                 variant="outline"
-                                onClick={() =>
-                                  setReceiptJob({
-                                    ...r,
-                                    job_number: r.job_number || ref('RJ', r.id),
-                                    phone: r.customer_phone || '',
-                                    sms_message: buildClientSmsText(
-                                      r,
-                                      settings,
-                                      r.branch_name || currentBranchName,
-                                      r.status === 'Delivered' ? 'delivered' : 'intake'
-                                    ),
-                                    mode: r.status === 'Delivered' ? 'delivery' : 'intake',
-                                  })
-                                }
+                                onClick={() => {
+                                  printRepairSlip(
+                                    {
+                                      ...r,
+                                      job_number: r.job_number || ref('RJ', r.id),
+                                      phone: r.customer_phone || '',
+                                    },
+                                    settings,
+                                    r.branch_name || currentBranchName,
+                                    r.status === 'Delivered' ? 'delivery' : 'intake'
+                                  );
+                                  ctx.setNotice(`Repair bill ${r.job_number || ref('RJ', r.id)} printed.`);
+                                }}
                               >
                                 Bill
                               </Button>

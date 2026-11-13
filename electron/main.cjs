@@ -296,16 +296,37 @@ ipcMain.handle('print-receipt-html', async (_event, options = {}) => {
     const heightMicrons = Math.max(60000, Math.ceil(Number(heightPx || 400) * 264.583) + 15000);
 
     let deviceName = String(options.deviceName || '').trim();
-    if (!deviceName && mainWindow && !mainWindow.isDestroyed()) {
-      const printers = await mainWindow.webContents.getPrintersAsync().catch(() => []);
-      const def = printers.find(p => p.isDefault) || printers[0];
+    const printers =
+      mainWindow && !mainWindow.isDestroyed()
+        ? await mainWindow.webContents.getPrintersAsync().catch(() => [])
+        : [];
+    if (!deviceName) {
+      const physical = printers.find(p => !/OneNote|Fax|XPS|PDF/i.test(p.name));
+      const def = physical || printers.find(p => p.isDefault) || printers[0];
       if (def?.name) deviceName = def.name;
+    }
+
+    if (!deviceName || /OneNote|Fax|XPS|PDF/i.test(deviceName)) {
+      const pdfBuf = await printWin.webContents.printToPDF({
+        printBackground: true,
+        margins: { marginType: 'none' },
+        pageSize: {
+          width: paperWidth === 58 ? 2.283 : 3.15,
+          height: Math.max(2.4, Number(heightPx || 400) / 96 + 0.6),
+        },
+      });
+      const spoolDir = path.join(__dirname, '..', 'api', 'storage', 'printed-bills');
+      fs.mkdirSync(spoolDir, { recursive: true });
+      const file = path.join(spoolDir, `bill-${Date.now()}.pdf`);
+      fs.writeFileSync(file, pdfBuf);
+      if (!printWin.isDestroyed()) printWin.close();
+      return { success: true, silent: true, deviceName: deviceName || 'Silent Spool', file };
     }
 
     return await new Promise(resolve => {
       printWin.webContents.print(
         {
-          silent: options.silent ?? true,
+          silent: true,
           printBackground: true,
           deviceName,
           margins: { marginType: 'none' },
@@ -315,8 +336,27 @@ ipcMain.handle('print-receipt-html', async (_event, options = {}) => {
           },
         },
         (success, failureReason) => {
-          if (!printWin.isDestroyed()) printWin.close();
-          resolve(success ? { success: true, deviceName } : { success: false, error: failureReason });
+          if (success) {
+            if (!printWin.isDestroyed()) printWin.close();
+            resolve({ success: true, silent: true, deviceName });
+            return;
+          }
+          printWin.webContents.print(
+            {
+              silent: true,
+              printBackground: true,
+              deviceName,
+              margins: { marginType: 'none' },
+            },
+            (retryOk, retryErr) => {
+              if (!printWin.isDestroyed()) printWin.close();
+              resolve(
+                retryOk
+                  ? { success: true, silent: true, deviceName }
+                  : { success: false, error: retryErr || failureReason }
+              );
+            }
+          );
         }
       );
     });
