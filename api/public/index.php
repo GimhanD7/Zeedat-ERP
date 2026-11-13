@@ -105,9 +105,11 @@ try {
 
         session_write_close();
 
-        if (PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
+        if (
+            PHP_SAPI === 'cli-server' && PHP_OS_FAMILY === 'Windows'
             && in_array($action, ['sync.auto', 'sync.push', 'sync.pull', 'backup.create'], true)
-            && \Zeedat\Config\Database::isSqlite()) {
+            && \Zeedat\Config\Database::isSqlite()
+        ) {
             $syncLock = fopen(\Zeedat\Config\Database::getSqlitePath() . '.sync.lock', 'c');
             if (!$syncLock || !flock($syncLock, LOCK_EX | LOCK_NB)) {
                 if ($action === 'sync.auto') {
@@ -122,227 +124,248 @@ try {
         $result = Idempotency::execute($user, $action, function () use ($action, $user, $branch, $body) {
             return match ($action) {
                 'sale.checkout' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'pos');
-                    return SaleController::checkout($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'pos');
+                        return SaleController::checkout($user, $branch, $body);
+                    })(),
                 'sale.credit' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'pos');
-                    return SaleController::creditPayment($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'pos');
+                        return SaleController::creditPayment($user, $branch, $body);
+                    })(),
                 'draft.save', 'draft.remove' => (function () use ($action, $user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'pos');
-                    return SaleController::saveDraft($action, $user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'pos');
+                        return SaleController::saveDraft($action, $user, $branch, $body);
+                    })(),
                 'drawer.open' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
-                    return DrawerController::open($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
+                        return DrawerController::open($user, $branch, $body);
+                    })(),
                 'drawer.close' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
-                    return DrawerController::close($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
+                        return DrawerController::close($user, $branch, $body);
+                    })(),
                 'drawer.movement' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
-                    return DrawerController::movement($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
+                        return DrawerController::movement($user, $branch, $body);
+                    })(),
                 'cycle.close' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'drawer');
-                    return DrawerController::closeCycle($branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'drawer');
+                        return DrawerController::closeCycle($branch, $body);
+                    })(),
                 'return.request' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'returns');
-                    return ReturnController::request($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'returns');
+                        return ReturnController::request($branch, $body);
+                    })(),
                 'return.resolve' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'returns');
-                    return ReturnController::resolve($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'returns');
+                        return ReturnController::resolve($user, $branch, $body);
+                    })(),
                 'customer.save' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
-                    return InventoryController::saveCustomer($branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
+                        return InventoryController::saveCustomer($branch, $body);
+                    })(),
                 'customer.wallet.topup' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
-                    return InventoryController::topUpWallet($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                        return InventoryController::topUpWallet($user, $branch, $body);
+                    })(),
                 'customer.points.adjust' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
-                    return InventoryController::adjustCustomerPoints($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                        return InventoryController::adjustCustomerPoints($user, $branch, $body);
+                    })(),
                 'customer.delete' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allow($user, 'owner');
-                    return InventoryController::deleteCustomer($user, $branch, $body);
-                })(),
+                        RoleGuard::allow($user, 'owner');
+                        return InventoryController::deleteCustomer($user, $branch, $body);
+                    })(),
                 'reservation.create', 'reservation.pay', 'reservation.deliver', 'reservation.cancel' => (function () use ($user, $branch, $body, $action) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
-                    return \Zeedat\Services\ReservationService::save($user, $branch, $body, $action);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                        return \Zeedat\Services\ReservationService::save($user, $branch, $body, $action);
+                    })(),
                 'product.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::saveProduct($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::saveProduct($user, $body);
+                    })(),
                 'product.import' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::importProducts($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::importProducts($user, $branch, $body);
+                    })(),
                 'product.barcode' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::updateBarcode($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::updateBarcode($user, $body);
+                    })(),
                 'product.delete' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::deleteProduct($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::deleteProduct($user, $body);
+                    })(),
                 'barcode.bulk' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::bulkGenerateBarcodes($body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::bulkGenerateBarcodes($body);
+                    })(),
                 'barcode.log_print' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    $b = (int) ($body['branch'] ?? 0);
-                    return InventoryController::logBarcodePrint($user, $b, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        $b = (int) ($body['branch'] ?? 0);
+                        return InventoryController::logBarcodePrint($user, $b, $body);
+                    })(),
                 'barcode.save_setup' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::saveLabelSetup($body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::saveLabelSetup($body);
+                    })(),
                 'stock.adjust' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::adjustStock($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::adjustStock($user, $branch, $body);
+                    })(),
                 'stock.bulk_adjust' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::bulkAdjustStock($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::bulkAdjustStock($user, $branch, $body);
+                    })(),
                 'unit.receive' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::receiveUnit($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::receiveUnit($user, $branch, $body);
+                    })(),
                 'unit.release' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::releaseUnit($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::releaseUnit($user, $branch, $body);
+                    })(),
                 'unit.inspect' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::inspectUnit($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::inspectUnit($user, $branch, $body);
+                    })(),
                 'unit.update' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'inventory');
-                    return InventoryController::updateUnit($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'inventory');
+                        return InventoryController::updateUnit($user, $body);
+                    })(),
                 'repair.create' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-                    return RepairController::create($branch, $body, $user);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                        return RepairController::create($branch, $body, $user);
+                    })(),
                 'repair.status' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-                    return RepairController::updateStatus($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                        return RepairController::updateStatus($user, $branch, $body);
+                    })(),
                 'repair.complete' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-                    return RepairController::completeAndPay($user, $branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                        return RepairController::completeAndPay($user, $branch, $body);
+                    })(),
                 'repair.payment' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'customers', 'pos');
-                    return RepairController::completeAndPay($user, $branch, ['payment_only' => true] + $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                        return RepairController::completeAndPay($user, $branch, ['payment_only' => true] + $body);
+                    })(),
                 'repair.sms' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-                    return RepairController::sendSms($branch, $body);
-                })(),
+                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                        return RepairController::sendSms($branch, $body);
+                    })(),
                 'supplier.create' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'purchases');
-                    return PurchaseController::createSupplier($body);
-                })(),
+                        RoleGuard::allowPermission($user, 'purchases');
+                        return PurchaseController::createSupplier($body);
+                    })(),
                 'purchase.receive' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'purchases');
-                    return PurchaseController::receive($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'purchases');
+                        return PurchaseController::receive($user, $branch, $body);
+                    })(),
                 'purchase.pay' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'purchases');
-                    return PurchaseController::pay($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'purchases');
+                        return PurchaseController::pay($user, $branch, $body);
+                    })(),
                 'transfer.request' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'transfers');
-                    return PurchaseController::requestTransfer($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'transfers');
+                        return PurchaseController::requestTransfer($user, $branch, $body);
+                    })(),
                 'transfer.update' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'transfers');
-                    return PurchaseController::updateTransfer($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'transfers');
+                        return PurchaseController::updateTransfer($user, $body);
+                    })(),
                 'staff.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::saveStaff($body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::saveStaff($body);
+                    })(),
                 'staff.assign_branches' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::assignUserBranches($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::assignUserBranches($user, $body);
+                    })(),
                 'permissions.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::savePermissions($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::savePermissions($user, $body);
+                    })(),
                 'permissions.reset' => (function () use ($user) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::resetPermissions($user);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::resetPermissions($user);
+                    })(),
                 'user.permissions.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::saveUserPermissions($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::saveUserPermissions($user, $body);
+                    })(),
                 'staff.delete' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::deleteStaff($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::deleteStaff($user, $body);
+                    })(),
                 'staff.toggle' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'staff');
-                    return AdminController::toggleStaffStatus($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'staff');
+                        return AdminController::toggleStaffStatus($user, $body);
+                    })(),
                 'settings.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return AdminController::saveSettings($body);
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return AdminController::saveSettings($body);
+                    })(),
                 'settings.pin.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return AdminController::saveDeletePin($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return AdminController::saveDeletePin($user, $body);
+                    })(),
                 'branch.save' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return AdminController::saveBranch($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return AdminController::saveBranch($user, $body);
+                    })(),
                 'profile.password' => (function () use ($user, $body) {
-                    return AdminController::changePassword($user, $body);
-                })(),
+                        return AdminController::changePassword($user, $body);
+                    })(),
                 'backup.create' => (function () use ($user, $branch, $body) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return BackupController::createBackup($user, $branch, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return BackupController::createBackup($user, $branch, $body);
+                    })(),
                 'backup.save_settings' => (function () use ($user, $body) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return BackupController::saveSettings($user, $body);
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return BackupController::saveSettings($user, $body);
+                    })(),
                 'sync.push' => (function () use ($user) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return \Zeedat\Services\CloudSyncService::pushToCloud();
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return \Zeedat\Services\CloudSyncService::pushToCloud();
+                    })(),
                 'sync.pull' => (function () use ($user) {
-                    RoleGuard::allowPermission($user, 'settings');
-                    return \Zeedat\Services\CloudSyncService::pullFromCloud();
-                })(),
+                        RoleGuard::allowPermission($user, 'settings');
+                        return \Zeedat\Services\CloudSyncService::pullFromCloud();
+                    })(),
                 'sync.auto' => (function () use ($user) {
-                    $bId = $user['branch_id'] ? (int) $user['branch_id'] : null;
-                    return \Zeedat\Services\CloudSyncService::runAutoSyncAndBackup($bId);
-                })(),
+                        $bId = $user['branch_id'] ? (int) $user['branch_id'] : null;
+                        return \Zeedat\Services\CloudSyncService::runAutoSyncAndBackup($bId);
+                    })(),
                 default => throw new ApiError('Route not found.', 404),
             };
         }, $branch);
 
         if ($action !== 'sync.auto') {
             $details = array_intersect_key($result, array_flip([
-                'id', 'invoice_no', 'status', 'previous', 'amount', 'total', 'replacement_sale_id',
-                'expected', 'counted', 'variance', 'state', 'tax_bps', 'paper_width',
-                'name', 'sku', 'badge_code', 'seller_name', 'commission_user_id',
-                'customer', 'device', 'method', 'direction', 'kind', 'reference', 'message',
+                'id',
+                'invoice_no',
+                'status',
+                'previous',
+                'amount',
+                'total',
+                'replacement_sale_id',
+                'expected',
+                'counted',
+                'variance',
+                'state',
+                'tax_bps',
+                'paper_width',
+                'name',
+                'sku',
+                'badge_code',
+                'seller_name',
+                'commission_user_id',
+                'customer',
+                'device',
+                'method',
+                'direction',
+                'kind',
+                'reference',
+                'message',
             ]));
             Helpers::audit($user, $branch ?: null, $action, $details);
         }
@@ -373,26 +396,26 @@ try {
 
     $result = match ($action) {
         'dashboard' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'dashboard');
-            return DashboardController::getDashboard($branch, $_GET);
-        })(),
+                RoleGuard::allowPermission($user, 'dashboard');
+                return DashboardController::getDashboard($branch, $_GET);
+            })(),
         'products' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
-            return InventoryController::getProducts($branch, $user);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
+                return InventoryController::getProducts($branch, $user);
+            })(),
         'units' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
-            return InventoryController::getUnits($branch);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
+                return InventoryController::getUnits($branch);
+            })(),
         'stock.movements' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'inventory');
-            return InventoryController::getStockMovements($branch, $_GET);
-        })(),
+                RoleGuard::allowPermission($user, 'inventory');
+                return InventoryController::getStockMovements($branch, $_GET);
+            })(),
         'customers' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
-            $params = $branch ? [$branch] : [];
-            $walletDelta = \Zeedat\Services\CustomerWallet::WALLET_DELTA;
-            return BaseRepository::rows(
+                RoleGuard::allowAnyPermission($user, 'customers', 'pos', 'repairs');
+                $params = $branch ? [$branch] : [];
+                $walletDelta = \Zeedat\Services\CustomerWallet::WALLET_DELTA;
+                return BaseRepository::rows(
                 "SELECT c.*, b.name branch,
                     CAST(COALESCE(c.loyalty_points,0) AS UNSIGNED) loyalty_points,
                     CAST(COALESCE(c.wallet_balance,0) AS UNSIGNED) wallet_balance,
@@ -441,129 +464,126 @@ try {
                 ) rsv ON rsv.customer_id = c.id
                 WHERE c.deleted_at IS NULL" . ($branch ? ' AND c.branch_id=?' : '') . ' ORDER BY COALESCE(t.sales_count,0) DESC, COALESCE(t.total,0) DESC, c.id DESC',
                 $params
-            );
-        })(),
+                );
+            })(),
         'customer.ledger' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'customers', 'pos');
-            return InventoryController::getCustomerLedger($branch, $_GET);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'customers', 'pos');
+                return InventoryController::getCustomerLedger($branch, $_GET);
+            })(),
         'reservations' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'pos', 'customers', 'inventory');
-            return \Zeedat\Services\ReservationService::forBranch($branch);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'pos', 'customers', 'inventory');
+                return \Zeedat\Services\ReservationService::forBranch($branch);
+            })(),
         'repairs' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-            return RepairController::getRepairs($branch, $user);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                return RepairController::getRepairs($branch, $user);
+            })(),
         'technicians' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
-            return RepairController::getTechnicians($branch);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                return RepairController::getTechnicians($branch);
+            })(),
         'drafts' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'pos');
-            return SaleController::getDrafts($branch, $user);
-        })(),
+                RoleGuard::allowPermission($user, 'pos');
+                return SaleController::getDrafts($branch, $user);
+            })(),
         'sales' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
-            return SaleController::getSales($branch);
-        })(),
-        'sales.search' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
-            $q = trim((string) ($_GET['q'] ?? ''));
-            return SaleController::searchSales($branch, $q);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+                return SaleController::getSales($branch);
+            })(),
         'invoice' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
-            return SaleController::getInvoice($branch, $_GET);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+                return SaleController::getInvoice($branch, $_GET);
+            })(),
         'drawer' => (function () use ($user, $branch) {
-            RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
-            if (!$branch && !in_array($user['role'], ['owner', 'manager'], true)) throw new ApiError('Select a branch.');
-            return DrawerController::getRegister($branch, $user, $_GET);
-        })(),
+                RoleGuard::allowAnyPermission($user, 'drawer', 'pos');
+                if (!$branch && !in_array($user['role'], ['owner', 'manager'], true))
+                    throw new ApiError('Select a branch.');
+                return DrawerController::getRegister($branch, $user, $_GET);
+            })(),
         'cashbook' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'drawer');
-            if (!$branch && !in_array($user['role'], ['owner', 'manager'], true)) throw new ApiError('Select a branch.');
-            return DrawerController::getRegister($branch, $user, $_GET);
-        })(),
+                RoleGuard::allowPermission($user, 'drawer');
+                if (!$branch && !in_array($user['role'], ['owner', 'manager'], true))
+                    throw new ApiError('Select a branch.');
+                return DrawerController::getRegister($branch, $user, $_GET);
+            })(),
         'returns' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'returns');
-            return ReturnController::getReturns($branch);
-        })(),
+                RoleGuard::allowPermission($user, 'returns');
+                return ReturnController::getReturns($branch);
+            })(),
         'purchases' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'purchases');
-            return PurchaseController::getPurchases($branch);
-        })(),
+                RoleGuard::allowPermission($user, 'purchases');
+                return PurchaseController::getPurchases($branch);
+            })(),
         'suppliers' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'purchases');
-            return PurchaseController::getSuppliers();
-        })(),
+                RoleGuard::allowPermission($user, 'purchases');
+                return PurchaseController::getSuppliers();
+            })(),
         'transfers' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'transfers');
-            return PurchaseController::getTransfers($branch);
-        })(),
+                RoleGuard::allowPermission($user, 'transfers');
+                return PurchaseController::getTransfers($branch);
+            })(),
         'staff' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'staff');
-            return AdminController::getStaff();
-        })(),
+                RoleGuard::allowPermission($user, 'staff');
+                return AdminController::getStaff();
+            })(),
         'staff.lookup' => (function () use ($user) {
-            RoleGuard::allowAnyPermission($user, 'pos', 'repairs', 'staff', 'reports');
-            $rows = BaseRepository::rows(
+                RoleGuard::allowAnyPermission($user, 'pos', 'repairs', 'staff', 'reports');
+                $rows = BaseRepository::rows(
                 "SELECT u.id, u.name, u.role, u.branch_id, u.badge_code, COALESCE(b.name, 'All Branches') AS branch_name
                  FROM users u
                  LEFT JOIN branches b ON b.id=u.branch_id
                  WHERE COALESCE(u.active, 1)=1
                  ORDER BY u.id ASC"
-            );
-            foreach ($rows as &$r) {
-                $r['badge_code'] = \Zeedat\Repositories\UserRepository::formatBadgeCode((int) $r['id'], $r['badge_code'] ?? null);
-            }
-            return $rows;
-        })(),
+                );
+                foreach ($rows as &$r) {
+                    $r['badge_code'] = \Zeedat\Repositories\UserRepository::formatBadgeCode((int) $r['id'], $r['badge_code'] ?? null);
+                }
+                return $rows;
+            })(),
         'reports' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'reports');
-            return DashboardController::getFullReports($branch, $_GET);
-        })(),
+                RoleGuard::allowPermission($user, 'reports');
+                return DashboardController::getFullReports($branch, $_GET);
+            })(),
         'permissions' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'staff');
-            return AdminController::getPermissions();
-        })(),
+                RoleGuard::allowPermission($user, 'staff');
+                return AdminController::getPermissions();
+            })(),
         'settings' => (function () use ($user) {
-            RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs');
-            $settings = AdminController::getSettings();
-            if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
-                unset($settings['cloud_api_key'], $settings['sms_api_key']);
-            }
-            return $settings;
-        })(),
+                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs');
+                $settings = AdminController::getSettings();
+                if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
+                    unset($settings['cloud_api_key'], $settings['sms_api_key']);
+                }
+                return $settings;
+            })(),
         'branches.summary' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
-            return AdminController::getBranchesSummary();
-        })(),
+                RoleGuard::allowPermission($user, 'settings');
+                return AdminController::getBranchesSummary();
+            })(),
         'audit' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
-            return AdminController::getAudit($_GET);
-        })(),
+                RoleGuard::allowPermission($user, 'settings');
+                return AdminController::getAudit($_GET);
+            })(),
         'barcode.generate' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'inventory');
-            return InventoryController::generateBarcode();
-        })(),
+                RoleGuard::allowPermission($user, 'inventory');
+                return InventoryController::generateBarcode();
+            })(),
         'barcode.stats' => (function () use ($user, $branch) {
-            RoleGuard::allowPermission($user, 'inventory');
-            return InventoryController::getBarcodePrintStats($branch);
-        })(),
+                RoleGuard::allowPermission($user, 'inventory');
+                return InventoryController::getBarcodePrintStats($branch);
+            })(),
         'printers' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'inventory');
-            return InventoryController::getInstalledPrinters();
-        })(),
+                RoleGuard::allowPermission($user, 'inventory');
+                return InventoryController::getInstalledPrinters();
+            })(),
         'backup.summary' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
-            return BackupController::getSummary();
-        })(),
+                RoleGuard::allowPermission($user, 'settings');
+                return BackupController::getSummary();
+            })(),
         'backup.history' => (function () use ($user) {
-            RoleGuard::allowPermission($user, 'settings');
-            return BackupController::getHistory();
-        })(),
+                RoleGuard::allowPermission($user, 'settings');
+                return BackupController::getHistory();
+            })(),
         'sync.status' => \Zeedat\Services\CloudSyncService::getStatus(),
         default => throw new ApiError('Route not found.', 404),
     };

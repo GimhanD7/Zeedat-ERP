@@ -11,14 +11,17 @@ use Zeedat\Support\ApiError;
 use Zeedat\Support\Helpers;
 use Zeedat\Support\Validator;
 
-class ReturnService {
-    public static function refundAmount(int $total, int $qty, int $refunded, int $delta): int {
+class ReturnService
+{
+    public static function refundAmount(int $total, int $qty, int $refunded, int $delta): int
+    {
         $prior = (int) bcdiv(bcmul((string) $total, (string) $refunded, 0), (string) $qty, 0);
         $next = (int) bcdiv(bcmul((string) $total, (string) ($refunded + $delta), 0), (string) $qty, 0);
         return $next - $prior;
     }
 
-    public static function request(int $branch, array $body): array {
+    public static function request(int $branch, array $body): array
+    {
         $item = Validator::integer($body['item_id'] ?? null, 'Invoice line');
         $line = BaseRepository::one(
             'SELECT i.*, s.credit, p.category FROM sale_items i JOIN sales s ON s.id=i.sale_id JOIN products p ON p.id=i.product_id WHERE i.id=? AND s.branch_id=? FOR UPDATE',
@@ -39,8 +42,8 @@ class ReturnService {
             throw new ApiError('Quantity exceeds the available return balance.', 409);
         }
 
-        $method = $body['method'] ?? 'Cash';
-        if ($method !== 'Wallet' && !in_array($method, Constants::TENDERS, true)) {
+        $method = $body['method'] ?? '';
+        if (!in_array($method, Constants::TENDERS, true)) {
             throw new ApiError('Invalid payment method.');
         }
 
@@ -53,6 +56,9 @@ class ReturnService {
         );
 
         if (!empty($body['replacement_product_id'])) {
+            if ($method !== 'Cash') {
+                throw new ApiError('Exchanges require an original cash tender.');
+            }
             $replacement = BaseRepository::one(
                 'SELECT p.*, s.qty available FROM products p JOIN stock s ON s.product_id=p.id WHERE p.id=? AND s.branch_id=?',
                 [Validator::integer($body['replacement_product_id'], 'Replacement product'), $branch]
@@ -84,7 +90,8 @@ class ReturnService {
         return ['id' => $id, 'amount' => $amount, 'status' => 'Pending'];
     }
 
-    public static function resolve(array $user, int $branch, array $body): array {
+    public static function resolve(array $user, int $branch, array $body): array
+    {
         $id = Validator::integer($body['id'] ?? null, 'Return request');
         $row = BaseRepository::one(
             'SELECT r.*, si.sale_id, si.product_id, si.unit_id, si.name product, s.customer_id, s.branch_id,
@@ -111,7 +118,7 @@ class ReturnService {
         }
 
         $drawer = null;
-        if ($row['method'] === 'Cash' || !empty($row['replacement_product_id'])) {
+        if ($row['method'] === 'Cash') {
             $drawer = DrawerService::openDrawer($user, $branch);
         }
 
@@ -173,7 +180,7 @@ class ReturnService {
             BaseRepository::run('UPDATE exchanges SET replacement_sale_id=? WHERE return_id=?', [$replacementSaleId, $id]);
 
             $diff = $total - (int) $row['amount'];
-            if ($diff !== 0 && $drawer) {
+            if ($diff !== 0) {
                 DrawerRepository::addCashMovement(
                     $user['id'],
                     $drawer,
@@ -190,9 +197,6 @@ class ReturnService {
                 'Cash Refund',
                 Helpers::ref('RET', $id)
             );
-        } elseif ($row['method'] === 'Wallet' && !empty($row['customer_id'])) {
-            BaseRepository::run('UPDATE customers SET wallet_balance=wallet_balance+?, synced=0 WHERE id=?', [(int) $row['amount'], (int) $row['customer_id']]);
-            CustomerWallet::entry($user, $branch, (int) $row['customer_id'], (int) $row['amount'], 'Return refund', 'Wallet', Helpers::ref('RET', $id));
         }
 
         BaseRepository::run(
@@ -200,17 +204,11 @@ class ReturnService {
             [$drawer['id'] ?? null, $reference, $id]
         );
 
-        $replacementInvoice = null;
-        if ($replacementSaleId) {
-            $replacementInvoice = SaleRepository::invoiceDetails($replacementSaleId, $branch);
-        }
-
         return [
             'id' => $id,
             'status' => 'Completed',
             'amount' => (int) $row['amount'],
             'replacement_sale_id' => $replacementSaleId,
-            'replacement_invoice' => $replacementInvoice,
         ];
     }
 }

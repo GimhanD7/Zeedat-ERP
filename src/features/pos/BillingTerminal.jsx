@@ -138,16 +138,9 @@ function BillingView({ ctx, data, onRefresh }) {
 
   const customerActiveReservations = useMemo(() => {
     if (!selectedCustomerObj) return [];
-    const custPhone = String(selectedCustomerObj.phone || '').replace(/\D/g, '');
-    return (reservations || []).filter(r => {
-      if (r.status !== 'Held') return false;
-      if (String(r.customer_id) === String(selectedCustomerObj.id)) return true;
-      if (custPhone && r.customer_phone) {
-        const rPhone = String(r.customer_phone).replace(/\D/g, '');
-        if (rPhone && (rPhone.endsWith(custPhone) || custPhone.endsWith(rPhone))) return true;
-      }
-      return false;
-    });
+    return (reservations || []).filter(
+      r => String(r.customer_id) === String(selectedCustomerObj.id) && r.status === 'Held'
+    );
   }, [reservations, selectedCustomerObj]);
 
   const customerReservationCount = useMemo(() => {
@@ -219,10 +212,10 @@ function BillingView({ ctx, data, onRefresh }) {
     const qCust = custQuery.trim().toLowerCase();
     const list = qCust
       ? customers.filter(
-          c =>
-            String(c.phone || '').toLowerCase().includes(qCust) ||
-            String(c.name || '').toLowerCase().includes(qCust)
-        )
+        c =>
+          String(c.phone || '').toLowerCase().includes(qCust) ||
+          String(c.name || '').toLowerCase().includes(qCust)
+      )
       : popularCustomers;
     return list.slice(0, 8);
   }, [customers, popularCustomers, custQuery]);
@@ -236,12 +229,6 @@ function BillingView({ ctx, data, onRefresh }) {
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
-
-  useEffect(() => {
-    if (ctx.dialog) {
-      setCustDropdownOpen(false);
-    }
-  }, [ctx.dialog]);
 
   const openQuickAddCustomer = (prefillText = '') => {
     setCustDropdownOpen(false);
@@ -664,7 +651,7 @@ function BillingView({ ctx, data, onRefresh }) {
           ) : (
             !registerBlocked && (
               <Button icon={Plus} variant="primary" onClick={openCashRegisterDialog}>
-                  Open Shift
+                Open Shift
               </Button>
             )
           )}
@@ -802,7 +789,7 @@ function BillingView({ ctx, data, onRefresh }) {
                     </div>
                   )}
 
-                  {custDropdownOpen && !ctx.dialog && (
+                  {custDropdownOpen && (
                     <div className="zk-pos-cust-dropdown">
                       <div className="zk-pos-cust-dd-head">
                         <span>{custQuery.trim() ? 'Matching Customers' : 'Popular Customers'}</span>
@@ -929,38 +916,38 @@ function BillingView({ ctx, data, onRefresh }) {
                     )}
                     {(Number(selectedCustomerObj.credit || 0) > 0 ||
                       Number(selectedCustomerObj.repair_due || 0) > 0) && (() => {
-                      const creditDue = Number(selectedCustomerObj.credit || 0);
-                      const repairDue = Number(selectedCustomerObj.repair_due || 0);
-                      const totalDue = creditDue + repairDue;
-                      const isOverdue =
-                        (creditDue > 0 &&
-                          selectedCustomerObj.next_due_date &&
-                          String(selectedCustomerObj.next_due_date).slice(0, 10) < today()) ||
-                        (repairDue > 0 &&
-                          selectedCustomerObj.repair_next_due_date &&
-                          String(selectedCustomerObj.repair_next_due_date).slice(0, 10) < today());
-                      return (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '3px 8px',
-                            borderRadius: '999px',
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            background: isOverdue ? '#fef2f2' : '#fffbeb',
-                            color: isOverdue ? '#dc2626' : '#b45309',
-                            border: `1px solid ${isOverdue ? '#fecaca' : '#fde68a'}`,
-                          }}
-                        >
-                          <AlertTriangle size={11} />
-                          <span>
-                            {isOverdue ? 'Overdue Due:' : 'Total Due:'} {money(totalDue)}
+                        const creditDue = Number(selectedCustomerObj.credit || 0);
+                        const repairDue = Number(selectedCustomerObj.repair_due || 0);
+                        const totalDue = creditDue + repairDue;
+                        const isOverdue =
+                          (creditDue > 0 &&
+                            selectedCustomerObj.next_due_date &&
+                            String(selectedCustomerObj.next_due_date).slice(0, 10) < today()) ||
+                          (repairDue > 0 &&
+                            selectedCustomerObj.repair_next_due_date &&
+                            String(selectedCustomerObj.repair_next_due_date).slice(0, 10) < today());
+                        return (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '3px 8px',
+                              borderRadius: '999px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              background: isOverdue ? '#fef2f2' : '#fffbeb',
+                              color: isOverdue ? '#dc2626' : '#b45309',
+                              border: `1px solid ${isOverdue ? '#fecaca' : '#fde68a'}`,
+                            }}
+                          >
+                            <AlertTriangle size={11} />
+                            <span>
+                              {isOverdue ? 'Overdue Due:' : 'Total Due:'} {money(totalDue)}
+                            </span>
                           </span>
-                        </span>
-                      );
-                    })()}
+                        );
+                      })()}
                   </div>
                   {customerActiveReservations.length > 0 && (
                     <div

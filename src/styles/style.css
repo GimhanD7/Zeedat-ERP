@@ -7,17 +7,20 @@
   align-items: center;
   max-width: 100%;
 }
+
 .barcode-svg {
   display: block;
   max-width: 100%;
   height: auto;
 }
+
 .barcode-fallback {
   padding: 2px 6px;
   background: var(--bg-hover, #f3f4f6);
   border-radius: 4px;
   font-size: 11px;
 }
+
 .barcode-pill {
   display: inline-flex;
   align-items: center;
@@ -32,10 +35,12 @@
   cursor: pointer;
   transition: all 0.15s ease;
 }
+
 .barcode-pill:hover {
   background: rgba(99, 102, 241, 0.16);
   border-color: rgba(99, 102, 241, 0.35);
 }
+
 .badge-no-barcode {
   display: inline-flex;
   align-items: center;
@@ -47,6 +52,7 @@
   color: #64748b;
   border: 1px dashed #cbd5e1;
 }
+
 .no-barcode-notice {
   background: #f8fafc;
   border: 1px dashed #cbd5e1;
@@ -55,9 +61,11 @@
   font-size: 12px;
   color: #475569;
 }
+
 .no-barcode-notice p {
   margin: 0 0 4px;
 }
+
 .no-barcode-notice p:last-child {
   margin: 0;
 }
@@ -69,6 +77,7 @@
   gap: 4px;
   margin-top: 4px;
 }
+
 .branch-pill {
   display: inline-flex;
   align-items: center;
@@ -80,22 +89,26 @@
   color: #475569;
   border: 1px solid #e2e8f0;
 }
+
 .branch-pill .branch-name {
   color: #64748b;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
 }
+
 .branch-pill.ok {
   background: #f0fdf4;
   color: #166534;
   border-color: #bbf7d0;
 }
+
 .branch-pill.low {
   background: #fefce8;
   color: #854d0e;
   border-color: #fef08a;
 }
+
 .branch-pill.zero {
   background: #fef2f2;
   color: #991b1b;
@@ -110,6 +123,7 @@
   gap: 8px;
   padding: 2px 4px;
 }
+
 .branch-matrix-cell .badge-stock {
   font-weight: 600;
   padding: 3px 8px;
@@ -118,14 +132,17 @@
   text-align: center;
   font-size: 12px;
 }
+
 .branch-matrix-cell .badge-stock.ok {
   background: #dcfce7;
   color: #15803d;
 }
+
 .branch-matrix-cell .badge-stock.low {
   background: #fef3c7;
   color: #b45309;
 }
+
 .branch-matrix-cell .badge-stock.zero {
   background: #fee2e2;
   color: #b91c1c;
@@ -135,39 +152,47 @@
 .barcode-modal-body {
   padding: 16px 20px;
 }
+
 .barcode-modal-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
   align-items: start;
 }
+
 @media (max-width: 768px) {
   .barcode-modal-grid {
     grid-template-columns: 1fr;
   }
 }
+
 .barcode-controls .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-bottom: 14px;
 }
+
 .barcode-input-row {
   display: flex;
   gap: 8px;
   align-items: center;
 }
+
 .barcode-input-row input {
   flex: 1;
 }
+
 .copies-selector {
   display: flex;
   gap: 8px;
   align-items: center;
 }
+
 .copies-selector input {
   width: 90px;
 }
+
 .product-info-summary {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -178,17 +203,20 @@
   flex-direction: column;
   gap: 10px;
 }
+
 .product-info-summary .info-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
+
 .product-info-summary .info-label {
   display: block;
   font-size: 11px;
   color: #64748b;
   text-transform: uppercase;
 }
+
 .product-info-summary .price-tag {
   font-weight: 700;
   color: #0f172a;
@@ -200,6 +228,7 @@
   flex-direction: column;
   align-items: center;
 }
+
 .barcode-preview-area h4 {
   font-size: 13px;
   color: #64748b;
@@ -207,6 +236,7 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
 .barcode-label-card {
   background: #ffffff;
   border: 1px dashed #cbd5e1;
@@ -219,16 +249,20 @@
   text-align: center;
   box-sizing: border-box;
 }
+
 .barcode-label-card.sticker58 {
   width: 210px;
 }
+
 .barcode-label-card.tag80 {
   width: 270px;
 }
+
 .barcode-label-card.compact {
   width: 170px;
   padding: 8px 10px;
 }
+
 .barcode-label-card .label-header {
   display: flex;
   justify-content: space-between;
@@ -240,6 +274,7 @@
   padding-bottom: 4px;
   margin-bottom: 6px;
 }
+
 .barcode-label-card .label-title {
   font-size: 12px;
   font-weight: 600;
@@ -250,12 +285,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .barcode-label-card .label-barcode {
   margin: 4px 0 8px;
   width: 100%;
   display: flex;
   justify-content: center;
 }
+
 .barcode-label-card .label-footer {
   display: flex;
   justify-content: space-between;
@@ -264,11 +301,13 @@
   border-top: 1px solid #f1f5f9;
   padding-top: 6px;
 }
+
 .barcode-label-card .label-price {
   font-size: 14px;
   font-weight: 800;
   color: #0f172a;
 }
+
 .barcode-label-card .label-vat {
   font-size: 9px;
   color: #94a3b8;
@@ -278,6 +317,7 @@
 .printable-labels-sheet {
   display: none;
 }
+
 @media print {
   .printable-labels-sheet {
     display: flex !important;
@@ -286,6 +326,7 @@
     padding: 2mm;
     background: #fff;
   }
+
   .print-label-item {
     page-break-inside: avoid;
     border: 1px solid #e2e8f0;
@@ -297,18 +338,22 @@
     background: #fff;
     box-sizing: border-box;
   }
+
   .print-label-item.sticker58 {
     width: 54mm;
     height: 38mm;
   }
+
   .print-label-item.tag80 {
     width: 76mm;
     height: 48mm;
   }
+
   .print-label-item.compact {
     width: 40mm;
     height: 25mm;
   }
+
   .print-label-item .label-header {
     display: flex;
     justify-content: space-between;
@@ -317,6 +362,7 @@
     font-weight: 700;
     margin-bottom: 1mm;
   }
+
   .print-label-item .label-title {
     font-size: 9px;
     font-weight: 600;
@@ -324,9 +370,11 @@
     white-space: nowrap;
     overflow: hidden;
   }
+
   .print-label-item .label-barcode {
     margin: 1mm 0;
   }
+
   .print-label-item .label-footer {
     display: flex;
     justify-content: space-between;
@@ -340,6 +388,7 @@
 .batch-barcode-modal {
   padding: 14px 18px;
 }
+
 .batch-toolbar {
   display: flex;
   justify-content: space-between;
@@ -350,11 +399,13 @@
   border-bottom: 1px solid #e2e8f0;
   margin-bottom: 14px;
 }
+
 .batch-filters {
   display: flex;
   gap: 10px;
   align-items: center;
 }
+
 .batch-filters .search-wrap {
   display: flex;
   align-items: center;
@@ -364,18 +415,21 @@
   border-radius: 6px;
   padding: 4px 10px;
 }
+
 .batch-filters .search-wrap input {
   border: none;
   outline: none;
   font-size: 13px;
   width: 180px;
 }
+
 .batch-actions-top {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
+
 .selection-helpers {
   display: flex;
   gap: 6px;
@@ -387,6 +441,7 @@
   gap: 20px;
   align-items: start;
 }
+
 @media (max-width: 900px) {
   .batch-layout-grid {
     grid-template-columns: 1fr;
@@ -399,11 +454,13 @@
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
+
 .batch-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
+
 .batch-table th {
   position: sticky;
   top: 0;
@@ -416,16 +473,20 @@
   border-bottom: 1px solid #e2e8f0;
   z-index: 2;
 }
+
 .batch-table td {
   padding: 8px 10px;
   border-bottom: 1px solid #f1f5f9;
 }
+
 .batch-table tr.row-dimmed {
   opacity: 0.6;
 }
+
 .batch-table tr.row-selected {
   background: rgba(99, 102, 241, 0.03);
 }
+
 .btn-checkbox {
   background: none;
   border: none;
@@ -434,9 +495,11 @@
   display: flex;
   align-items: center;
 }
+
 .product-title-cell strong {
   display: block;
 }
+
 .copies-input {
   width: 65px;
   padding: 3px 6px;
@@ -452,12 +515,14 @@
   border-radius: 8px;
   padding: 14px;
 }
+
 .options-card h4 {
   font-size: 13px;
   text-transform: uppercase;
   color: #475569;
   margin-bottom: 10px;
 }
+
 .batch-summary-stats {
   display: flex;
   flex-direction: column;
@@ -468,10 +533,12 @@
   margin: 12px 0;
   font-size: 13px;
 }
+
 .batch-summary-stats .stat-row {
   display: flex;
   justify-content: space-between;
 }
+
 .single-preview-wrap h5 {
   font-size: 11px;
   text-transform: uppercase;
@@ -483,6 +550,7 @@
 .batch-print-sheet {
   display: none;
 }
+
 @media print {
   .batch-print-sheet {
     display: flex !important;
@@ -492,6 +560,7 @@
     margin: 0;
     box-sizing: border-box;
   }
+
   .batch-print-sheet.a4grid {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr);
@@ -499,14 +568,17 @@
     width: 210mm;
     padding: 8mm 6mm;
   }
+
   .batch-print-sheet.sticker58 {
     gap: 3mm;
     width: 58mm;
   }
+
   .batch-print-sheet.tag80 {
     gap: 4mm;
     width: 80mm;
   }
+
   .batch-print-label {
     page-break-inside: avoid;
     break-inside: avoid;
@@ -519,22 +591,27 @@
     background: #fff;
     box-sizing: border-box;
   }
+
   .batch-print-label.sticker58 {
     width: 54mm;
     height: 38mm;
   }
+
   .batch-print-label.tag80 {
     width: 76mm;
     height: 48mm;
   }
+
   .batch-print-label.compact {
     width: 40mm;
     height: 25mm;
   }
+
   .batch-print-label.a4grid {
     width: 65mm;
     height: 34mm;
   }
+
   .batch-print-label .label-header {
     display: flex;
     justify-content: space-between;
@@ -542,6 +619,7 @@
     font-size: 8px;
     font-weight: 700;
   }
+
   .batch-print-label .label-title {
     font-size: 9px;
     font-weight: 600;
@@ -550,9 +628,11 @@
     overflow: hidden;
     margin: 1mm 0;
   }
+
   .batch-print-label .label-barcode {
     margin: 0.5mm 0;
   }
+
   .batch-print-label .label-footer {
     display: flex;
     justify-content: space-between;
@@ -576,6 +656,7 @@
   margin-top: 8px;
   line-height: 1.4;
 }
+
 .barcode-conflict-warning strong {
   color: #7f1d1d;
 }
@@ -856,8 +937,15 @@
 }
 
 @keyframes zkFadeIn {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .zk-checkout-container {
@@ -973,6 +1061,7 @@
   .zk-checkout-grid {
     grid-template-columns: 1fr 1fr;
   }
+
   .zk-summary-card {
     grid-column: span 2;
   }
@@ -982,6 +1071,7 @@
   .zk-checkout-grid {
     grid-template-columns: 1fr;
   }
+
   .zk-summary-card {
     grid-column: span 1;
   }
@@ -1670,6 +1760,7 @@
 }
 
 @media (max-width: 768px) {
+
   .zk-form-row-3,
   .zk-form-row-2 {
     grid-template-columns: 1fr;
@@ -2137,6 +2228,7 @@
   .zk-dash-row2 {
     grid-template-columns: 1fr 1fr;
   }
+
   .zk-actions-card {
     grid-column: span 2;
   }
@@ -2146,6 +2238,7 @@
   .zk-dash-row2 {
     grid-template-columns: 1fr;
   }
+
   .zk-actions-card {
     grid-column: span 1;
   }
@@ -2886,6 +2979,7 @@
 }
 
 @media (max-width: 1080px) {
+
   .zk-settings-grid,
   .zk-security-top-grid {
     grid-template-columns: 1fr;
@@ -3535,6 +3629,7 @@
     gap: 0;
     page-break-inside: avoid;
   }
+
   .zk-exact-print-cell {
     border: none !important;
     page-break-inside: avoid;
@@ -3556,9 +3651,11 @@
   text-align: center;
   color: #111;
 }
+
 .receipt-print p {
   font-size: 12px;
 }
+
 .receipt-print .table-wrap {
   margin-top: 8px;
 }
@@ -3569,16 +3666,19 @@
     padding: 2mm;
     font-size: 9px;
   }
+
   .receipt-print table,
   .receipt-print p,
   .receipt-print .totals {
     font-size: 9px;
   }
+
   .receipt-print th,
   .receipt-print td {
     font-size: 8px;
     padding: 2px;
   }
+
   .receipt-print .total {
     font-size: 10px;
   }
@@ -5329,27 +5429,11 @@
 }
 
 /* Modal backdrop & Dialog stack elevation */
-.modal-backdrop,
-.zk-checkout-modal-backdrop {
-  z-index: 99999 !important;
+.modal-backdrop {
+  z-index: 1000 !important;
 }
 
-.modal,
-.zk-checkout-modal {
+.modal {
   position: relative;
-  z-index: 100000 !important;
+  z-index: 1001 !important;
 }
-
-/* Whenever any modal backdrop is active, completely dismiss/hide any floating dropdowns */
-body:has(.modal-backdrop) .zk-pos-cust-dropdown,
-body:has(.modal-backdrop) .search-results,
-body:has(.zk-checkout-modal-backdrop) .zk-pos-cust-dropdown,
-body:has(.zk-checkout-modal-backdrop) .search-results {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-
-

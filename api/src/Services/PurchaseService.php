@@ -10,15 +10,18 @@ use Zeedat\Support\ApiError;
 use Zeedat\Support\Helpers;
 use Zeedat\Support\Validator;
 
-class PurchaseService {
-    public static function createSupplier(array $body): array {
+class PurchaseService
+{
+    public static function createSupplier(array $body): array
+    {
         $name = Validator::str($body, 'name', 120);
         $phone = Validator::str($body, 'phone', 30, false);
         $id = BaseRepository::insert('INSERT INTO suppliers(name, phone, synced) VALUES (?,?,0)', [$name, $phone ?: '']);
         return ['id' => $id, 'name' => $name];
     }
 
-    public static function receiveStock(array $user, int $branch, array $body): array {
+    public static function receiveStock(array $user, int $branch, array $body): array
+    {
         $targetBranch = !empty($body['branch']) ? (int) $body['branch'] : $branch;
         if (!$targetBranch) {
             throw new ApiError('Select a valid receiving branch.');
@@ -132,7 +135,8 @@ class PurchaseService {
                     $drawerId = $drawer ? $drawer['id'] : null;
 
                     foreach ($createdPurchases as &$cp) {
-                        if ($remainingToPay <= 0) break;
+                        if ($remainingToPay <= 0)
+                            break;
                         $lineBalance = $cp['total'];
                         $payPart = min($remainingToPay, $lineBalance);
                         $remainingToPay -= $payPart;
@@ -197,7 +201,8 @@ class PurchaseService {
         return ['id' => $purchaseId, 'balance' => $qty * $unitCost];
     }
 
-    public static function paySupplier(array $user, int $branch, array $body): array {
+    public static function paySupplier(array $user, int $branch, array $body): array
+    {
         $drawer = DrawerService::openDrawer($user, $branch);
         $amount = Validator::money($body, 'amount');
         if ($amount <= 0) {
@@ -223,7 +228,8 @@ class PurchaseService {
 
             $rem = $amount;
             foreach ($lines as $line) {
-                if ($rem <= 0) break;
+                if ($rem <= 0)
+                    break;
                 $lineBal = (int) $line['balance'];
                 $part = min($rem, $lineBal);
                 $rem -= $part;
@@ -273,58 +279,13 @@ class PurchaseService {
         return ['id' => $id, 'amount' => $amount, 'balance' => (int) $purchase['balance'] - $amount];
     }
 
-    public static function requestTransfer(array $user, int $branch, array $body): array {
-        $fromBranch = !empty($body['from_branch']) ? (int) $body['from_branch'] : $branch;
+    public static function requestTransfer(array $user, int $branch, array $body): array
+    {
         $to = Validator::integer($body['to_branch'] ?? null, 'Destination branch');
-        if ($to === $fromBranch || !BaseRepository::scalar('SELECT id FROM branches WHERE id=?', [$to])) {
+        if ($to === $branch || !BaseRepository::scalar('SELECT id FROM branches WHERE id=?', [$to])) {
             throw new ApiError('Select a valid destination branch.');
         }
 
-        $items = $body['items'] ?? null;
-        if (is_array($items) && count($items) > 0) {
-            return BaseRepository::transaction(function () use ($user, $fromBranch, $to, $items, $body) {
-                $created = [];
-                $autoDispatch = !empty($body['auto_dispatch']);
-
-                foreach ($items as $idx => $line) {
-                    $productId = Validator::integer($line['product_id'] ?? null, 'Product #' . ($idx + 1));
-                    $p = ProductRepository::findById($productId);
-                    if (!$p || $p['category'] === 'Services') {
-                        throw new ApiError('Cannot transfer product: ' . ($p['name'] ?? ('ID ' . $productId)));
-                    }
-
-                    $qty = Validator::integer($line['qty'] ?? null, 'Quantity for ' . $p['name'], 1, 10000);
-                    $unit = null;
-                    if ($p['serialized']) {
-                        $unit = Validator::integer($line['unit_id'] ?? null, 'Device unit for ' . $p['name']);
-                        if (!ProductRepository::findAvailableUnit($unit, $fromBranch, $productId)) {
-                            throw new ApiError('Selected device is not available at source branch: ' . $p['name'], 409);
-                        }
-                    } else {
-                        ProductRepository::assertStockAvailable($fromBranch, $productId, $qty);
-                    }
-
-                    $status = $autoDispatch ? 'Dispatched' : 'Requested';
-                    $id = BaseRepository::insert(
-                        'INSERT INTO transfers(from_branch, to_branch, product_id, unit_id, qty, status, synced) VALUES (?,?,?,?,?,?,0)',
-                        [$fromBranch, $to, $productId, $unit, $qty, $status]
-                    );
-
-                    if ($autoDispatch) {
-                        if ($unit) {
-                            BaseRepository::run("UPDATE units SET state='In Transit', synced=0 WHERE id=?", [$unit]);
-                        }
-                        ProductRepository::adjustStock($fromBranch, $productId, -$qty, 'Transfer dispatched', Helpers::ref('ST', $id), (int) $user['id']);
-                    }
-
-                    $created[] = ['id' => $id, 'product_id' => $productId, 'qty' => $qty, 'status' => $status];
-                }
-
-                return ['items' => $created, 'count' => count($created), 'status' => $autoDispatch ? 'Dispatched' : 'Requested'];
-            });
-        }
-
-        // Single item path
         $product = Validator::integer($body['product_id'] ?? null, 'Product');
         $p = ProductRepository::findById($product);
         if (!$p || $p['category'] === 'Services') {
@@ -335,32 +296,21 @@ class PurchaseService {
         $unit = null;
         if ($p['serialized']) {
             $unit = Validator::integer($body['unit_id'] ?? null, 'Device unit');
-            if (!ProductRepository::findAvailableUnit($unit, $fromBranch, $product)) {
+            if (!ProductRepository::findAvailableUnit($unit, $branch, $product)) {
                 throw new ApiError('Selected device is not available at this branch.', 409);
             }
-        } else {
-            ProductRepository::assertStockAvailable($fromBranch, $product, $qty);
         }
-
-        $autoDispatch = !empty($body['auto_dispatch']);
-        $status = $autoDispatch ? 'Dispatched' : 'Requested';
 
         $id = BaseRepository::insert(
-            "INSERT INTO transfers(from_branch, to_branch, product_id, unit_id, qty, status, synced) VALUES (?,?,?,?,?,?,0)",
-            [$fromBranch, $to, $product, $unit, $qty, $status]
+            "INSERT INTO transfers(from_branch, to_branch, product_id, unit_id, qty, status, synced) VALUES (?,?,?,?,?, 'Requested', 0)",
+            [$branch, $to, $product, $unit, $qty]
         );
 
-        if ($autoDispatch) {
-            if ($unit) {
-                BaseRepository::run("UPDATE units SET state='In Transit', synced=0 WHERE id=?", [$unit]);
-            }
-            ProductRepository::adjustStock($fromBranch, $product, -$qty, 'Transfer dispatched', Helpers::ref('ST', $id), (int) $user['id']);
-        }
-
-        return ['id' => $id, 'status' => $status];
+        return ['id' => $id, 'status' => 'Requested'];
     }
 
-    public static function updateTransfer(array $user, array $body): array {
+    public static function updateTransfer(array $user, array $body): array
+    {
         $id = Validator::integer($body['id'] ?? null, 'Transfer');
         $transfer = BaseRepository::one('SELECT * FROM transfers WHERE id=? FOR UPDATE', [$id]);
         if (!$transfer) {
@@ -384,7 +334,7 @@ class PurchaseService {
             if ($user['role'] !== 'owner' && !in_array($fromBranch, $allowedBranches, true)) {
                 throw new ApiError('Only the source branch can dispatch.', 403);
             }
-            if ($actingBranch > 0 && $actingBranch !== $fromBranch && $user['role'] !== 'owner') {
+            if ($actingBranch !== $fromBranch) {
                 throw new ApiError('Switch to the source branch to dispatch.', 403);
             }
 
@@ -408,7 +358,7 @@ class PurchaseService {
             if ($user['role'] !== 'owner' && !in_array($toBranch, $allowedBranches, true)) {
                 throw new ApiError('Only the destination branch can receive.', 403);
             }
-            if ($actingBranch > 0 && $actingBranch !== $toBranch && $user['role'] !== 'owner') {
+            if ($actingBranch !== $toBranch) {
                 throw new ApiError('Switch to the destination branch to receive.', 403);
             }
 
@@ -423,19 +373,11 @@ class PurchaseService {
         }
 
         if ($next === 'Rejected') {
-            if ($transfer['status'] !== 'Requested' && $transfer['status'] !== 'Dispatched') {
-                throw new ApiError('Only requested or dispatched transfers can be rejected.');
+            if ($transfer['status'] !== 'Requested') {
+                throw new ApiError('Only requested transfers can be rejected.');
             }
-            if ($user['role'] !== 'owner' && !in_array($fromBranch, $allowedBranches, true) && !in_array($toBranch, $allowedBranches, true)) {
-                throw new ApiError('Only source or destination branches can reject.', 403);
-            }
-
-            // If it was already dispatched, restore stock back to source branch!
-            if ($transfer['status'] === 'Dispatched') {
-                if ($transfer['unit_id']) {
-                    BaseRepository::run("UPDATE units SET state='Available', synced=0 WHERE id=?", [$transfer['unit_id']]);
-                }
-                ProductRepository::adjustStock($fromBranch, (int) $transfer['product_id'], (int) $transfer['qty'], 'Transfer rejected & returned', Helpers::ref('ST', $id), (int) $user['id']);
+            if ($user['role'] !== 'owner' && !in_array($fromBranch, $allowedBranches, true)) {
+                throw new ApiError('Only the source branch can reject.', 403);
             }
 
             BaseRepository::run("UPDATE transfers SET status='Rejected', synced=0 WHERE id=?", [$id]);
