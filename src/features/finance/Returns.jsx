@@ -19,9 +19,16 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { managers, money, options, printBill, printThermalReceipt, ref, returnToBill } from '../../utils';
+import { cents, managers, money, options, printBill, printThermalReceipt, ref, returnToBill, tenders } from '../../utils';
 
 const canManage = ctx => managers.includes(ctx.user.role) || ctx.user.role === 'cashier';
+const exchangeDifference = row => Number(row.quoted_total) - Number(row.amount);
+const cashAction = difference =>
+  difference > 0 ? `Collect ${money(difference)}`
+    : difference < 0 ? `Refund ${money(-difference)}`
+      : 'Even exchange · no cash due';
+const refundMethods = invoice => [...new Set(invoice.payments.map(p => p.method === 'Exchange Credit' ? 'Cash' : p.method))]
+  .filter(method => tenders.includes(method));
 
 export function Returns({ ctx, embedded = false }) {
   const state = useData(ctx, { returns: 'returns', settings: 'settings' });
@@ -56,7 +63,7 @@ export function Returns({ ctx, embedded = false }) {
     setInvoice(null);
     try {
       const found = await ctx.get('invoice', { id: lookup });
-      if (found.payments.some(p => p.method === 'Cash')) {
+      if (refundMethods(found).includes('Cash')) {
         const [products, units] = await Promise.all(
           ['products', 'units'].map(route => ctx.get(route, { branch: found.branch_id }))
         );
@@ -80,7 +87,7 @@ export function Returns({ ctx, embedded = false }) {
         branch: invoice.branch_id,
         item_id: item.id,
         qty: 1,
-        method: exchange ? 'Cash' : invoice.payments[0]?.method || 'Cash',
+        method: exchange ? 'Cash' : refundMethods(invoice)[0] || '',
         replacement_qty: 1,
       },
       fields: v => {
@@ -98,9 +105,7 @@ export function Returns({ ctx, embedded = false }) {
               {
                 name: 'method',
                 label: 'Original payment method',
-                choices: [...new Set(invoice.payments.map(p => p.method))].concat(
-                  invoice.payments.length ? [] : ['Cash']
-                ),
+                choices: refundMethods(invoice),
               },
             ]
             : []),
@@ -149,7 +154,9 @@ export function Returns({ ctx, embedded = false }) {
       },
     });
 
-  const resolve = (row, decision) =>
+  const resolve = (row, decision) => {
+    const difference = row.replacement ? exchangeDifference(row) : null;
+    const collectCash = decision === 'Completed' && difference > 0;
     ctx.setDialog({
       title:
         decision === 'Completed'
@@ -163,33 +170,43 @@ export function Returns({ ctx, embedded = false }) {
         row.product +
         ' · ' +
         (row.replacement
-          ? (row.quoted_total >= row.amount ? 'Cash to collect ' : 'Cash to refund ') +
-          money(Math.abs(row.quoted_total - row.amount))
+          ? `Return credit: ${money(row.amount)} · Replacement: ${money(row.quoted_total)} · ${cashAction(difference)}`
           : row.reason),
       route: 'return.resolve',
       submit:
         decision === 'Completed'
           ? row.replacement
-            ? 'Process exchange'
+            ? difference > 0 ? 'Confirm cash received' : difference < 0 ? 'Confirm cash refund' : 'Complete exchange'
             : 'Process refund'
           : 'Reject request',
       danger: decision === 'Rejected',
-      values: { branch: row.branch_id, id: row.id, decision },
-      fields:
-        decision === 'Completed' && row.method !== 'Cash' && row.amount > 0
+      values: { branch: row.branch_id, id: row.id, decision, ...(collectCash ? { cash_received: '' } : {}) },
+      transform: collectCash ? values => ({ ...values, cash_received: cents(values.cash_received) }) : undefined,
+      fields: values => collectCash
+        ? [
+          { name: 'cash_received', label: 'Cash received (LKR)', type: 'money', min: difference / 100 },
+          { name: 'change_preview', label: 'Change to give', readOnly: true, placeholder: money(Math.max(0, cents(values.cash_received) - difference)) },
+        ]
+        : decision === 'Completed' && row.method !== 'Cash' && row.amount > 0
           ? [{ name: 'reference', label: 'Confirmed refund reference', full: true }]
           : [],
-      onSuccess: () => {
+      onSuccess: result => {
         setLookupRevision(value => value + 1);
         if (decision === 'Completed') {
+          if (row.replacement) {
+            ctx.setNotice(difference > 0
+              ? `Exchange complete. Collected ${money(difference)}; change ${money(result.change)}.`
+              : difference < 0 ? `Exchange complete. Cash refunded: ${money(-difference)}.` : 'Exchange complete. No cash changed hands.');
+          }
           printBill(
-            returnToBill({ ...row, status: decision }, state.data?.settings),
+            returnToBill({ ...row, ...result }, state.data?.settings),
             state.data?.settings,
             { silent: true }
           );
         }
       },
     });
+  };
 
   return (
     <DataView state={state}>
@@ -285,12 +302,12 @@ export function Returns({ ctx, embedded = false }) {
                           <div className="row-actions">
                             <Button
                               variant="soft"
-                              disabled={r.qty === r.refunded_qty || Boolean(invoice.credit)}
+                              disabled={r.qty === r.refunded_qty || Boolean(invoice.credit) || !refundMethods(invoice).length}
                               onClick={() => request(r)}
                             >
                               Request return
                             </Button>
-                            {invoice.payments.some(p => p.method === 'Cash') && (
+                            {refundMethods(invoice).includes('Cash') && (
                               <Button
                                 disabled={r.qty === r.refunded_qty || Boolean(invoice.credit)}
                                 onClick={() => request(r, true)}
@@ -345,7 +362,13 @@ export function Returns({ ctx, embedded = false }) {
                       ),
                   ],
                   ['Refund method', 'method'],
-                  ['Amount', r => money(r.amount)],
+                  ['Cash settlement', r => r.replacement
+                    ? r.status !== 'Completed'
+                      ? cashAction(exchangeDifference(r))
+                      : exchangeDifference(r) > 0
+                        ? `Collected ${money(exchangeDifference(r))}`
+                        : exchangeDifference(r) < 0 ? `Refunded ${money(-exchangeDifference(r))}` : 'Even exchange'
+                    : money(r.amount)],
                   ['Status', r => <Badge>{r.status}</Badge>],
                   [
                     'Actions',

@@ -546,7 +546,7 @@ export function returnToBill(ret = {}, settings = {}, branchName = '') {
       name: `${ret.replacement} (Replacement)`,
       meta: ret.replacement_sale_id ? `New Bill: ${ref('INV', ret.replacement_sale_id)}` : 'Exchange Item',
       qty: Number(ret.replacement_qty || 1),
-      price: quoted,
+      price: Math.round(quoted / Number(ret.replacement_qty || 1)),
       total: quoted,
     });
   }
@@ -568,6 +568,13 @@ export function returnToBill(ret = {}, settings = {}, branchName = '') {
       { label: isExchange ? 'Return Credit' : 'REFUND TOTAL', value: refundAmt, grand: !isExchange },
       ...(isExchange ? [{ label: 'Replacement Total', value: quoted, grand: true }] : []),
     ],
+    extras: isExchange && ret.status === 'Completed' && diff > 0
+      && Number(ret.cash_received) - Number(ret.change) === diff
+      ? [
+        { label: 'Cash Received', value: Number(ret.cash_received) },
+        { label: 'Change Given', value: Number(ret.change) },
+      ]
+      : [],
     status:
       ret.status === 'Rejected'
         ? { tone: 'info', label: 'Request Rejected' }
@@ -575,7 +582,7 @@ export function returnToBill(ret = {}, settings = {}, branchName = '') {
           ? { tone: 'info', label: `Return ${ret.status || 'Pending'}` }
         : isExchange
           ? diff > 0
-            ? { tone: 'due', label: 'Difference Collected', value: diff }
+            ? { tone: 'paid', label: 'Cash Difference Collected', value: diff }
             : diff < 0
               ? { tone: 'paid', label: 'Difference Refunded', value: Math.abs(diff) }
               : { tone: 'paid', label: 'Even Exchange' }

@@ -233,8 +233,8 @@ class AutoMigrator
         }
         if ($driver === 'mysql') {
             $method = $db->query("SHOW COLUMNS FROM payments LIKE 'method'")->fetch(PDO::FETCH_ASSOC);
-            if ($method && !str_contains($method['Type'], "'Wallet'")) {
-                $db->exec("ALTER TABLE payments MODIFY method ENUM('Cash','Card','Bank Transfer','Koko','Wallet') NOT NULL");
+            if ($method && !str_contains($method['Type'], "'Exchange Credit'")) {
+                $db->exec("ALTER TABLE payments MODIFY method ENUM('Cash','Card','Bank Transfer','Koko','Wallet','Exchange Credit') NOT NULL");
             }
         }
 

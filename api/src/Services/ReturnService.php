@@ -46,7 +46,11 @@ class ReturnService
         if (!in_array($method, Constants::TENDERS, true)) {
             throw new ApiError('Invalid payment method.');
         }
-        if (!BaseRepository::scalar('SELECT id FROM payments WHERE sale_id=? AND method=? LIMIT 1', [$line['sale_id'], $method])) {
+        // Exchange credit carries forward the original cash value.
+        if (!BaseRepository::scalar(
+            "SELECT id FROM payments WHERE sale_id=? AND (method=? OR (?='Cash' AND method='Exchange Credit')) LIMIT 1",
+            [$line['sale_id'], $method, $method]
+        )) {
             throw new ApiError('Select a payment method used on the original invoice.');
         }
 
@@ -148,6 +152,9 @@ class ReturnService
         BaseRepository::run('UPDATE sale_items SET refunded_qty=refunded_qty+? WHERE id=?', [$row['qty'], $row['sale_item_id']]);
 
         $replacementSaleId = null;
+        $diff = null;
+        $cashReceived = 0;
+        $change = 0;
         if ($row['replacement_product_id']) {
             $p = ProductRepository::findById((int) $row['replacement_product_id']);
             if ($row['replacement_unit_id'] && !ProductRepository::findAvailableUnit((int) $row['replacement_unit_id'], $branch, (int) $p['id'])) {
@@ -162,18 +169,34 @@ class ReturnService
                 throw new ApiError('The replacement price changed. Reject this request and create a new exchange.', 409);
             }
 
+            $diff = $total - (int) $row['amount'];
+            $cashDue = max(0, $diff);
+            $exchangeCredit = min($total, (int) $row['amount']);
+            if ($cashDue > 0) {
+                $cashReceived = array_key_exists('cash_received', $body)
+                    ? Validator::money($body, 'cash_received')
+                    : $cashDue;
+                if ($cashReceived < $cashDue) {
+                    throw new ApiError('Cash received must cover the exchange difference.');
+                }
+                $change = $cashReceived - $cashDue;
+            }
+            $methods = implode(' + ', array_filter([
+                $exchangeCredit > 0 ? 'Exchange Credit' : null,
+                $cashDue > 0 ? 'Cash' : null,
+            ]));
             $repUuid = 'SL-' . bin2hex(random_bytes(10));
             $prefixRaw = trim((string) (BaseRepository::scalar('SELECT invoice_prefix FROM settings WHERE id=1') ?: 'INV-'));
             $prefixCode = rtrim($prefixRaw, '-') ?: 'INV';
             if (\Zeedat\Config\Database::isSqlite()) {
                 $replacementSaleId = BaseRepository::insert(
-                    'INSERT INTO sales(uuid, sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,?,0,0,?,?,?,?,?,0,\'Cash\',0,0)',
-                    [$repUuid, $repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $total]
+                    'INSERT INTO sales(uuid, sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,0)',
+                    [$repUuid, $repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $cashReceived, $change, $methods]
                 );
             } else {
                 $replacementSaleId = BaseRepository::insert(
-                    'INSERT INTO sales(sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,0,\'Cash\',0,0)',
-                    [$repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $total]
+                    'INSERT INTO sales(sync_uuid, branch_id, user_id, drawer_id, customer_id, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, synced) VALUES (?,?,?,?,?,?,0,0,?,?,?,?,?,?,?,0,0)',
+                    [$repUuid, $branch, $user['id'], $drawer['id'], $row['customer_id'], $lineSubtotal, $lineTax, $taxRate, $total, $total, $cashReceived, $change, $methods]
                 );
             }
             BaseRepository::run('UPDATE sales SET invoice_no=? WHERE id=?', [Helpers::ref($prefixCode, $replacementSaleId), $replacementSaleId]);
@@ -190,14 +213,16 @@ class ReturnService
                 [$replacementSaleId, $p['id'], $row['replacement_unit_id'], $p['name'], $row['replacement_qty'], $p['price'], $total]
             );
 
-            BaseRepository::run(
-                'INSERT INTO payments(sale_id, drawer_id, user_id, kind, method, amount, reference) VALUES (?,?,?,?,?,?,?)',
-                [$replacementSaleId, $drawer['id'], $user['id'], 'Sale', 'Cash', $total, Helpers::ref('RET', $id)]
-            );
+            foreach (['Exchange Credit' => $exchangeCredit, 'Cash' => $cashDue] as $method => $amount) {
+                if ($amount === 0) continue;
+                BaseRepository::run(
+                    'INSERT INTO payments(sale_id, drawer_id, user_id, kind, method, amount, reference) VALUES (?,?,?,?,?,?,?)',
+                    [$replacementSaleId, $drawer['id'], $user['id'], 'Sale', $method, $amount, Helpers::ref('RET', $id)]
+                );
+            }
 
             BaseRepository::run('UPDATE exchanges SET replacement_sale_id=? WHERE return_id=?', [$replacementSaleId, $id]);
 
-            $diff = $total - (int) $row['amount'];
             if ($diff !== 0) {
                 DrawerRepository::addCashMovement(
                     $user['id'],
@@ -227,6 +252,9 @@ class ReturnService
             'status' => 'Completed',
             'amount' => (int) $row['amount'],
             'replacement_sale_id' => $replacementSaleId,
+            'difference' => $diff,
+            'cash_received' => $cashReceived,
+            'change' => $change,
         ];
     }
 }

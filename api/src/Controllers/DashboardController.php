@@ -115,7 +115,7 @@ class DashboardController {
         $collections = BaseRepository::rows(
             "SELECT p.method, SUM(p.amount) total,
             SUM(CASE WHEN p.created_at>=? THEN p.amount ELSE 0 END) today
-            FROM payments p JOIN drawers s ON s.id=p.drawer_id WHERE p.created_at>=? {$scope} GROUP BY p.method",
+            FROM payments p JOIN drawers s ON s.id=p.drawer_id WHERE p.created_at>=? AND p.method<>'Exchange Credit' {$scope} GROUP BY p.method",
             [$today, $start, ...$params]
         );
 

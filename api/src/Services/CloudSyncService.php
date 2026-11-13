@@ -1249,11 +1249,12 @@ class CloudSyncService {
 
     private static function updateSyncedSale(int $saleId, int $drawerId, int $uid, array $s, array $payments, bool $isSqlite): void {
         BaseRepository::run(
-            'UPDATE sales SET credit=?, paid_amount=COALESCE(?, paid_amount), cash_tendered=COALESCE(?, cash_tendered), payment_methods=CASE WHEN ? <> "" THEN ? ELSE payment_methods END, synced=1 WHERE id=?',
+            'UPDATE sales SET credit=?, paid_amount=COALESCE(?, paid_amount), cash_tendered=COALESCE(?, cash_tendered), change_amount=COALESCE(?, change_amount), payment_methods=CASE WHEN ? <> "" THEN ? ELSE payment_methods END, synced=1 WHERE id=?',
             [
                 (int) ($s['credit'] ?? 0),
                 isset($s['paid_amount']) ? (int) $s['paid_amount'] : null,
                 isset($s['cash_tendered']) ? (int) $s['cash_tendered'] : null,
+                isset($s['change_amount']) ? (int) $s['change_amount'] : null,
                 (string) ($s['payment_methods'] ?? ''),
                 (string) ($s['payment_methods'] ?? ''),
                 $saleId,
