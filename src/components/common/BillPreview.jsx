@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Printer } from 'lucide-react';
 import { billPaperWidth, buildBillHtml, printBill } from '../../utils/receiptPrint';
 import { Button } from './Button';
@@ -8,27 +8,39 @@ import { Modal } from './Modal';
  * On-screen bill preview. Renders the SAME HTML that is sent to the printer
  * (buildBillHtml), so what staff see on screen is exactly what gets printed.
  */
-export function BillPreview({ html, paperWidth = 80, maxHeight = 560 }) {
+export function BillPreview({ html, paperWidth = 80, maxHeight = 560, fullHeight = false }) {
   const frameRef = useRef(null);
+  const viewportRef = useRef(null);
   const [height, setHeight] = useState(420);
+  const [width, setWidth] = useState(0);
+  const paperPixels = paperWidth * 96 / 25.4;
+  const scale = fullHeight && width ? Math.min(1, width / paperPixels) : 1;
 
   const fit = useCallback(() => {
     const doc = frameRef.current?.contentDocument;
     if (!doc) return;
-    const h = Math.max(doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0);
-    if (h) setHeight(h + 4);
+    const h = doc.querySelector('.bill')?.getBoundingClientRect().height || doc.body?.offsetHeight;
+    if (h) setHeight(Math.ceil(h) + 4);
   }, []);
 
+  useEffect(() => {
+    if (!fullHeight || !viewportRef.current) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(viewportRef.current);
+    return () => observer.disconnect();
+  }, [fullHeight]);
+
   return (
-    <div className="zk-bill-preview" style={{ maxHeight }}>
-      <div className="zk-bill-paper" style={{ width: `${paperWidth}mm` }}>
+    <div ref={viewportRef} className="zk-bill-preview" style={{ maxHeight: fullHeight ? undefined : maxHeight }}>
+      <div className="zk-bill-paper" style={{ width: paperPixels * scale, height: height * scale, overflow: 'hidden' }}>
         <iframe
           ref={frameRef}
           title="Bill preview"
           sandbox="allow-same-origin"
           srcDoc={html}
           onLoad={fit}
-          style={{ width: `${paperWidth}mm`, height, border: 0, display: 'block', background: '#fff' }}
+          style={{ width: `${paperWidth}mm`, height, border: 0, display: 'block', background: '#fff',
+            transform: `scale(${scale})`, transformOrigin: 'top left' }}
         />
       </div>
     </div>

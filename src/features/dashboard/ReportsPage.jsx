@@ -21,10 +21,12 @@ import { Badge, Button, Empty, FilterTabs, Heading, Panel, Stats, Table } from '
 import { DataView } from '../../components/feedback';
 import { dateLabel, money, printHtmlDocument, ref, timeLabel, today } from '../../utils';
 import { buildPrintableReportHtml } from './reportPrint';
+import { auditReportTables, invoiceNumber } from './financialAudit';
+import { FinancialAuditView } from './FinancialAuditView';
 
 const addDays = (iso, delta) => {
-  const d = new Date(iso + 'T00:00:00');
-  d.setDate(d.getDate() + delta);
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
   return d.toISOString().slice(0, 10);
 };
 
@@ -34,6 +36,10 @@ const REPORT_TABS = [
   ['overview', 'Executive Overview'],
   ['commissions', 'Staff Commissions'],
   ['sales', 'Sales & Profit'],
+  ['invoice-audit', 'Invoice Audit'],
+  ['payment-audit', 'Payment Audit'],
+  ['koko', 'Koko Payments'],
+  ['activity-audit', 'Activity Audit'],
   ['cashbook', 'Cashbook & Shifts'],
   ['inventory', 'Inventory Valuation'],
   ['repairs', 'Repairs Workshop'],
@@ -116,6 +122,12 @@ export function ReportsPage({ ctx }) {
 
         const handleExportCsv = () => {
           const stamp = `${from}_to_${to}`;
+          if (tab.endsWith('-audit') || tab === 'koko') {
+            auditReportTables(report, tab).forEach((table, index) => {
+              downloadCsv(`${tab}${index ? '-items' : ''}_${stamp}.csv`, table.columns, table.rows);
+            });
+            return;
+          }
           const exporters = {
             overview: [
               `commissions_summary_${stamp}.csv`,
@@ -443,7 +455,7 @@ export function ReportsPage({ ctx }) {
                     rows={report.sales_report || []}
                     empty="No sales invoices in this period"
                     columns={[
-                      ['Invoice', r => <strong>{ref('INV', r.id)}</strong>],
+                      ['Invoice', r => <strong>{invoiceNumber(r, report.shop?.invoice_prefix)}</strong>],
                       ['Date', r => timeLabel(r.created_at)],
                       ['Branch', r => r.branch_name],
                       ['Customer', r => r.customer_name],
@@ -457,6 +469,8 @@ export function ReportsPage({ ctx }) {
                 </Panel>
               </>
             )}
+
+            {(tab.endsWith('-audit') || tab === 'koko') && <FinancialAuditView key={tab} ctx={ctx} report={report} tab={tab} />}
 
             {tab === 'cashbook' && (
               <>

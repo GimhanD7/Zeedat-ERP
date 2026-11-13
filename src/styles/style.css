@@ -3082,6 +3082,83 @@
   align-items: center;
 }
 
+.zk-settings-grid.zk-bill-settings {
+  grid-template-columns: minmax(310px, 0.85fr) minmax(0, 1.15fr);
+  gap: 16px;
+}
+
+.zk-bill-settings .zk-settings-section {
+  padding: 12px 14px;
+}
+
+.zk-bill-settings .zk-input-box,
+.zk-bill-settings select,
+.zk-bill-layout-fields input {
+  min-height: 32px;
+  font-size: 13px;
+}
+
+.zk-bill-settings .zk-input-box input,
+.zk-bill-settings .zk-input-box select {
+  padding-block: 5px;
+}
+
+.zk-bill-settings .zk-receipt-preview-box {
+  position: static;
+  min-width: 0;
+  padding: 12px;
+  gap: 10px;
+  align-items: stretch;
+  background: #f8fafc;
+}
+
+.zk-bill-settings .zk-bill-preview {
+  background: #eaf0f6;
+  padding: 12px;
+  min-width: 0;
+}
+
+.zk-bill-settings-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.zk-bill-layout-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+.zk-bill-layout-fields > h4,
+.zk-bill-layout-fields > div,
+.zk-bill-layout-fields > label:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.zk-bill-layout-fields > label {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.zk-bill-layout-fields small {
+  font-weight: 400;
+  color: #526378;
+}
+
+@media (max-width: 1080px) {
+  .zk-settings-grid.zk-bill-settings { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .zk-bill-layout-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
 .zk-thermal-paper {
   background: #ffffff;
   color: #0f172a;

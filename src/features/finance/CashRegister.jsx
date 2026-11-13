@@ -21,9 +21,11 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
+import { buildCashbookStatementHtml } from '../dashboard/reportPrint';
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillPreview,
   Button,
   FilterTabs,
   Heading,
@@ -707,7 +709,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
   const [catFilter, setCatFilter] = useState('all');
   const [shiftAuditFilter, setShiftAuditFilter] = useState('all');
   const [shiftAuditSearch, setShiftAuditSearch] = useState('');
-  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [statement, setStatement] = useState(null);
   const [sessionModal, setSessionModal] = useState(null);
   const [closeModalDrawer, setCloseModalDrawer] = useState(null);
   const [openModalVisible, setOpenModalVisible] = useState(false);
@@ -965,7 +967,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
           <Button icon={Download} variant="outline" onClick={() => exportCsv(filteredLedger)}>
             Export CSV
           </Button>
-          <Button icon={Printer} variant="outline" onClick={() => setPrintModalOpen(true)}>
+          <Button icon={Printer} variant="outline" onClick={() => setStatement({ rows: [...movements].reverse(), from: drawer?.business_date || today(), to: drawer?.business_date || today(), opening: drawer?.opening, closing: drawer?.expected })}>
             Print Statement
           </Button>
           {drawer ? (
@@ -1211,7 +1213,7 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
               <Button icon={Download} variant="outline" onClick={() => exportCsv(filteredLedger)}>
                 Export CSV ({filteredLedger.length})
               </Button>
-              <Button icon={Printer} variant="outline" onClick={() => setPrintModalOpen(true)}>
+              <Button icon={Printer} variant="outline" onClick={() => setStatement({ rows: [...filteredLedger].reverse(), from: fromDate, to: toDate })}>
                 Print Statement
               </Button>
             </div>
@@ -1853,157 +1855,74 @@ export function CashbookWorkspace({ ctx, registerData, onRefresh, defaultTab = '
         />
       )}
 
-      {/* PRINT DAILY CASHBOOK MODAL */}
-      {printModalOpen && (
-        <Modal
-          title="Daily Cashbook Statement"
-          description={`Branch: ${currentBranchName} · Business Date: ${dateLabel(today())}`}
-          onClose={() => setPrintModalOpen(false)}
-          wide={true}
-        >
-          <div style={{ padding: '0.5rem' }}>
-            <div
-              id="printable-cashbook-area"
-              style={{
-                padding: '1.5rem',
-                background: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                color: '#0f172a',
-              }}
-            >
-              <div
-                style={{
-                  textAlign: 'center',
-                  borderBottom: '2px solid #0f172a',
-                  paddingBottom: '0.75rem',
-                  marginBottom: '1rem',
-                }}
-              >
-                <h2 style={{ margin: 0, fontSize: '1.4rem' }}>ZEEDAT ERP — CASHBOOK STATEMENT</h2>
-                <p style={{ margin: '0.25rem 0', fontSize: '0.9rem', color: '#64748b' }}>
-                  Branch: <strong>{currentBranchName}</strong> | Date: <strong>{dateLabel(today())}</strong>
-                </p>
-                <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
-                  Printed on {new Date().toLocaleString()} by {ctx.user?.name}
-                </p>
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '0.5rem',
-                  marginBottom: '1rem',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ border: '1px solid #cbd5e1', padding: '0.5rem' }}>
-                  <small style={{ color: '#64748b' }}>OPENING FLOAT</small>
-                  <div style={{ fontWeight: 700 }}>{money(drawer?.opening || 0)}</div>
-                </div>
-                <div style={{ border: '1px solid #cbd5e1', padding: '0.5rem' }}>
-                  <small style={{ color: '#15803d' }}>TOTAL INFLOWS</small>
-                  <div style={{ fontWeight: 700, color: '#15803d' }}>+{money(inflow)}</div>
-                </div>
-                <div style={{ border: '1px solid #cbd5e1', padding: '0.5rem' }}>
-                  <small style={{ color: '#dc2626' }}>TOTAL EXPENSES</small>
-                  <div style={{ fontWeight: 700, color: '#dc2626' }}>−{money(-outflow)}</div>
-                </div>
-                <div style={{ border: '1px solid #cbd5e1', padding: '0.5rem' }}>
-                  <small style={{ color: '#0f172a' }}>CLOSING BALANCE</small>
-                  <div style={{ fontWeight: 700 }}>
-                    {money(drawer?.expected || (drawer?.opening || 0) + inflow + outflow)}
-                  </div>
-                </div>
-              </div>
-
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: '0.85rem',
-                  marginBottom: '1.5rem',
-                }}
-              >
-                <thead>
-                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
-                    <th style={{ padding: '0.5rem', textAlign: 'left' }}>Time</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'left' }}>Type / Category</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'left' }}>Description / Ref</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'left' }}>Operator</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Inflow (LKR)</th>
-                    <th style={{ padding: '0.5rem', textAlign: 'right' }}>Outflow (LKR)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movements.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '1rem', color: '#94a3b8' }}>
-                        No cash movements recorded in current shift.
-                      </td>
-                    </tr>
-                  ) : (
-                    movements.map((m, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.4rem' }}>{timeLabel(m.created_at)}</td>
-                        <td style={{ padding: '0.4rem' }}>{m.kind}</td>
-                        <td style={{ padding: '0.4rem' }}>{m.reference}</td>
-                        <td style={{ padding: '0.4rem' }}>{m.operator_name || 'Cashier'}</td>
-                        <td style={{ padding: '0.4rem', textAlign: 'right', color: '#15803d' }}>
-                          {m.amount > 0 ? money(m.amount) : '—'}
-                        </td>
-                        <td style={{ padding: '0.4rem', textAlign: 'right', color: '#dc2626' }}>
-                          {m.amount < 0 ? money(Math.abs(m.amount)) : '—'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  marginTop: '2.5rem',
-                  paddingTop: '1rem',
-                  borderTop: '1px dashed #cbd5e1',
-                }}
-              >
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ width: '180px', borderBottom: '1px solid #94a3b8', marginBottom: '0.25rem' }} />
-                  <small>Cashier Signature</small>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ width: '180px', borderBottom: '1px solid #94a3b8', marginBottom: '0.25rem' }} />
-                  <small>Manager / Owner Signature</small>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-              <Button variant="outline" onClick={() => setPrintModalOpen(false)}>
-                Close
-              </Button>
-              <Button
-                icon={Printer}
-                variant="primary"
-                onClick={() => {
-                  const el = document.getElementById('printable-cashbook-area');
-                  if (!el) return;
-                  printHtmlDocument(
-                    `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Cashbook Statement</title><style>body{font-family:'Segoe UI',Arial,sans-serif;padding:18px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{padding:6px;border-bottom:1px solid #e2e8f0;font-size:12px}</style></head><body>${el.innerHTML}</body></html>`
-                  );
-                }}
-              >
-                Print Statement
-              </Button>
-            </div>
-          </div>
-        </Modal>
+      {statement && (
+        <CashbookStatement
+          ctx={ctx}
+          branch={currentBranchName}
+          statement={statement}
+          onClose={() => setStatement(null)}
+        />
       )}
     </div>
+  );
+}
+
+function CashbookStatement({ ctx, branch, statement, onClose }) {
+  const state = useData(ctx, { settings: 'settings' });
+  const html = useMemo(() => buildCashbookStatementHtml({
+    ...statement,
+    shop: state.data?.settings,
+    branch,
+    operator: ctx.user?.name,
+    period: { from: statement.from && dateLabel(statement.from), to: statement.to && dateLabel(statement.to) },
+  }), [statement, state.data?.settings, branch, ctx.user?.name]);
+  const [printError, setPrintError] = useState('');
+  const [printing, setPrinting] = useState(false);
+  const [savingPdf, setSavingPdf] = useState(false);
+
+  async function downloadPdf() {
+    setSavingPdf(true);
+    setPrintError('');
+    try {
+      const { buildCashbookPdf } = await import('./cashbookPdf');
+      const doc = buildCashbookPdf({ shop: state.data?.settings, branch, statement, operator: ctx.user?.name });
+      const dates = [...new Set([statement.from, statement.to].filter(Boolean))].join('_to_');
+      const branchName = branch.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '');
+      doc.save(['cashbook-statement', branchName, dates].filter(Boolean).join('_') + '.pdf');
+    } catch (error) {
+      setPrintError(error.message || 'Could not generate the cashbook PDF.');
+    } finally {
+      setSavingPdf(false);
+    }
+  }
+
+  async function print() {
+    setPrinting(true);
+    setPrintError('');
+    try {
+      const result = await printHtmlDocument(html);
+      if (!result.success) setPrintError(result.error || 'Could not print the statement.');
+    } finally {
+      setPrinting(false);
+    }
+  }
+
+  return (
+    <Modal title="Daily Cashbook Statement" description={branch + ' · A4'} xl busy={printing || savingPdf} onClose={onClose}>
+      <div className="modal-body">
+        <Alert>{printError || state.error}</Alert>
+        <BillPreview html={html} paperWidth={210} fullHeight />
+      </div>
+      <div className="modal-footer">
+        <Button onClick={onClose} disabled={printing || savingPdf}>Close</Button>
+        <Button icon={Printer} variant="outline" disabled={printing || savingPdf || state.pending} onClick={print}>
+          {printing ? 'Printing…' : 'Print Statement'}
+        </Button>
+        <Button icon={Download} variant="primary" disabled={savingPdf || printing || state.pending} onClick={downloadPdf}>
+          {savingPdf ? 'Generating PDF…' : 'Download PDF'}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

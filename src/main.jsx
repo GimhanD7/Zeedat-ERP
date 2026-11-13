@@ -4,9 +4,11 @@ import {
   ArrowLeftRight,
   ArrowRight,
   Barcode,
-  Boxes,
+  Truck,
   CircleHelp,
-  ClipboardList,
+  ShoppingBag,
+  ReceiptText,
+  UserRound,
   LayoutDashboard,
   Package,
   ShieldCheck,
@@ -38,6 +40,8 @@ import {
 } from './utils';
 
 import './styles/style.css';
+import './features/profile/profile.css';
+import { readAppearance, saveAppearance } from './features/profile/appearance';
 
 const dashboard = () => import('./features/dashboard');
 const pos = () => import('./features/pos');
@@ -55,13 +59,14 @@ const pages = [
   ['barcodes', 'Barcode', Barcode, 'inventory', lazyPage(operations, 'BarcodesPage')],
   ['drawer', 'Cashbook & Register', Wallet, 'drawer', lazyPage(finance, 'CashRegister')],
   ['returns', 'Returns', ArrowLeftRight, 'returns', lazyPage(finance, 'Returns')],
-  ['purchases', 'Purchases', ClipboardList, 'purchases', lazyPage(finance, 'Purchases')],
-  ['transfers', 'Stock Transfers', Boxes, 'transfers', lazyPage(finance, 'StockTransfers')],
+  ['purchases', 'Purchases', ShoppingBag, 'purchases', lazyPage(finance, 'Purchases')],
+  ['transfers', 'Stock Transfers', Truck, 'transfers', lazyPage(finance, 'StockTransfers')],
   ['customers', 'Customers', Users, 'customers', lazyPage(operations, 'Customers')],
   ['reports', 'Reports', ChartNoAxesCombined, 'reports', lazyPage(dashboard, 'ReportsPage')],
-  ['sales', 'Sales History', ChartNoAxesCombined, 'sales', lazyPage(pos, 'SalesHistory')],
+  ['sales', 'Sales History', ReceiptText, 'sales', lazyPage(pos, 'SalesHistory')],
   ['staff', 'Staff & Permissions', ShieldCheck, 'staff', lazyPage(admin, 'StaffPage')],
   ['settings', 'Settings', Settings, 'settings', lazyPage(admin, 'SettingsPage')],
+  ['profile', 'My Profile', UserRound, null, lazyPage(() => import('./features/profile/ProfilePage'), 'ProfilePage')],
 ];
 
 function Login({ onLogin, error: initialError }) {
@@ -171,6 +176,11 @@ function Login({ onLogin, error: initialError }) {
 function Workspace({ session, onLogout }) {
   const { user: initialUser, csrf } = session;
   const [user, setUser] = useState(initialUser);
+  const [appearance, setAppearance] = useState(() => readAppearance(initialUser));
+  const updateAppearance = next => {
+    setAppearance(next);
+    return saveAppearance(user, next);
+  };
 
   const hasPermission = useCallback(
     perm => user.role === 'owner' || (user.permissions || []).includes(perm),
@@ -178,7 +188,7 @@ function Workspace({ session, onLogout }) {
   );
 
   const available = useMemo(
-    () => pages.filter(page => hasPermission(page[3]) ||
+    () => pages.filter(page => page[0] === 'profile' || hasPermission(page[3]) ||
       (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers'].includes(page[0]))),
     [hasPermission, user.role]
   );
@@ -492,6 +502,8 @@ function Workspace({ session, onLogout }) {
 
   const context = {
     user,
+    appearance,
+    updateAppearance,
     setUser,
     hasPermission,
     refreshUser,
@@ -514,6 +526,7 @@ function Workspace({ session, onLogout }) {
     <>
       <WorkspaceLayout
         user={user}
+        appearance={appearance}
         branches={allowedBranches}
         activeBranch={activeBranch}
         onBranchChange={setBranch}

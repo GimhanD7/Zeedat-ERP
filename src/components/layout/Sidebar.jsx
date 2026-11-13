@@ -63,12 +63,13 @@ export function Sidebar({
                 key={id}
                 href={'#' + id}
                 title={isCompact ? label : undefined}
+                aria-label={isCompact ? label : undefined}
                 data-tooltip={isCompact ? label : undefined}
                 className={currentPage === id ? 'active' : ''}
                 aria-current={currentPage === id ? 'page' : undefined}
                 onClick={() => onNavigate(id)}
               >
-                <Icon size={20} />
+                <span className="sidebar-icon" aria-hidden="true"><Icon size={18} strokeWidth={1.85} /></span>
                 {!isCompact && <span>{label}</span>}
                 {!isCompact && currentPage === id && <ChevronRight size={14} className="active-arrow" />}
               </a>

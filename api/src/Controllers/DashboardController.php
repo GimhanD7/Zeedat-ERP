@@ -266,7 +266,7 @@ class DashboardController {
         $salesTotals['net_profit_after_comm'] = $salesTotals['gross_profit'] - $salesTotals['total_commission'];
 
         $salesReport = BaseRepository::rows(
-            "SELECT s.id, s.created_at, b.name AS branch_name,
+            "SELECT s.id, s.invoice_no, s.created_at, b.name AS branch_name,
                     COALESCE(c.name, 'Walk-in Customer') AS customer_name,
                     u.id AS cashier_id, u.name AS cashier_name,
                     COALESCE(s.commission_user_id, s.user_id) AS staff_id,
@@ -275,7 +275,7 @@ class DashboardController {
                     s.wallet_used, s.points_earned,
                     COALESCE((SELECT SUM(si.qty) FROM sale_items si WHERE si.sale_id=s.id), 0) AS items_qty,
                     COALESCE((SELECT SUM(si.commission_amount) FROM sale_items si WHERE si.sale_id=s.id), 0) AS total_commission,
-                    COALESCE((SELECT SUM(pm.amount) FROM payments pm WHERE pm.sale_id=s.id), 0) AS paid_amount
+                    s.total-s.credit AS paid_amount
              FROM sales s
              JOIN branches b ON b.id=s.branch_id
              JOIN users u ON u.id=s.user_id
@@ -514,6 +514,7 @@ class DashboardController {
             'sales_totals' => $salesTotals,
             'sales_report' => $salesReport,
             'payments_breakdown' => $paymentsBreakdown,
+            ...\Zeedat\Repositories\FinancialAuditRepository::report($branch, $from, $to, $staffId),
             'cashbook_summary' => $cashbookSummary,
             'cashbook_movements' => $cashbookMovements,
             'cashbook_shifts' => $cashbookShifts,

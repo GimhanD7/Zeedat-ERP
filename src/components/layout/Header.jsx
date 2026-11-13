@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search } from 'lucide-react';
+import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Select } from '../common/Select';
 import { initials, roles, managers, setServerImageState } from '../../utils';
@@ -18,6 +18,7 @@ export function Header({
   onOpenSearch,
   onOpenAlerts,
   onLogout,
+  onOpenProfile,
   profileOpen,
   setProfileOpen,
   allBranchPages,
@@ -234,6 +235,7 @@ export function Header({
           {profileOpen && (
             <div className="profile-menu">
               <small>{user.email}</small>
+              <Button icon={UserRound} onClick={onOpenProfile}>My Profile</Button>
               <Button icon={LogOut} onClick={onLogout}>
                 Sign out
               </Button>

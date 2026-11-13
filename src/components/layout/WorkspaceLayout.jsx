@@ -7,6 +7,7 @@ import { Spinner } from '../feedback/Spinner';
 
 export function WorkspaceLayout({
   user,
+  appearance,
   branches,
   activeBranch,
   onBranchChange,
@@ -48,7 +49,8 @@ export function WorkspaceLayout({
   const selectedName = branches.find(b => b.id === activeBranch)?.name || 'All Branches';
 
   return (
-    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}>
+    <div className={'app' + (sidebarCollapsed ? ' sidebar-collapsed' : '')}
+      data-accent={appearance?.accent} data-sidebar={appearance?.sidebar} data-density={appearance?.density}>
       <Sidebar
         menu={menuOpen}
         setMenu={setMenuOpen}
@@ -73,6 +75,10 @@ export function WorkspaceLayout({
           onOpenSearch={onOpenSearch}
           onOpenAlerts={onOpenAlerts}
           onLogout={onLogout}
+          onOpenProfile={() => {
+            setProfileOpen(false);
+            onNavigate('profile');
+          }}
           profileOpen={profileOpen}
           setProfileOpen={setProfileOpen}
           allBranchPages={allBranchPages}
@@ -81,7 +87,7 @@ export function WorkspaceLayout({
 
         <main className="content">
           <Alert>{branchError || appError}</Alert>
-          {branches.length ? children : !branchError && <Spinner />}
+          {branches.length || currentPage === 'profile' ? children : !branchError && <Spinner />}
         </main>
 
         <footer className="workspace-footer">

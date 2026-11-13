@@ -1,6 +1,7 @@
 import { dateLabel, money, ref, timeLabel } from '../../utils';
 
 import { billLogo } from '../../utils/receiptPrint';
+import { auditReportTables, invoiceNumber } from './financialAudit';
 
 const esc = v =>
   String(v ?? '')
@@ -40,6 +41,12 @@ const renderKpiGrid = items =>
     .join('')}</div>`;
 
 export function buildSectionBlocks(tab, report) {
+  if (tab.endsWith('-audit') || tab === 'koko') {
+    return auditReportTables(report, tab).map(({ title, rows, columns }) => ({
+      title,
+      html: renderTableHtml(columns.map(([label, get]) => ({ label, get })), rows),
+    }));
+  }
   const s = report.sales_totals || {};
   const cb = report.cashbook_summary || {};
   const inv = report.inventory_summary || {};
@@ -151,7 +158,7 @@ export function buildSectionBlocks(tab, report) {
           ]) +
           renderTableHtml(
             [
-              { label: 'Invoice', get: r => ref('INV', r.id) },
+              { label: 'Invoice', get: r => invoiceNumber(r, report.shop?.invoice_prefix) },
               { label: 'Date', get: r => timeLabel(r.created_at) },
               { label: 'Branch', get: r => r.branch_name },
               { label: 'Customer', get: r => r.customer_name },
@@ -362,7 +369,7 @@ export function buildPrintableReportHtml(report, { title, tab = 'all', staffLabe
 
   const order =
     tab === 'all'
-      ? ['overview', 'commissions', 'sales', 'cashbook', 'inventory', 'repairs', 'purchases', 'returns', 'customers']
+      ? ['overview', 'commissions', 'sales', 'invoice-audit', 'payment-audit', 'koko', 'cashbook', 'inventory', 'repairs', 'purchases', 'returns', 'customers', 'activity-audit']
       : [tab];
 
   const blocks = order.flatMap(key => buildSectionBlocks(key, report));
@@ -390,7 +397,35 @@ export function buildStockReportHtml(items, { shop, branch, quantity, status }) 
   });
 }
 
-function buildA4ReportHtml({ title, shop = {}, branch, period = {}, staffLabel, body }) {
+export function buildCashbookStatementHtml({ shop, branch, period, operator, rows, opening, closing }) {
+  const received = rows.reduce((sum, row) => sum + Math.max(0, Number(row.amount)), 0);
+  const paid = rows.reduce((sum, row) => sum + Math.max(0, -Number(row.amount)), 0);
+  const totals = [
+    ...(opening == null ? [] : [{ label: 'Opening float', value: money(opening) }]),
+    { label: 'Cash received', value: money(received) },
+    { label: 'Cash paid out', value: money(paid) },
+    { label: closing == null ? 'Net cash movement' : 'Closing balance', value: money(closing ?? received - paid) },
+  ];
+  const columns = [
+    { label: 'Date & time', get: row => [dateLabel(row.business_date || row.created_at), timeLabel(row.created_at)].filter(Boolean).join(' · ') },
+    { label: 'Category', get: row => row.kind || '—' },
+    { label: 'Description / ref', get: row => row.reference || '—' },
+    { label: 'Operator', get: row => row.operator_name || '—' },
+    { label: 'Cash in', align: 'num', get: row => row.amount > 0 ? money(row.amount) : '—' },
+    { label: 'Cash out', align: 'num', get: row => row.amount < 0 ? money(-row.amount) : '—' },
+  ];
+  return buildA4ReportHtml({
+    title: 'Daily Cashbook Statement', shop, branch, period, operator,
+    signatures: ['Cashier signature', 'Manager / owner signature'],
+    body: renderKpiGrid(totals) +
+      `<section class="doc-section"><h2>Cash movements · ${rows.length} entries</h2>${
+        renderTableHtml(columns, rows, 'No cash movements match this statement.')
+      }</section>`,
+  });
+}
+
+function buildA4ReportHtml({ title, shop = {}, branch, period = {}, staffLabel, operator, body,
+  signatures = ['Prepared By', 'Checked By (Accounts)', 'Approved By (Management)'] }) {
   const logo = billLogo(shop);
   return `<!DOCTYPE html>
 <html lang="en">
@@ -412,13 +447,14 @@ function buildA4ReportHtml({ title, shop = {}, branch, period = {}, staffLabel, 
   thead { display: table-header-group; }
   tr, .kpi-card { break-inside: avoid; }
   .doc-section h2 { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #0f172a; background: #f1f5f9; padding: 5px 8px; border-left: 3px solid #0d9488; }
-  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
   .kpi-card { border: 1px solid #cbd5e1; border-radius: 5px; padding: 7px 9px; background: #ffffff; }
   .kpi-label { font-size: 9.5px; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px; }
   .kpi-val { font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 2px; }
   .kpi-sub { font-size: 9px; color: #475569; margin-top: 2px; }
   table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 9.8px; }
   th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; vertical-align: top; }
+  td { overflow-wrap: anywhere; }
   th { background: #f8fafc; font-weight: 700; color: #1e293b; }
   tr:nth-child(even) td { background: #fcfcfd; }
   .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -438,17 +474,16 @@ function buildA4ReportHtml({ title, shop = {}, branch, period = {}, staffLabel, 
     </div>
     <div class="doc-meta">
       <div class="doc-title">${esc(title)}</div>
-      ${period.from && period.to ? `<div><strong>Period:</strong> ${esc(period.from)} to ${esc(period.to)}</div>` : ''}
+      ${period.from || period.to ? `<div><strong>Period:</strong> ${esc(period.from === period.to ? period.from : [period.from, period.to].filter(Boolean).join(' to '))}</div>` : ''}
       <div><strong>Branch:</strong> ${esc(branch || 'All Branches')}</div>
       ${staffLabel ? `<div><strong>Staff Filter:</strong> ${esc(staffLabel)}</div>` : ''}
+      ${operator ? `<div><strong>Prepared by:</strong> ${esc(operator)}</div>` : ''}
       <div><strong>Generated:</strong> ${esc(period.generated_at || new Date().toLocaleString('en-LK', { timeZone: 'Asia/Colombo' }))}</div>
     </div>
   </div>
   ${body}
-  <div class="doc-signatures">
-    <div class="sig-box">Prepared By</div>
-    <div class="sig-box">Checked By (Accounts)</div>
-    <div class="sig-box">Approved By (Management)</div>
+  <div class="doc-signatures" style="grid-template-columns:repeat(${signatures.length},1fr)">
+    ${signatures.map(label => `<div class="sig-box">${esc(label)}</div>`).join('')}
   </div>
   <div class="doc-footer">Official Management Report · ${esc(shop.shop_name || 'ZEEDAT POS')}</div>
 </body>

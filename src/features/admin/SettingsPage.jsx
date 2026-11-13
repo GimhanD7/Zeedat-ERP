@@ -493,15 +493,15 @@ export function SettingsPage({ ctx }) {
 
               {/* TAB 1: STORE & RECEIPT SETTINGS + LIVE PREVIEW */}
               {activeTab === 'Store & Receipt' && (
-                <div className="zk-settings-grid">
+                <div className="zk-settings-grid zk-bill-settings">
                   {/* LEFT: INLINE EDITABLE FORM */}
                   <form onSubmit={handleSaveStoreSettings} className="zk-settings-card">
                     <div className="zk-card-header">
                       <div className="zk-card-title">
                         <Settings size={17} style={{ color: '#0d9488' }} />
-                        <span>Business Profile & Thermal Receipt Rules</span>
+                        <span>Business & Bill Settings</span>
                       </div>
-                      <Badge tone="blue">{form.paper_width}mm Format</Badge>
+                      <Badge tone="blue">{form.bill_layout.format === 'a4' ? 'A4' : form.paper_width + ' mm'}</Badge>
                     </div>
 
                     {storeMsg && (
@@ -757,14 +757,13 @@ export function SettingsPage({ ctx }) {
                       </div>
                     </div>
 
-                    <div className="zk-form-footer">
-                      <section className="zk-field-wrap" style={{ display: 'grid', gap: 10 }}>
-                        <strong>Bill Layout</strong>
+                      <section className="zk-settings-section zk-bill-layout-fields">
+                        <h4 className="zk-settings-subtitle">Bill Layout</h4>
                         <label>Print format
                           <Select value={form.bill_layout.format || 'thermal'} options={[[ 'thermal', 'Thermal receipt' ], [ 'a4', 'A4 invoice' ]]}
                             onChange={e => updateBillLayout('format', e.target.value)} />
                         </label>
-                        <label>Logo (PNG, JPEG or WebP, up to 130 KB)
+                        <label>Logo <small>PNG, JPEG or WebP · up to 130 KB</small>
                           <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => {
                             const file = e.target.files?.[0];
                             if (!file) return;
@@ -778,7 +777,7 @@ export function SettingsPage({ ctx }) {
                             reader.readAsDataURL(file);
                           }} />
                         </label>
-                        {form.bill_layout.logo && <Button type="button" onClick={() => updateBillLayout('logo', '')}>Remove Logo</Button>}
+                        {form.bill_layout.logo && <div><Button type="button" onClick={() => updateBillLayout('logo', '')}>Remove Logo</Button></div>}
                         <label>Header line
                           <input maxLength={100} value={form.bill_layout.heading || ''} onChange={e => updateBillLayout('heading', e.target.value)} />
                         </label>
@@ -789,6 +788,7 @@ export function SettingsPage({ ctx }) {
                           <textarea rows={3} maxLength={1000} value={form.bill_layout.terms || ''} onChange={e => updateBillLayout('terms', e.target.value)} />
                         </label>
                       </section>
+                    <div className="zk-form-footer">
                       <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
                         {savingStore ? 'Saving Settings...' : 'Save Store & Receipt Settings'}
                       </Button>
@@ -796,9 +796,11 @@ export function SettingsPage({ ctx }) {
                   </form>
 
                   <div className="zk-receipt-preview-box">
-                    <strong>Bill Preview</strong>
-                    <Button icon={Printer} onClick={() => printBill(sampleBill, form, { silent: false })}>Test Print</Button>
-                    <BillPreview html={buildBillHtml(sampleBill, form)} paperWidth={billPaperWidth(form)} maxHeight={420} />
+                    <div className="zk-bill-settings-preview-heading">
+                      <strong>Bill Preview</strong>
+                      <Button icon={Printer} onClick={() => printBill(sampleBill, form, { silent: false })}>Test Print</Button>
+                    </div>
+                    <BillPreview html={buildBillHtml(sampleBill, form)} paperWidth={billPaperWidth(form)} fullHeight />
                   </div>
                 </div>
               )}

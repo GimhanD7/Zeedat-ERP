@@ -1,0 +1,21 @@
+.koko-report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 14px;
+  background: #2c2050;
+  color: #fff;
+}
+.koko-report-header span { font-weight: 750; }
+.koko-report-header h2 { margin: 6px 0; font-size: 24px; }
+.koko-report-header p { margin: 0; color: #e2dafa; }
+.financial-audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+.financial-audit-filters label { display: flex; align-items: center; gap: 8px; }

@@ -494,7 +494,7 @@ try {
                 return SaleController::getSales($branch);
             })(),
         'invoice' => (function () use ($user, $branch) {
-                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'reports');
                 return SaleController::getInvoice($branch, $_GET);
             })(),
         'drawer' => (function () use ($user, $branch) {
@@ -552,7 +552,7 @@ try {
                 return AdminController::getPermissions();
             })(),
         'settings' => (function () use ($user) {
-                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs', 'inventory');
+                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs', 'inventory', 'drawer');
                 $settings = AdminController::getSettings();
                 if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
                     unset($settings['cloud_api_key'], $settings['sms_api_key']);

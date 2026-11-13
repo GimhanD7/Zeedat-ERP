@@ -361,16 +361,12 @@ class AdminController
     public static function changePassword(array $user, array $body): array
     {
         $current = (string) ($body['current_password'] ?? '');
-        $next = (string) ($body['new_password'] ?? '');
+        $next = Validator::password(['password' => $body['new_password'] ?? ''], true);
 
         if ($current === '') {
             throw new ApiError('Current password is required.');
         }
-        if (strlen($next) < 6) {
-            throw new ApiError('New password must be at least 6 characters.');
-        }
-
-        $row = BaseRepository::one('SELECT password_hash FROM users WHERE id=?', [$user['id']]);
+        $row = BaseRepository::one('SELECT password_hash FROM users WHERE id=? FOR UPDATE', [$user['id']]);
         if (!$row || !password_verify($current, $row['password_hash'])) {
             throw new ApiError('Current password is incorrect.', 403);
         }
