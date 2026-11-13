@@ -195,6 +195,12 @@ class AutoMigrator
      */
     private static function runIncrementalMigrations(PDO $db, string $driver): void
     {
+        $hasBillLayout = $driver === 'sqlite'
+            ? in_array('bill_layout', array_column($db->query('PRAGMA table_info(settings)')->fetchAll(PDO::FETCH_ASSOC), 'name'), true)
+            : (bool) $db->query("SHOW COLUMNS FROM settings LIKE 'bill_layout'")->fetch();
+        if (!$hasBillLayout) {
+            $db->exec('ALTER TABLE settings ADD COLUMN bill_layout MEDIUMTEXT NULL');
+        }
         $id = $driver === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT AUTO_INCREMENT PRIMARY KEY';
         $reservationIndex = $driver === 'mysql' ? ', INDEX reservations_stock (branch_id, product_id, status)' : '';
         $db->exec("CREATE TABLE IF NOT EXISTS reservations (

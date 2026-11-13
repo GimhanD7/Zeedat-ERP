@@ -1,5 +1,7 @@
 import { dateLabel, money, ref, timeLabel } from '../../utils';
 
+import { billLogo } from '../../utils/receiptPrint';
+
 const esc = v =>
   String(v ?? '')
     .replace(/&/g, '&amp;')
@@ -373,6 +375,23 @@ export function buildPrintableReportHtml(report, { title, tab = 'all', staffLabe
     )
     .join('');
 
+  return buildA4ReportHtml({ title, shop, branch: branch.name, period, staffLabel, body: bodySections });
+}
+
+export function buildStockReportHtml(items, { shop, branch, quantity, status }) {
+  const rows = items.map(item => [
+    item.sku, item.name, item.category, quantity(item), item.reorder_level, money(item.price), status(item),
+  ]);
+  return buildA4ReportHtml({
+    title: 'Stock Report', shop, branch,
+    body: `<section class="doc-section"><h2>Stock on hand · ${items.length} products</h2>${
+      renderTableHtml(['SKU', 'Product', 'Category', 'Stock', 'Reorder level', 'Selling price', 'Status'].map((label, index) => ({ label, get: row => row[index] })), rows)
+    }</section>`,
+  });
+}
+
+function buildA4ReportHtml({ title, shop = {}, branch, period = {}, staffLabel, body }) {
+  const logo = billLogo(shop);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -381,13 +400,17 @@ export function buildPrintableReportHtml(report, { title, tab = 'all', staffLabe
 <style>
   @page { size: A4 portrait; margin: 14mm 12mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; font-size: 11px; line-height: 1.4; }
-  .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px; }
+  body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; color: #142638; font-size: 11px; line-height: 1.45; print-color-adjust: exact; }
+  .doc-header { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #14796d; padding: 10px 0 14px; margin-bottom: 18px; }
+  .shop-brand img { display: block; max-width: 48mm; max-height: 20mm; object-fit: contain; margin-bottom: 8px; }
   .shop-brand h1 { margin: 0 0 3px; font-size: 18px; letter-spacing: 0.4px; }
   .shop-brand p { margin: 1px 0; color: #475569; font-size: 10px; }
   .doc-meta { text-align: right; font-size: 10px; color: #334155; }
   .doc-meta .doc-title { font-size: 14px; font-weight: 700; color: #0f766e; margin-bottom: 4px; }
-  .doc-section { margin-bottom: 16px; page-break-inside: avoid; }
+  .doc-section { margin-bottom: 16px; }
+  .doc-section h2 { break-after: avoid; }
+  thead { display: table-header-group; }
+  tr, .kpi-card { break-inside: avoid; }
   .doc-section h2 { margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #0f172a; background: #f1f5f9; padding: 5px 8px; border-left: 3px solid #0d9488; }
   .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
   .kpi-card { border: 1px solid #cbd5e1; border-radius: 5px; padding: 7px 9px; background: #ffffff; }
@@ -408,19 +431,20 @@ export function buildPrintableReportHtml(report, { title, tab = 'all', staffLabe
 <body>
   <div class="doc-header">
     <div class="shop-brand">
+      ${logo ? `<img src="${esc(logo)}" alt="Shop logo" />` : ''}
       <h1>${esc(shop.shop_name || 'ZEEDAT POS')}</h1>
       ${shop.shop_address ? `<p>${esc(shop.shop_address)}</p>` : ''}
       ${shop.shop_phone || shop.shop_email ? `<p>${esc([shop.shop_phone, shop.shop_email].filter(Boolean).join(' · '))}</p>` : ''}
     </div>
     <div class="doc-meta">
       <div class="doc-title">${esc(title)}</div>
-      <div><strong>Period:</strong> ${esc(period.from || '')} to ${esc(period.to || '')}</div>
-      <div><strong>Branch:</strong> ${esc(branch.name || 'All Branches')}</div>
-      <div><strong>Staff Filter:</strong> ${esc(staffLabel)}</div>
-      <div><strong>Generated:</strong> ${esc(period.generated_at || '')}</div>
+      ${period.from && period.to ? `<div><strong>Period:</strong> ${esc(period.from)} to ${esc(period.to)}</div>` : ''}
+      <div><strong>Branch:</strong> ${esc(branch || 'All Branches')}</div>
+      ${staffLabel ? `<div><strong>Staff Filter:</strong> ${esc(staffLabel)}</div>` : ''}
+      <div><strong>Generated:</strong> ${esc(period.generated_at || new Date().toLocaleString('en-LK', { timeZone: 'Asia/Colombo' }))}</div>
     </div>
   </div>
-  ${bodySections}
+  ${body}
   <div class="doc-signatures">
     <div class="sig-box">Prepared By</div>
     <div class="sig-box">Checked By (Accounts)</div>

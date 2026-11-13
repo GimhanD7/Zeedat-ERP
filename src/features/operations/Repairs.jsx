@@ -126,8 +126,8 @@ function buildClientSmsText(job, settings, branchName, kind = 'intake') {
   return `Hi ${job.customer || 'Customer'}, we received your ${job.device} (${jobNo}) at ${shop}${branchText}. Issue: ${job.issue || 'Repair'}. Est: ${money(est)}${paid > 0 ? `, Adv Paid: ${money(paid)}` : ''}. Due: ${job.due_date || today()}. Thank you!`;
 }
 
-function printRepairSlip(job, settings, branchName, mode = 'intake') {
-  return printBill(repairJobToBill(job, settings, branchName, mode), settings);
+function printRepairSlip(job, settings, branchName, mode = 'intake', reprint = false) {
+  return printBill(repairJobToBill(job, settings, branchName, mode), settings, { reprint });
 }
 
 export function Repairs({ ctx }) {
@@ -1615,7 +1615,7 @@ export function Repairs({ ctx }) {
                                           },
                                           settings,
                                           j.branch_name || currentBranchName,
-                                          j.status === 'Delivered' ? 'delivery' : 'intake'
+                                          j.status === 'Delivered' ? 'delivery' : 'intake', true
                                         );
                                         ctx.setNotice(`Repair bill ${j.job_number || ref('RJ', j.id)} printed.`);
                                       }}
@@ -1720,7 +1720,7 @@ export function Repairs({ ctx }) {
                                     },
                                     settings,
                                     r.branch_name || currentBranchName,
-                                    r.status === 'Delivered' ? 'delivery' : 'intake'
+                                    r.status === 'Delivered' ? 'delivery' : 'intake', true
                                   );
                                   ctx.setNotice(`Repair bill ${r.job_number || ref('RJ', r.id)} printed.`);
                                 }}

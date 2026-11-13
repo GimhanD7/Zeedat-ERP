@@ -276,10 +276,10 @@ ipcMain.handle('print-receipt-html', async (_event, options = {}) => {
   const html = String(options.html || '');
   if (!html) return { success: false, error: 'Empty receipt content' };
 
-  const paperWidth = Number(options.paperWidth) === 58 ? 58 : 80;
+  const paperWidth = Number(options.paperWidth) === 210 ? 210 : Number(options.paperWidth) === 58 ? 58 : 80;
   const printWin = new BrowserWindow({
     show: false,
-    width: paperWidth === 58 ? 240 : 320,
+    width: paperWidth === 210 ? 820 : paperWidth === 58 ? 240 : 320,
     height: 800,
     webPreferences: {
       nodeIntegration: false,
@@ -290,6 +290,18 @@ ipcMain.handle('print-receipt-html', async (_event, options = {}) => {
 
   try {
     await printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    if (paperWidth === 210 || options.silent === false) {
+      return await new Promise(resolve => {
+        printWin.webContents.print({
+          silent: false,
+          printBackground: true,
+          ...(paperWidth === 210 ? { pageSize: 'A4' } : {}),
+        }, (success, error) => {
+          if (!printWin.isDestroyed()) printWin.close();
+          resolve({ success, error });
+        });
+      });
+    }
     const heightPx = await printWin.webContents.executeJavaScript(
       'Math.max(document.documentElement.scrollHeight || 0, document.body.scrollHeight || 0, 200)'
     );

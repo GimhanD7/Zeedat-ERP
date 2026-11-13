@@ -251,6 +251,28 @@ class AdminController
         $smsProviderUrl = Validator::str($body, 'sms_provider_url', 500, false) ?: '';
         $smsApiKey = Validator::str($body, 'sms_api_key', 255, false) ?: '';
         $smsSenderId = Validator::str($body, 'sms_sender_id', 40, false) ?: '';
+        $layout = $body['bill_layout'] ?? null;
+        $encodedLayout = null;
+        if (is_array($layout)) {
+            $logo = (string) ($layout['logo'] ?? '');
+            if ($logo !== '') {
+                if (strlen($logo) > 180000 || !preg_match('#^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$#D', $logo, $match)) {
+                    throw new ApiError('Choose a PNG, JPEG or WebP logo under 130 KB.');
+                }
+                $bytes = base64_decode($match[2], true);
+                $image = $bytes === false ? false : @getimagesizefromstring($bytes);
+                if (!$image || $image['mime'] !== 'image/' . $match[1]) {
+                    throw new ApiError('The uploaded logo is invalid.');
+                }
+            }
+            $encodedLayout = json_encode([
+                'format' => ($layout['format'] ?? '') === 'a4' ? 'a4' : 'thermal',
+                'logo' => $logo,
+                'heading' => Validator::str($layout, 'heading', 100, false),
+                'details' => Validator::str($layout, 'details', 700, false),
+                'terms' => Validator::str($layout, 'terms', 1000, false),
+            ], JSON_THROW_ON_ERROR);
+        }
 
         UserRepository::updateSettings(
             $shopName,
@@ -270,6 +292,9 @@ class AdminController
             $smsApiKey,
             $smsSenderId
         );
+        if ($encodedLayout !== null) {
+            BaseRepository::run('UPDATE settings SET bill_layout=? WHERE id=1', [$encodedLayout]);
+        }
 
         return [
             'shop_name' => $shopName,

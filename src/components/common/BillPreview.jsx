@@ -25,6 +25,7 @@ export function BillPreview({ html, paperWidth = 80, maxHeight = 560 }) {
         <iframe
           ref={frameRef}
           title="Bill preview"
+          sandbox="allow-same-origin"
           srcDoc={html}
           onLoad={fit}
           style={{ width: `${paperWidth}mm`, height, border: 0, display: 'block', background: '#fff' }}
@@ -58,6 +59,7 @@ export function BillModal({ bill, settings = {}, onClose }) {
       title={`${bill.number || 'Bill'} · ${bill.title || 'Bill Preview'}`}
       description={bill.branch || settings?.shop_name || 'ZEEDAT POS'}
       onClose={onClose}
+      wide={paperWidth === 210}
     >
       <div className="modal-body">
         <BillPreview html={html} paperWidth={paperWidth} />

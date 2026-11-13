@@ -161,7 +161,7 @@ export function StockTransfers({ ctx }) {
                         icon={Printer}
                         variant="outline"
                         onClick={() => {
-                          printBill(transferToBill(r, settings), settings, { silent: true });
+                          printBill(transferToBill(r, settings), settings, { silent: true, reprint: true });
                           ctx.setNotice(`Transfer bill ${ref('ST', r.id)} printed.`);
                         }}
                       >

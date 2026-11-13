@@ -344,7 +344,7 @@ export function Returns({ ctx }) {
                           icon={Printer}
                           variant="outline"
                           onClick={() => {
-                            printBill(returnToBill(r, settings), settings, { silent: true });
+                            printBill(returnToBill(r, settings), settings, { silent: true, reprint: true });
                             ctx.setNotice(`Return bill ${ref('RET', r.id)} printed.`);
                           }}
                         >

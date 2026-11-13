@@ -181,7 +181,7 @@ class DashboardController {
         $userIdParams = $staffId > 0 ? [$staffId] : [];
 
         $shop = BaseRepository::one(
-            'SELECT shop_name, shop_phone, shop_address, shop_email, invoice_prefix, tax_bps FROM settings WHERE id=1'
+            'SELECT shop_name, shop_phone, shop_address, shop_email, invoice_prefix, tax_bps, bill_layout FROM settings WHERE id=1'
         ) ?: [
             'shop_name' => 'ZEEDAT POS',
             'shop_phone' => '',

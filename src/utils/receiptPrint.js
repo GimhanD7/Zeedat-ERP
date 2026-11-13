@@ -1,4 +1,3 @@
-import { apiClient } from '../api/client.js';
 import { dateLabel, money, ref } from './formatters.js';
 
 /* =====================================================================
@@ -97,13 +96,29 @@ export async function triggerCashDrawerForSettlement({ settings, hasCashSettleme
   }
 }
 
-export const billPaperWidth = settings => (Number(settings?.paper_width) === 58 ? 58 : 80);
+export function billLayout(settings = {}) {
+  try {
+    return (typeof settings.bill_layout === 'string' ? JSON.parse(settings.bill_layout) : settings.bill_layout) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function billLogo(settings) {
+  const logo = billLayout(settings).logo;
+  return typeof logo === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) ? logo : '';
+}
+
+export const billPaperWidth = settings => billLayout(settings).format === 'a4' ? 210 : Number(settings?.paper_width) === 58 ? 58 : 80;
 
 /**
  * THE single bill template used by every printed bill and on-screen bill preview.
  */
 export function buildBillHtml(bill = {}, settings = {}) {
   const widthMm = billPaperWidth(settings);
+  const a4 = widthMm === 210;
+  const layout = billLayout(settings);
+  const logo = billLogo(settings);
   const narrow = widthMm === 58;
   const contentWidthMm = narrow ? 54 : 74;
   const fs = (n58, n80) => (narrow ? n58 : n80) + 'px';
@@ -180,7 +195,7 @@ export function buildBillHtml(bill = {}, settings = {}) {
     .map(x => kv(x.label, amount(x.value), x.strong ? 'strong' : ''))
     .join('');
 
-  const status = bill.status;
+  const status = bill.status || { tone: 'info', label: 'Recorded' };
   const statusHtml = status
     ? `<div class="stamp ${esc(status.tone || 'info')}">
         <span>${esc(status.label)}</span>
@@ -198,7 +213,7 @@ export function buildBillHtml(bill = {}, settings = {}) {
 <meta charset="utf-8" />
 <title>${esc(bill.title || 'Bill')} ${esc(bill.number || '')}</title>
 <style>
-  @page { size: ${widthMm}mm auto; margin: 0; }
+  @page { size: ${a4 ? 'A4 portrait; margin: 14mm' : widthMm + 'mm auto; margin: 0'}; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: ${widthMm}mm;
@@ -266,15 +281,41 @@ export function buildBillHtml(bill = {}, settings = {}) {
   .footer .thanks { font-weight: 800; font-size: ${fs(10, 11)}; }
   .footer .powered { margin-top: 4px; font-size: ${fs(7.5, 8.5)}; letter-spacing: 0.5px; }
   .ref-code { font-family: 'Consolas', 'Courier New', monospace; letter-spacing: 2px; margin-top: 4px; font-size: ${fs(9, 10)}; }
+  .logo { max-width: ${a4 ? 48 : 34}mm; max-height: 22mm; object-fit: contain; margin-bottom: 3mm; }
+  .custom { white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+  thead { display: table-header-group; }
+  tr, .grand, .stamp, .number { break-inside: avoid; }
+  ${a4 ? `
+  html, body { width: auto; color: #16273a; font-size: 12px; }
+  .bill { width: auto; max-width: 182mm; padding: 4mm 0; }
+  .center { text-align: left; padding: 0 0 5mm; border-bottom: 2px solid #14796d; }
+  .shop { font-size: 27px; }
+  .shop-meta { font-size: 11px; color: #475569; }
+  .band { background: #e8f3f1; color: #115e56; padding: 12px; margin: 5mm 0 3mm; text-align: left; font-size: 16px; }
+  .number { text-align: left; font-size: 18px; }
+  .kv { padding: 4px 0; font-size: 12px; }
+  .rule { border-color: #cbd5e1; margin: 10px 0; }
+  table.items th, table.items td { padding: 9px 6px; border-bottom: 1px solid #dce5ed; }
+  table.items th { background: #eef3f7; }
+  .c-qty { width: 52px; }
+  .grand { color: #115e56; background: #e8f3f1; border: 0; padding: 11px; }
+  .stamp { margin-top: 12px; border-color: #14796d; color: #115e56; border-radius: 4px; padding: 8px; }
+  .stamp.due { background: #fff3eb; color: #9a3412; border-color: #c2410c; }
+  .footer { text-align: left; }
+  ` : ''}
 </style>
 </head>
 <body>
   <div class="bill">
     <div class="center">
+      ${logo ? `<img class="logo" src="${esc(logo)}" alt="Shop logo" />` : ''}
       <div class="shop">${esc(shopName)}</div>
+      ${layout.heading ? `<div class="shop-meta">${esc(layout.heading)}</div>` : ''}
       ${branch ? `<div class="shop-meta">${esc(branch)}</div>` : ''}
       ${settings?.shop_address ? `<div class="shop-meta">${esc(settings.shop_address)}</div>` : ''}
       ${settings?.shop_phone ? `<div class="shop-meta">Tel: ${esc(settings.shop_phone)}</div>` : ''}
+      ${settings?.shop_email ? `<div class="shop-meta">${esc(settings.shop_email)}</div>` : ''}
+      ${layout.details ? `<div class="shop-meta custom">${esc(layout.details)}</div>` : ''}
     </div>
     <div class="band">${esc(bill.title || 'Bill')}</div>
     ${bill.copyLabel ? `<div class="copy">${esc(bill.copyLabel)}</div>` : ''}
@@ -294,6 +335,7 @@ export function buildBillHtml(bill = {}, settings = {}) {
     <div class="rule solid"></div>
     <div class="footer">
       ${bill.footerNote ? `<div>${esc(bill.footerNote)}</div>` : ''}
+      ${layout.terms ? `<div class="custom">${esc(layout.terms)}</div>` : ''}
       <div class="thanks">${esc(settings?.receipt_footer || 'Thank you for your business!')}</div>
       ${bill.number ? `<div class="ref-code">*${esc(bill.number)}*</div>` : ''}
       <div class="powered">Powered by ZEEDAT POS</div>
@@ -354,7 +396,7 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
     numberLabel: 'Bill No',
     date: invoice.created_at,
     branch: invoice.branch,
-    copyLabel: invoice.isPreview ? 'REVIEW COPY · NOT PAID' : '',
+    copyLabel: invoice.isPreview ? 'REVIEW COPY' : invoice.isReprint ? 'REPRINT' : '',
     parties: [
       ['Customer', `${invoice.customer || 'Walk-in customer'}${invoice.customer_phone ? ` (${invoice.customer_phone})` : ''}`],
       ['Cashier', invoice.cashier],
@@ -377,9 +419,11 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
     payments,
     extras,
     status: invoice.isPreview
-      ? null
+      ? { tone: 'info', label: 'Payment not recorded' }
+      : Number(invoice.refunded || 0) > 0
+        ? { tone: 'info', label: Number(invoice.refunded) >= total ? 'Refunded' : 'Partially Refunded', value: Number(invoice.refunded) }
       : credit > 0
-        ? { tone: 'due', label: `Balance Due${invoice.due_date ? ' · ' + dateLabel(invoice.due_date) : ''}`, value: credit }
+        ? { tone: 'due', label: `${credit >= total ? 'Unpaid' : 'Partially Paid'}${invoice.due_date ? ' · ' + dateLabel(invoice.due_date) : ''}`, value: credit }
         : { tone: 'paid', label: 'Paid in Full' },
     notes: invoice.notes,
   };
@@ -429,7 +473,7 @@ export function repairJobToBill(job = {}, settings = {}, branchName = '', mode =
     payments,
     status:
       balance > 0
-        ? { tone: 'due', label: 'Balance Due', value: balance }
+        ? { tone: 'due', label: paid > 0 ? 'Partially Paid' : 'Unpaid', value: balance }
         : { tone: 'paid', label: charge > 0 ? 'Paid in Full' : 'No Charge' },
     footerNote: delivery
       ? 'Device handed over in working condition. Warranty as per shop policy.'
@@ -474,7 +518,7 @@ export function reservationToBill(rsv = {}, settings = {}, branchName = '') {
       rsv.status === 'Cancelled'
         ? { tone: 'info', label: 'Cancelled · Deposit Refunded' }
         : balance > 0
-          ? { tone: 'due', label: 'Balance Due', value: balance }
+          ? { tone: 'due', label: paid > 0 ? 'Partially Paid' : 'Unpaid', value: balance }
           : { tone: 'paid', label: rsv.status === 'Delivered' ? 'Handed Over · Paid' : 'Ready for Handover' },
     footerNote: 'Please present this reservation slip when collecting your reserved item.',
   };
@@ -527,6 +571,8 @@ export function returnToBill(ret = {}, settings = {}, branchName = '') {
     status:
       ret.status === 'Rejected'
         ? { tone: 'info', label: 'Request Rejected' }
+        : ret.status !== 'Completed'
+          ? { tone: 'info', label: `Return ${ret.status || 'Pending'}` }
         : isExchange
           ? diff > 0
             ? { tone: 'due', label: 'Difference Collected', value: diff }
@@ -569,7 +615,7 @@ export function purchaseToBill(po = {}, settings = {}, branchName = '') {
     payments: paid > 0 ? [{ label: 'Paid to Supplier', value: paid }] : [],
     status:
       balance > 0
-        ? { tone: 'due', label: 'Payable Balance', value: balance }
+        ? { tone: 'due', label: paid > 0 ? 'Partially Paid' : 'Unpaid', value: balance }
         : { tone: 'paid', label: 'Settled in Full' },
   };
 }
@@ -611,10 +657,10 @@ export function transferToBill(tr = {}, settings = {}) {
 /**
  * Print an isolated HTML document via Electron silent print or hidden iframe fallback.
  */
-export function printHtmlDocument(html) {
-  if (window.electronAPI?.printReceiptHtml) {
+export function printHtmlDocument(html, { paperWidth = 210 } = {}) {
+  if (paperWidth !== 210 && window.electronAPI?.printReceiptHtml) {
     return window.electronAPI
-      .printReceiptHtml({ html, paperWidth: 80, silent: true })
+      .printReceiptHtml({ html, paperWidth, silent: false })
       .then(res => ({ success: res?.success ?? res?.ok ?? true, ...res }))
       .catch(err => ({ success: false, error: err?.message || 'Print failed' }));
   }
@@ -666,30 +712,25 @@ export function printHtmlDocument(html) {
 }
 
 /**
- * Silently print any unified bill directly to the configured thermal printer
- * without showing any browser or OS print preview dialog.
+ * Send thermal bills to the configured desktop printer or open the print dialog.
  */
-export async function printBill(bill, settings = {}, _options = {}) {
-  const html = buildBillHtml(bill, settings);
-  if (window.electronAPI?.printReceiptHtml) {
+export async function printBill(bill, settings = {}, options = {}) {
+  const html = buildBillHtml(options.reprint && !bill.copyLabel ? { ...bill, copyLabel: 'REPRINT' } : bill, settings);
+  const paperWidth = billPaperWidth(settings);
+  if (paperWidth !== 210 && window.electronAPI?.printReceiptHtml) {
     try {
       const res = await window.electronAPI.printReceiptHtml({
         html,
-        paperWidth: billPaperWidth(settings),
-        deviceName: settings?.receipt_printer_name || '',
-        silent: true,
+        paperWidth,
+        deviceName: paperWidth === 210 ? '' : settings?.receipt_printer_name || '',
+        silent: paperWidth !== 210 && options.silent !== false,
       });
       return { success: res?.success ?? res?.ok ?? true, ...res };
     } catch (err) {
       return { success: false, error: err?.message || 'Print failed' };
     }
   }
-  try {
-    const res = await apiClient.post('bill.print', { bill, settings });
-    return { success: res?.success ?? true, ...res };
-  } catch (err) {
-    return { success: false, error: err?.message || 'Silent print failed' };
-  }
+  return printHtmlDocument(html, { paperWidth });
 }
 
 /** Backwards-compatible helpers for the POS sales invoice. */

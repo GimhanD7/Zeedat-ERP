@@ -552,7 +552,7 @@ try {
                 return AdminController::getPermissions();
             })(),
         'settings' => (function () use ($user) {
-                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs');
+                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs', 'inventory');
                 $settings = AdminController::getSettings();
                 if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
                     unset($settings['cloud_api_key'], $settings['sms_api_key']);

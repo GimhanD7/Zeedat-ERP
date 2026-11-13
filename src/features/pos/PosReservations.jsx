@@ -291,7 +291,7 @@ export function PosReservations({
                     <div className="pos-reservation-actions">
                       <Button type="button" icon={Printer} variant="outline" onClick={() => {
                         const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
-                        printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, settings, brName), settings, { silent: true });
+                        printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, settings, brName), settings, { silent: true, reprint: true });
                         setMessage('Reservation bill sent to printer.');
                       }}>Print Bill</Button>
                       {selected.status === 'Held' && (

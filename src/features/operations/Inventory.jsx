@@ -42,12 +42,14 @@ import { StockImportModal } from './StockImportModal';
 import { BranchStocksTab } from './BranchStocksTab';
 import { DeviceUnitsTab } from './DeviceUnitsTab';
 import { StockHistoryTab } from './StockHistoryTab';
+import { buildStockReportHtml } from '../dashboard/reportPrint';
 import {
   categories,
   cents,
   exportStockCsv,
   money,
   options,
+  printHtmlDocument,
   rupees,
   stockStatus,
 } from '../../utils';
@@ -110,6 +112,7 @@ export function Inventory({ ctx }) {
   }, [ctx.branch]);
 
   const state = useData(ctx, {
+    settings: 'settings',
     items: ['products', { branch: selectedBranch }],
     units: ['units', { branch: unitBranch }],
     movements: ['stock.movements', { branch: selectedBranch }],
@@ -360,7 +363,7 @@ export function Inventory({ ctx }) {
 
   return (
     <DataView state={state}>
-      {({ items, units, movements = [] }) => {
+      {({ items, units, settings, movements = [] }) => {
         const physicalItems = items.filter(p => p.category !== 'Services');
         const withBarcodeCount = physicalItems.filter(p => Boolean(p.barcode)).length;
         const internalZdCount = physicalItems.filter(p =>
@@ -420,6 +423,12 @@ export function Inventory({ ctx }) {
               title="Products & Inventory"
               description="Manage your catalog, branch-wise stocks, barcodes, pricing and device units."
             >
+              <Button icon={Printer} disabled={!matching.length} onClick={() => printHtmlDocument(buildStockReportHtml(matching, {
+                shop: settings,
+                branch: ctx.branches.find(branch => Number(branch.id) === Number(selectedBranch))?.name,
+                quantity: item => getProductBranchStock(item, selectedBranch),
+                status: item => getProductBranchStatus(item, selectedBranch),
+              }))}>Print Stock Report</Button>
               <Button
                 icon={Download}
                 onClick={() => {

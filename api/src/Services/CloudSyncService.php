@@ -1019,7 +1019,7 @@ class CloudSyncService {
             if (!empty($data['settings']) && is_array($data['settings'])) {
                 $st = $data['settings'];
                 BaseRepository::run(
-                    'UPDATE settings SET shop_name=?, shop_phone=?, shop_address=?, shop_email=?, invoice_prefix=?, paper_width=?, receipt_footer=?, tax_bps=?, show_tax_on_receipt=? WHERE id=1',
+                    'UPDATE settings SET shop_name=?, shop_phone=?, shop_address=?, shop_email=?, invoice_prefix=?, paper_width=?, receipt_footer=?, tax_bps=?, show_tax_on_receipt=?, bill_layout=COALESCE(?,bill_layout) WHERE id=1',
                     [
                         $st['shop_name'] ?? 'ZEEDAT POS',
                         $st['shop_phone'] ?? '',
@@ -1030,6 +1030,7 @@ class CloudSyncService {
                         $st['receipt_footer'] ?? 'Thank you for your business!',
                         (int) ($st['tax_bps'] ?? 0),
                         (int) ($st['show_tax_on_receipt'] ?? 1),
+                        $st['bill_layout'] ?? null,
                     ]
                 );
             }
@@ -2316,6 +2317,7 @@ class CloudSyncService {
                 'invoice_prefix' => $settings['invoice_prefix'] ?? 'INV-',
                 'paper_width' => $settings['paper_width'] ?? '80',
                 'receipt_footer' => $settings['receipt_footer'] ?? 'Thank you for your business!',
+                'bill_layout' => $settings['bill_layout'] ?? null,
                 'tax_bps' => (int) ($settings['tax_bps'] ?? 0),
                 'show_tax_on_receipt' => (int) ($settings['show_tax_on_receipt'] ?? 1),
             ],

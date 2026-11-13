@@ -14,6 +14,8 @@ import {
 
 export function ReceiptModal({ invoice, settings, onClose }) {
   const [printing, setPrinting] = useState(false);
+  const [printed, setPrinted] = useState(false);
+  const [printError, setPrintError] = useState('');
   if (!invoice) return null;
 
   const isCashSettlement =
@@ -34,8 +36,11 @@ export function ReceiptModal({ invoice, settings, onClose }) {
 
   const handlePrint = async () => {
     setPrinting(true);
+    setPrintError('');
     try {
-      await printThermalReceipt(invoice, settings, { silent: true });
+      const result = await printThermalReceipt(invoice, settings, { silent: true, reprint: printed || invoice.isReprint });
+      if (result.success) setPrinted(true);
+      else setPrintError(result.error || 'Could not print the bill.');
     } finally {
       setPrinting(false);
     }
@@ -133,12 +138,13 @@ export function ReceiptModal({ invoice, settings, onClose }) {
           </div>
         </div>
 
+        {printError && <p role="alert">{printError}</p>}
         <BillPreview html={buildThermalReceiptHtml(invoice, settings)} paperWidth={billPaperWidth(settings)} />
       </div>
       <div className="modal-footer">
         <Button onClick={onClose}>Close</Button>
         <Button icon={Printer} variant="primary" disabled={printing} onClick={handlePrint}>
-          {printing ? 'Printing...' : 'Print receipt'}
+          {printing ? 'Printing...' : printed || invoice.isReprint ? 'Reprint receipt' : 'Print receipt'}
         </Button>
       </div>
     </Modal>

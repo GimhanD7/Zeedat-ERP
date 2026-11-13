@@ -25,6 +25,7 @@ import {
 import { useData } from '../../hooks/useData';
 import {
   Badge,
+  BillPreview,
   Button,
   Heading,
   SearchBox,
@@ -32,7 +33,7 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { cents, printHtmlDocument, timeLabel, today } from '../../utils';
+import { billLayout, billPaperWidth, buildBillHtml, printBill, cents, printHtmlDocument, timeLabel, today } from '../../utils';
 import { BackupSyncManager } from './BackupSyncManager';
 
 export function SettingsPage({ ctx }) {
@@ -69,6 +70,7 @@ export function SettingsPage({ ctx }) {
     invoice_prefix: 'INV-',
     tax_pct: '0',
     paper_width: '80',
+    bill_layout: {},
     receipt_footer: 'Thank you for your business! Please retain this receipt for warranty.',
     auto_print: true,
     show_tax_on_receipt: true,
@@ -79,6 +81,7 @@ export function SettingsPage({ ctx }) {
     sms_api_key: '',
     sms_sender_id: '',
   });
+  const updateBillLayout = (key, value) => setForm(previous => ({ ...previous, bill_layout: { ...previous.bill_layout, [key]: value } }));
   const [printers, setPrinters] = useState([]);
   const [drawerTesting, setDrawerTesting] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
@@ -116,6 +119,7 @@ export function SettingsPage({ ctx }) {
         invoice_prefix: s.invoice_prefix || 'INV-',
         tax_pct: String((s.tax_bps || 0) / 100),
         paper_width: String(s.paper_width || '80'),
+        bill_layout: billLayout(s),
         receipt_footer:
           s.receipt_footer ||
           'Thank you for your business! Please retain this receipt for warranty.',
@@ -177,6 +181,7 @@ export function SettingsPage({ ctx }) {
         invoice_prefix: form.invoice_prefix,
         tax_bps: cents(form.tax_pct || 0),
         paper_width: form.paper_width,
+        bill_layout: form.bill_layout,
         receipt_footer: form.receipt_footer,
         auto_print: form.auto_print ? 1 : 0,
         show_tax_on_receipt: form.show_tax_on_receipt ? 1 : 0,
@@ -383,6 +388,16 @@ export function SettingsPage({ ctx }) {
         const taxRateNum = parseFloat(form.tax_pct || '0') || 0;
         const sampleTax = (sampleSubtotal * taxRateNum) / 100;
         const sampleTotal = sampleSubtotal + sampleTax;
+        const sampleBill = {
+          title: 'SALES INVOICE', number: 'INV-EXAMPLE', copyLabel: 'TEST PRINT',
+          parties: [['Customer', 'Sample Customer']],
+          items: [{ name: 'Sample Item', qty: 1, price: cents(sampleSubtotal), total: cents(sampleSubtotal) }],
+          totals: [
+            ...(form.show_tax_on_receipt ? [{ label: 'Tax', value: cents(sampleTax) }] : []),
+            { label: 'Total', value: cents(sampleTotal), grand: true },
+          ],
+          status: { tone: 'paid', label: 'Paid in Full' },
+        };
 
         return (
           <div className="zk-dashboard-wrap">
@@ -743,86 +758,47 @@ export function SettingsPage({ ctx }) {
                     </div>
 
                     <div className="zk-form-footer">
+                      <section className="zk-field-wrap" style={{ display: 'grid', gap: 10 }}>
+                        <strong>Bill Layout</strong>
+                        <label>Print format
+                          <Select value={form.bill_layout.format || 'thermal'} options={[[ 'thermal', 'Thermal receipt' ], [ 'a4', 'A4 invoice' ]]}
+                            onChange={e => updateBillLayout('format', e.target.value)} />
+                        </label>
+                        <label>Logo (PNG, JPEG or WebP, up to 130 KB)
+                          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 130000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+                              setStoreMsg({ type: 'error', text: 'Choose a PNG, JPEG or WebP logo under 130 KB.' });
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => updateBillLayout('logo', reader.result);
+                            reader.onerror = () => setStoreMsg({ type: 'error', text: 'Could not read the logo.' });
+                            reader.readAsDataURL(file);
+                          }} />
+                        </label>
+                        {form.bill_layout.logo && <Button type="button" onClick={() => updateBillLayout('logo', '')}>Remove Logo</Button>}
+                        <label>Header line
+                          <input maxLength={100} value={form.bill_layout.heading || ''} onChange={e => updateBillLayout('heading', e.target.value)} />
+                        </label>
+                        <label>Additional details
+                          <textarea rows={2} maxLength={700} placeholder="Business registration or tax number" value={form.bill_layout.details || ''} onChange={e => updateBillLayout('details', e.target.value)} />
+                        </label>
+                        <label>Terms and warranty
+                          <textarea rows={3} maxLength={1000} value={form.bill_layout.terms || ''} onChange={e => updateBillLayout('terms', e.target.value)} />
+                        </label>
+                      </section>
                       <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
                         {savingStore ? 'Saving Settings...' : 'Save Store & Receipt Settings'}
                       </Button>
                     </div>
                   </form>
 
-                  {/* RIGHT: LIVE THERMAL RECEIPT PREVIEW */}
                   <div className="zk-receipt-preview-box">
-                    <div
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '12px',
-                      }}
-                    >
-                      <strong style={{ fontSize: '13px', color: '#334155' }}>
-                        Live Receipt Preview ({form.paper_width}mm)
-                      </strong>
-                      <button
-                        type="button"
-                        className="zk-edit-btn"
-                        onClick={() => window.print()}
-                      >
-                        <Printer size={12} />
-                        <span>Test Print</span>
-                      </button>
-                    </div>
-
-                    <div className={`zk-thermal-paper ${form.paper_width === '58' ? 'w58' : 'w80'}`}>
-                      <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-                        <div style={{ fontWeight: 800, fontSize: '14px' }}>
-                          {form.shop_name || 'ZEEDAT POS'}
-                        </div>
-                        {form.shop_address && <div>{form.shop_address}</div>}
-                        {form.shop_phone && <div>Tel: {form.shop_phone}</div>}
-                        {form.shop_email && <div>{form.shop_email}</div>}
-                      </div>
-
-                      <div style={{ borderTop: '1px dashed #94a3b8', borderBottom: '1px dashed #94a3b8', padding: '4px 0', marginBottom: '6px' }}>
-                        <div>Inv: {form.invoice_prefix}001042</div>
-                        <div>Date: {new Date().toLocaleDateString()}</div>
-                        <div>Cashier: Admin</div>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
-                        <span>Item</span>
-                        <span>Amount</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>20W USB-C Charger x1</span>
-                        <span>7,500.00</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span>Silicone Case x2</span>
-                        <span>7,500.00</span>
-                      </div>
-
-                      <div style={{ borderTop: '1px dashed #94a3b8', paddingTop: '4px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>Subtotal</span>
-                          <span>15,000.00</span>
-                        </div>
-                        {form.show_tax_on_receipt && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>VAT ({form.tax_pct || 0}%)</span>
-                            <span>{sampleTax.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '13px', marginTop: '3px' }}>
-                          <span>TOTAL</span>
-                          <span>LKR {sampleTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-
-                      <div style={{ borderTop: '1px dashed #94a3b8', marginTop: '8px', paddingTop: '6px', textAlign: 'center', fontSize: '10px', color: '#475569' }}>
-                        {form.receipt_footer || 'Thank you for shopping with us!'}
-                      </div>
-                    </div>
+                    <strong>Bill Preview</strong>
+                    <Button icon={Printer} onClick={() => printBill(sampleBill, form, { silent: false })}>Test Print</Button>
+                    <BillPreview html={buildBillHtml(sampleBill, form)} paperWidth={billPaperWidth(form)} maxHeight={420} />
                   </div>
                 </div>
               )}

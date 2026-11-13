@@ -359,7 +359,8 @@ export function SalesHistory({ ctx }) {
                           setLoading(true);
                           try {
                             const inv = await ctx.get('invoice', { id: r.id });
-                            printThermalReceipt(inv, settings, { silent: true });
+                            const printed = await printThermalReceipt(inv, settings, { silent: true, reprint: true });
+                            if (!printed.success) throw new Error(printed.error || 'Could not print invoice.');
                             ctx.setNotice(`Invoice ${r.invoice_no || ref(prefix, r.id)} printed.`);
                           } catch (e) {
                             setError(e.message);

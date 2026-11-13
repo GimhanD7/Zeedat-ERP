@@ -180,7 +180,7 @@ export function Purchases({ ctx }) {
                           icon={Printer}
                           variant="outline"
                           onClick={() => {
-                            printBill(purchaseToBill(r, settings), settings, { silent: true });
+                            printBill(purchaseToBill(r, settings), settings, { silent: true, reprint: true });
                             ctx.setNotice(`Purchase bill ${ref('PO', r.id)} printed.`);
                           }}
                         >

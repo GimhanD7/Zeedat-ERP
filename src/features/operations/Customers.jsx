@@ -487,7 +487,7 @@ export function Customers({ ctx }) {
           const invCode = saleRow.invoice_no || ref('INV', saleRow.id);
           try {
             const fullInv = await ctx.get('invoice', { id: saleRow.id, branch: saleRow.branch_id || 0 });
-            printThermalReceipt(fullInv, settings || {}, { silent: true });
+            printThermalReceipt(fullInv, settings || {}, { silent: true, reprint: true });
             ctx.setNotice(`Invoice ${invCode} printed.`);
           } catch {
             printThermalReceipt(
