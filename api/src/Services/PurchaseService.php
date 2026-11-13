@@ -19,24 +19,166 @@ class PurchaseService {
     }
 
     public static function receiveStock(array $user, int $branch, array $body): array {
+        $targetBranch = !empty($body['branch']) ? (int) $body['branch'] : $branch;
+        if (!$targetBranch) {
+            throw new ApiError('Select a valid receiving branch.');
+        }
+
         $supplier = Validator::integer($body['supplier_id'] ?? null, 'Supplier');
         if (!BaseRepository::scalar('SELECT id FROM suppliers WHERE id=?', [$supplier])) {
             throw new ApiError('Supplier not found.', 404);
         }
 
+        $invoice = Validator::str($body, 'invoice', 60);
+
+        // Check if multiple items array is passed
+        $items = $body['items'] ?? null;
+        if (is_array($items) && count($items) > 0) {
+            return BaseRepository::transaction(function () use ($user, $targetBranch, $supplier, $invoice, $items, $body) {
+                $createdPurchases = [];
+                $totalInvoiceCost = 0;
+
+                foreach ($items as $idx => $line) {
+                    $productId = Validator::integer($line['product_id'] ?? null, 'Product #' . ($idx + 1));
+                    $p = ProductRepository::findById($productId);
+                    if (!$p || $p['category'] === 'Services') {
+                        throw new ApiError('Cannot receive stock for product: ' . ($p['name'] ?? ('ID ' . $productId)));
+                    }
+
+                    $unitCost = Validator::money($line, 'unit_cost');
+                    $qty = Validator::integer($line['qty'] ?? null, 'Quantity for ' . $p['name'], 1, 10000);
+                    $lineTotal = $qty * $unitCost;
+                    $totalInvoiceCost += $lineTotal;
+
+                    $purchaseId = BaseRepository::insert(
+                        'INSERT INTO purchases(branch_id, supplier_id, product_id, invoice, qty, unit_cost, balance, synced) VALUES (?,?,?,?,?,?,?,0)',
+                        [$targetBranch, $supplier, $productId, $invoice, $qty, $unitCost, $lineTotal]
+                    );
+                    $createdPurchases[] = [
+                        'id' => $purchaseId,
+                        'product_id' => $productId,
+                        'qty' => $qty,
+                        'unit_cost' => $unitCost,
+                        'total' => $lineTotal,
+                    ];
+
+                    // Handle serialized device units
+                    if (!empty($p['serialized'])) {
+                        $unitsList = $line['units'] ?? $line['serials'] ?? [];
+                        if (is_array($unitsList) && count($unitsList) > 0) {
+                            foreach ($unitsList as $u) {
+                                $code = is_array($u) ? ($u['code'] ?? '') : (string) $u;
+                                $imei = is_array($u) ? ($u['imei'] ?? null) : null;
+                                $grade = is_array($u) ? ($u['grade'] ?? 'New') : 'New';
+                                $codeClean = strtoupper(trim((string) $code));
+                                if ($codeClean !== '') {
+                                    BaseRepository::insert(
+                                        "INSERT INTO units(branch_id, product_id, code, imei, grade, state, synced) VALUES (?,?,?,?,?,'Available',0)",
+                                        [$targetBranch, $productId, $codeClean, $imei ? trim((string) $imei) : null, $grade]
+                                    );
+                                }
+                            }
+                        } elseif (!empty($line['code'])) {
+                            $code = strtoupper(trim((string) $line['code']));
+                            $imei = !empty($line['imei']) ? trim((string) $line['imei']) : null;
+                            $grade = !empty($line['grade']) ? trim((string) $line['grade']) : 'New';
+                            BaseRepository::insert(
+                                "INSERT INTO units(branch_id, product_id, code, imei, grade, state, synced) VALUES (?,?,?,?,?,'Available',0)",
+                                [$targetBranch, $productId, $code, $imei, $grade]
+                            );
+                        }
+                    }
+
+                    // AUTO UPDATE STOCK IN INVENTORY
+                    ProductRepository::adjustStock(
+                        $targetBranch,
+                        $productId,
+                        $qty,
+                        'Purchase receiving: ' . $invoice,
+                        Helpers::ref('PO', $purchaseId),
+                        (int) $user['id']
+                    );
+
+                    // Update cost or retail selling price if requested
+                    $sellingPrice = isset($line['selling_price']) ? Validator::money($line, 'selling_price') : 0;
+                    if ($sellingPrice > 0 || !empty($line['update_cost'])) {
+                        $setSql = [];
+                        $setParams = [];
+                        if ($sellingPrice > 0) {
+                            $setSql[] = 'price=?';
+                            $setParams[] = $sellingPrice;
+                        }
+                        if (!empty($line['update_cost']) || empty($p['cost'])) {
+                            $setSql[] = 'cost=?';
+                            $setParams[] = $unitCost;
+                        }
+                        if (!empty($setSql)) {
+                            $setParams[] = $productId;
+                            BaseRepository::run('UPDATE products SET ' . implode(', ', $setSql) . ' WHERE id=?', $setParams);
+                        }
+                    }
+                }
+
+                // Handle payment settlement if paid now
+                $amountPaid = isset($body['amount_paid']) ? Validator::money($body, 'amount_paid') : 0;
+                $paymentMethod = (string) ($body['payment_method'] ?? 'Cash');
+                $remainingToPay = min($amountPaid, $totalInvoiceCost);
+
+                if ($remainingToPay > 0) {
+                    $drawer = null;
+                    if ($paymentMethod === 'Cash') {
+                        $drawer = DrawerService::openDrawer($user, $targetBranch);
+                    }
+                    $drawerId = $drawer ? $drawer['id'] : null;
+
+                    foreach ($createdPurchases as &$cp) {
+                        if ($remainingToPay <= 0) break;
+                        $lineBalance = $cp['total'];
+                        $payPart = min($remainingToPay, $lineBalance);
+                        $remainingToPay -= $payPart;
+
+                        BaseRepository::run('UPDATE purchases SET balance=balance-?, synced=0 WHERE id=?', [$payPart, $cp['id']]);
+                        BaseRepository::insert(
+                            'INSERT INTO supplier_payments(purchase_id, drawer_id, user_id, amount) VALUES (?,?,?,?)',
+                            [$cp['id'], $drawerId, $user['id'], $payPart]
+                        );
+                    }
+
+                    if ($drawer && $paymentMethod === 'Cash') {
+                        DrawerRepository::addCashMovement(
+                            $user['id'],
+                            $drawer,
+                            -$amountPaid,
+                            'Supplier Payment',
+                            'PO Invoice: ' . $invoice
+                        );
+                    }
+                }
+
+                return [
+                    'invoice' => $invoice,
+                    'total_cost' => $totalInvoiceCost,
+                    'amount_paid' => $amountPaid,
+                    'balance_due' => max(0, $totalInvoiceCost - $amountPaid),
+                    'items_count' => count($items),
+                    'purchases' => $createdPurchases,
+                ];
+            });
+        }
+
+        // Backward-compatible single item path:
         $product = Validator::integer($body['product_id'] ?? null, 'Product');
         $p = ProductRepository::findById($product);
         if (!$p || $p['category'] === 'Services') {
             throw new ApiError('Cannot receive stock for this product.');
         }
 
-        $invoice = Validator::str($body, 'invoice', 60);
         $unitCost = Validator::money($body, 'unit_cost');
         $qty = Validator::integer($body['qty'] ?? null, 'Quantity', 1, $p['serialized'] ? 1 : 10000);
 
         $purchaseId = BaseRepository::insert(
             'INSERT INTO purchases(branch_id, supplier_id, product_id, invoice, qty, unit_cost, balance, synced) VALUES (?,?,?,?,?,?,?,0)',
-            [$branch, $supplier, $product, $invoice, $qty, $unitCost, $qty * $unitCost]
+            [$targetBranch, $supplier, $product, $invoice, $qty, $unitCost, $qty * $unitCost]
         );
 
         if ($p['serialized']) {
@@ -46,25 +188,71 @@ class PurchaseService {
 
             BaseRepository::insert(
                 "INSERT INTO units(branch_id, product_id, code, imei, grade, state, synced) VALUES (?,?,?,?,?,'Available',0)",
-                [$branch, $product, $code, $imei ?: null, $grade]
+                [$targetBranch, $product, $code, $imei ?: null, $grade]
             );
         }
 
-        ProductRepository::adjustStock($branch, $product, $qty, 'Purchase receiving: ' . $invoice, Helpers::ref('PO', $purchaseId), (int) $user['id']);
+        ProductRepository::adjustStock($targetBranch, $product, $qty, 'Purchase receiving: ' . $invoice, Helpers::ref('PO', $purchaseId), (int) $user['id']);
 
         return ['id' => $purchaseId, 'balance' => $qty * $unitCost];
     }
 
     public static function paySupplier(array $user, int $branch, array $body): array {
         $drawer = DrawerService::openDrawer($user, $branch);
+        $amount = Validator::money($body, 'amount');
+        if ($amount <= 0) {
+            throw new ApiError('Enter a payment amount greater than zero.');
+        }
+
+        // Check if paying by supplier invoice
+        if (!empty($body['invoice']) && !empty($body['supplier_id'])) {
+            $invoice = trim((string) $body['invoice']);
+            $supplierId = (int) $body['supplier_id'];
+            $lines = BaseRepository::rows(
+                'SELECT * FROM purchases WHERE supplier_id=? AND invoice=? AND balance > 0 AND branch_id=? FOR UPDATE',
+                [$supplierId, $invoice, $branch]
+            );
+            if (empty($lines)) {
+                throw new ApiError('No outstanding balance found for this supplier invoice.', 404);
+            }
+
+            $totalBalance = array_reduce($lines, fn($s, $l) => $s + (int) $l['balance'], 0);
+            if ($amount > $totalBalance) {
+                throw new ApiError('Payment exceeds the remaining invoice balance of ' . Helpers::money($totalBalance) . '.');
+            }
+
+            $rem = $amount;
+            foreach ($lines as $line) {
+                if ($rem <= 0) break;
+                $lineBal = (int) $line['balance'];
+                $part = min($rem, $lineBal);
+                $rem -= $part;
+
+                BaseRepository::run('UPDATE purchases SET balance=balance-?, synced=0 WHERE id=?', [$part, $line['id']]);
+                BaseRepository::insert(
+                    'INSERT INTO supplier_payments(purchase_id, drawer_id, user_id, amount) VALUES (?,?,?,?)',
+                    [$line['id'], $drawer['id'], $user['id'], $part]
+                );
+            }
+
+            DrawerRepository::addCashMovement(
+                $user['id'],
+                $drawer,
+                -$amount,
+                'Supplier Payment',
+                'Invoice ' . $invoice
+            );
+
+            return ['invoice' => $invoice, 'amount' => $amount, 'remaining_balance' => $totalBalance - $amount];
+        }
+
         $id = Validator::integer($body['id'] ?? null, 'Purchase invoice');
         $purchase = BaseRepository::one('SELECT * FROM purchases WHERE id=? AND branch_id=? FOR UPDATE', [$id, $branch]);
         if (!$purchase) {
             throw new ApiError('Purchase record not found.', 404);
         }
 
-        $amount = Validator::money($body, 'amount');
-        if ($amount <= 0 || $amount > (int) $purchase['balance']) {
+        if ($amount > (int) $purchase['balance']) {
             throw new ApiError('Payment exceeds the purchase balance.');
         }
 
