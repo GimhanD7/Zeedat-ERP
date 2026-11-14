@@ -56,6 +56,73 @@ class SmsService {
         return implode(' ', array_filter($parts));
     }
 
+    public static function buildPaymentReceivedMessage(array $info, array $settings = [], string $branchName = ''): string {
+        $shop = trim((string) ($settings['shop_name'] ?? 'Zeedat')) ?: 'Zeedat';
+        $branchLabel = trim($branchName) !== '' ? " ({$branchName})" : '';
+        $cust = trim((string) ($info['customer'] ?? 'Customer')) ?: 'Customer';
+        $type = (string) ($info['type'] ?? 'payment');
+        $method = trim((string) ($info['method'] ?? 'Cash')) ?: 'Cash';
+        $fmtMoney = static fn(int $cents): string => 'LKR ' . number_format($cents / 100, 2);
+
+        if ($type === 'reservation_payment') {
+            $rsvRef = (string) ($info['reservation_ref'] ?? 'RSV');
+            $product = trim((string) ($info['product'] ?? 'Reserved Item')) ?: 'Reserved Item';
+            $amount = (int) ($info['amount'] ?? 0);
+            $total = (int) ($info['total'] ?? 0);
+            $paid = (int) ($info['paid'] ?? 0);
+            $balance = max(0, $total - $paid);
+            return "Hi {$cust}, reservation payment of {$fmtMoney($amount)} ({$method}) received for {$product} ({$rsvRef}) at {$shop}{$branchLabel}. Total: {$fmtMoney($total)}, Paid: {$fmtMoney($paid)}, Balance Due: {$fmtMoney($balance)}. Thank you!";
+        }
+
+        if ($type === 'reservation_handover') {
+            $rsvRef = (string) ($info['reservation_ref'] ?? 'RSV');
+            $invoiceNo = (string) ($info['invoice_no'] ?? '');
+            $product = trim((string) ($info['product'] ?? 'Reserved Item')) ?: 'Reserved Item';
+            $total = (int) ($info['total'] ?? 0);
+            $invPart = $invoiceNo !== '' ? " Invoice: {$invoiceNo}," : '';
+            return "Hi {$cust}, your reserved item {$product} ({$rsvRef}) has been handed over at {$shop}{$branchLabel}.{$invPart} Total Paid: {$fmtMoney($total)}. Thank you!";
+        }
+
+        if ($type === 'credit_payment') {
+            $invoiceNo = (string) ($info['invoice_no'] ?? 'Invoice');
+            $amount = (int) ($info['amount'] ?? 0);
+            $remaining = max(0, (int) ($info['remaining'] ?? 0));
+            return "Hi {$cust}, credit payment of {$fmtMoney($amount)} ({$method}) received for Invoice {$invoiceNo} at {$shop}{$branchLabel}. Remaining Credit Balance: {$fmtMoney($remaining)}. Thank you!";
+        }
+
+        if ($type === 'wallet_topup') {
+            $amount = (int) ($info['amount'] ?? 0);
+            $walletBalance = (int) ($info['wallet_balance'] ?? 0);
+            return "Hi {$cust}, wallet top-up payment of {$fmtMoney($amount)} ({$method}) received at {$shop}{$branchLabel}. Available Wallet Balance: {$fmtMoney($walletBalance)}. Thank you!";
+        }
+
+        if ($type === 'repair_payment') {
+            $jobNo = (string) ($info['job_number'] ?? 'RJ');
+            $device = trim((string) ($info['device'] ?? 'Device')) ?: 'Device';
+            $amount = (int) ($info['amount'] ?? 0);
+            $paid = (int) ($info['paid'] ?? 0);
+            $balance = max(0, (int) ($info['balance'] ?? 0));
+            return "Hi {$cust}, repair payment of {$fmtMoney($amount)} ({$method}) received for {$device} ({$jobNo}) at {$shop}{$branchLabel}. Total Paid: {$fmtMoney($paid)}, Balance Due: {$fmtMoney($balance)}. Thank you!";
+        }
+
+        if ($type === 'exchange_payment') {
+            $invoiceNo = (string) ($info['invoice_no'] ?? '');
+            $retRef = (string) ($info['return_ref'] ?? 'RET');
+            $amount = (int) ($info['amount'] ?? 0);
+            return "Hi {$cust}, exchange payment of {$fmtMoney($amount)} ({$method}) received for Bill {$invoiceNo} ({$retRef}) at {$shop}{$branchLabel}. Thank you!";
+        }
+
+        $invoiceNo = (string) ($info['invoice_no'] ?? 'Invoice');
+        $total = (int) ($info['total'] ?? 0);
+        $paid = (int) ($info['paid'] ?? 0);
+        $credit = max(0, (int) ($info['credit'] ?? 0));
+        if ($paid > 0) {
+            $balPart = $credit > 0 ? ", Credit Balance Due: {$fmtMoney($credit)}" : '';
+            return "Hi {$cust}, payment of {$fmtMoney($paid)} ({$method}) received for Invoice {$invoiceNo} at {$shop}{$branchLabel}. Bill Total: {$fmtMoney($total)}{$balPart}. Thank you!";
+        }
+        return "Hi {$cust}, Invoice {$invoiceNo} recorded at {$shop}{$branchLabel}. Total: {$fmtMoney($total)}, Credit Due: {$fmtMoney($credit)}. Thank you!";
+    }
+
     public static function send(
         int $branchId,
         ?int $repairId,

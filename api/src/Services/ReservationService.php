@@ -70,28 +70,53 @@ final class ReservationService {
 
     public static function forCustomer(int $customer): array {
         return BaseRepository::rows(
-            'SELECT r.*, p.name AS product, u.code AS unit_code FROM reservations r JOIN products p ON p.id=r.product_id
-             LEFT JOIN units u ON u.id=r.unit_id WHERE r.customer_id=? ORDER BY r.id DESC', [$customer]
+            'SELECT r.*, p.name AS product, p.sku AS product_sku, u.code AS unit_code, u.imei AS unit_imei,
+                    b.name AS branch_name, s.invoice_no AS sale_invoice_no
+             FROM reservations r
+             JOIN products p ON p.id=r.product_id
+             LEFT JOIN branches b ON b.id=r.branch_id
+             LEFT JOIN units u ON u.id=r.unit_id
+             LEFT JOIN sales s ON s.id=r.sale_id
+             WHERE r.customer_id=? ORDER BY r.id DESC',
+            [$customer]
         );
     }
 
     public static function forBranch(int $branch): array {
         $params = $branch > 0 ? [$branch] : [];
         return BaseRepository::rows(
-            'SELECT r.*, p.name AS product, u.code AS unit_code, c.name AS customer_name, c.phone AS customer_phone
+            'SELECT r.*, p.name AS product, p.sku AS product_sku, u.code AS unit_code, u.imei AS unit_imei,
+                    c.name AS customer_name, c.phone AS customer_phone, b.name AS branch_name, s.invoice_no AS sale_invoice_no
              FROM reservations r
              JOIN products p ON p.id=r.product_id
              JOIN customers c ON c.id=r.customer_id
+             LEFT JOIN branches b ON b.id=r.branch_id
              LEFT JOIN units u ON u.id=r.unit_id
+             LEFT JOIN sales s ON s.id=r.sale_id
              ' . ($branch > 0 ? 'WHERE r.branch_id=?' : '') . '
              ORDER BY r.id DESC',
             $params
         );
     }
 
+    public static function findDetailed(int $id): ?array {
+        return BaseRepository::one(
+            'SELECT r.*, p.name AS product, p.sku AS product_sku, u.code AS unit_code, u.imei AS unit_imei,
+                    c.name AS customer_name, c.phone AS customer_phone, b.name AS branch_name, s.invoice_no AS sale_invoice_no
+             FROM reservations r
+             JOIN products p ON p.id=r.product_id
+             JOIN customers c ON c.id=r.customer_id
+             LEFT JOIN branches b ON b.id=r.branch_id
+             LEFT JOIN units u ON u.id=r.unit_id
+             LEFT JOIN sales s ON s.id=r.sale_id
+             WHERE r.id=?',
+            [$id]
+        );
+    }
+
     public static function save(array $user, int $branch, array $body, string $action): array {
         RoleGuard::allow($user, 'owner', 'manager', 'cashier');
-        return BaseRepository::transaction(function () use ($user, $branch, $body, $action) {
+        $out = BaseRepository::transaction(function () use ($user, $branch, $body, $action) {
             $drawer = DrawerService::openDrawer($user, $branch);
             if ($action === 'reservation.create') {
                 $id = self::create($branch, $body);
@@ -119,7 +144,17 @@ final class ReservationService {
                     'notes' => 'Reservation ' . $reference,
                 ], $hold);
                 BaseRepository::run('UPDATE reservations SET sale_id=?, points_earned=? WHERE id=?', [$invoice['id'], $invoice['points_earned'], $id]);
-                return ['id' => $id, 'status' => 'Delivered', 'invoice' => $invoice];
+                $invoice['billTitle'] = 'Reservation Handover Invoice';
+                $invoice['reservation_id'] = $id;
+                $invoice['reservation_ref'] = $reference;
+                $invoice['reservation_paid'] = $paid;
+                $detail = self::findDetailed($id) ?: ['id' => $id, 'status' => 'Delivered'];
+                return [
+                    'id' => $id,
+                    'status' => 'Delivered',
+                    'invoice' => $invoice,
+                    'reservation' => $detail,
+                ];
             }
 
             if ($action === 'reservation.cancel') {
@@ -130,7 +165,11 @@ final class ReservationService {
                     CustomerWallet::recordPoints($user, $branch, $customer, -(int) $hold['points_earned'], 'Reservation Points Reversed', 'Wallet', $reference);
                 }
                 BaseRepository::run("UPDATE reservations SET status='Cancelled', version=version+1, change_token=?, synced=0 WHERE id=?", [$token, $id]);
-                return ['id' => $id, 'status' => 'Cancelled'];
+                return [
+                    'id' => $id,
+                    'status' => 'Cancelled',
+                    'reservation' => self::findDetailed($id) ?: ['id' => $id, 'status' => 'Cancelled'],
+                ];
             }
 
             $amount = Validator::money($body, 'amount');
@@ -148,8 +187,63 @@ final class ReservationService {
             $points = CustomerWallet::paymentPoints($paid, $amount);
             CustomerWallet::recordPoints($user, $branch, $customer, $points, 'Reservation Payment Points', $method, $reference);
             BaseRepository::run('UPDATE reservations SET paid=paid+?, points_earned=points_earned+?, version=version+1, change_token=?, synced=0 WHERE id=?', [$amount, $points, $token, $id]);
-            return ['id' => $id, 'status' => 'Held', 'paid' => $paid + $amount, 'balance' => (int) $hold['total'] - $paid - $amount, 'points_earned' => $points];
+            $newPaid = $paid + $amount;
+            $balance = max(0, (int) $hold['total'] - $newPaid);
+            $detail = self::findDetailed($id) ?: [
+                'id' => $id,
+                'status' => 'Held',
+                'total' => (int) $hold['total'],
+                'paid' => $newPaid,
+            ];
+            $detail['last_payment_amount'] = $amount;
+            $detail['last_payment_method'] = $method;
+            $detail['balance'] = $balance;
+            return [
+                'id' => $id,
+                'status' => 'Held',
+                'paid' => $newPaid,
+                'balance' => $balance,
+                'last_payment_amount' => $amount,
+                'last_payment_method' => $method,
+                'points_earned' => $points,
+                'reservation' => $detail,
+            ];
         });
+
+        $rsv = $out['reservation'] ?? [];
+        $custId = !empty($rsv['customer_id']) ? (int) $rsv['customer_id'] : null;
+        $custName = (string) ($rsv['customer_name'] ?? 'Customer');
+        $custPhone = (string) ($rsv['customer_phone'] ?? '');
+        $branchName = (string) ($rsv['branch_name'] ?? '');
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $refCode = Helpers::ref('RSV', (int) $out['id']);
+
+        if ($action === 'reservation.deliver') {
+            $invNo = (string) ($out['invoice']['invoice_no'] ?? Helpers::ref('INV', (int) ($out['invoice']['id'] ?? 0)));
+            $msg = SmsService::buildPaymentReceivedMessage([
+                'type' => 'reservation_handover',
+                'customer' => $custName,
+                'reservation_ref' => $refCode,
+                'invoice_no' => $invNo,
+                'product' => (string) ($rsv['product'] ?? 'Reserved Item'),
+                'total' => (int) ($rsv['total'] ?? 0),
+            ], $settings, $branchName);
+            $out['sms'] = SmsService::send($branch, null, $custPhone, $msg, 'reservation_handover', $custId, $custName);
+        } elseif ($action === 'reservation.create' || $action === 'reservation.pay') {
+            $msg = SmsService::buildPaymentReceivedMessage([
+                'type' => 'reservation_payment',
+                'customer' => $custName,
+                'reservation_ref' => $refCode,
+                'product' => (string) ($rsv['product'] ?? 'Reserved Item'),
+                'amount' => (int) ($out['last_payment_amount'] ?? 0),
+                'method' => (string) ($out['last_payment_method'] ?? 'Cash'),
+                'total' => (int) ($rsv['total'] ?? 0),
+                'paid' => (int) ($out['paid'] ?? 0),
+            ], $settings, $branchName);
+            $out['sms'] = SmsService::send($branch, null, $custPhone, $msg, 'reservation_payment', $custId, $custName);
+        }
+
+        return $out;
     }
 
     private static function create(int $branch, array $body): int {

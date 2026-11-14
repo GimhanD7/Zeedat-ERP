@@ -174,7 +174,7 @@ class RepairService {
 
         $sendIntakeSms = !array_key_exists('send_sms', $body) || !empty($body['send_sms']);
         $smsResult = $sendIntakeSms
-            ? SmsService::send($branch, $id, (string) ($customerRow['phone'] ?? ''), $smsMessage, 'intake')
+            ? SmsService::send($branch, $id, (string) ($customerRow['phone'] ?? ''), $smsMessage, 'intake', (int) $customerId, (string) ($customerRow['name'] ?? ''))
             : ['sent' => false, 'status' => 'skipped', 'phone' => (string) ($customerRow['phone'] ?? ''), 'message' => $smsMessage];
 
         return [
@@ -255,7 +255,7 @@ class RepairService {
             $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
             $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
             $msg = SmsService::buildRepairMessage(array_merge($job, ['status' => 'Ready']), $settings, $branchName, 'ready');
-            $smsResult = SmsService::send($branch, $id, (string) ($job['customer_phone'] ?? ''), $msg, 'ready');
+            $smsResult = SmsService::send($branch, $id, (string) ($job['customer_phone'] ?? ''), $msg, 'ready', (int) ($job['customer_id'] ?? 0), (string) ($job['customer'] ?? ''));
         }
 
         return [
@@ -365,13 +365,29 @@ class RepairService {
             ];
         });
 
+        $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $custId = !empty($out['job']['customer_id']) ? (int) $out['job']['customer_id'] : null;
+        $custName = (string) ($out['job']['customer'] ?? '');
+        $custPhone = (string) ($out['job']['customer_phone'] ?? '');
+
         if (!empty($body['payment_only'])) {
+            $smsMsg = SmsService::buildPaymentReceivedMessage([
+                'type' => 'repair_payment',
+                'customer' => $custName,
+                'job_number' => $out['job_number'],
+                'device' => (string) ($out['job']['device'] ?? 'Device'),
+                'amount' => $out['pay_amount'],
+                'method' => $out['payment_method'],
+                'paid' => $out['paid_amount'],
+                'balance' => $out['balance_due'],
+            ], $settings, $branchName);
+            $out['sms_message'] = $smsMsg;
+            $out['sms'] = SmsService::send($branch, $id, $custPhone, $smsMsg, 'payment_received', $custId, $custName);
             unset($out['job']);
             return $out;
         }
 
-        $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
-        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $smsMsg = SmsService::buildRepairMessage(array_merge($out['job'], [
             'job_number' => $out['job_number'],
             'final_charge' => $out['final_charge'],
@@ -379,9 +395,10 @@ class RepairService {
             'status' => 'Delivered',
         ]), $settings, $branchName, 'delivered');
 
-        $smsRes = !empty($body['send_sms'])
-            ? SmsService::send($branch, $id, (string) ($out['job']['customer_phone'] ?? ''), $smsMsg, 'delivered')
-            : ['sent' => false, 'status' => 'skipped', 'phone' => (string) ($out['job']['customer_phone'] ?? ''), 'message' => $smsMsg];
+        $shouldSendSms = !array_key_exists('send_sms', $body) || !empty($body['send_sms']);
+        $smsRes = $shouldSendSms
+            ? SmsService::send($branch, $id, $custPhone, $smsMsg, 'delivered', $custId, $custName)
+            : ['sent' => false, 'status' => 'skipped', 'phone' => $custPhone, 'message' => $smsMsg];
 
         unset($out['job']);
         $out['sms_message'] = $smsMsg;
@@ -405,6 +422,6 @@ class RepairService {
         $custom = trim((string) ($body['message'] ?? ''));
         $msg = $custom !== '' ? $custom : SmsService::buildRepairMessage($job, $settings, $branchName, $kind);
 
-        return SmsService::send($branch, $id, (string) ($job['customer_phone'] ?? ''), $msg, $kind);
+        return SmsService::send($branch, $id, (string) ($job['customer_phone'] ?? ''), $msg, $kind, (int) ($job['customer_id'] ?? 0), (string) ($job['customer'] ?? ''));
     }
 }

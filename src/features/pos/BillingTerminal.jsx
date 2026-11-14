@@ -45,6 +45,8 @@ import {
   dateLabel,
   hasCashInPayments,
   money,
+  paymentReceivedToBill,
+  printBill,
   printThermalReceipt,
   ref,
   tenders,
@@ -271,9 +273,37 @@ function BillingView({ ctx, data, onRefresh }) {
           : []),
       ],
       transform: v => ({ ...v, amount: cents(v.amount || 0) }),
-      onSuccess: () => {
+      onSuccess: (res, submitted) => {
+        const topupMethod = res?.method || submitted?.method || 'Cash';
+        const topupAmt = Number(res?.amount ?? submitted?.amount ?? 0);
+        if (topupMethod === 'Cash') {
+          triggerCashDrawerForSettlement(ref('WLT', res?.log_id || custObj.id), settings || {});
+        }
+        printBill(
+          paymentReceivedToBill(
+            {
+              ...res,
+              id: res?.log_id || custObj.id,
+              title: 'Wallet Top-Up Receipt',
+              kind: 'Wallet Top-Up Payment Received',
+              amount: topupAmt,
+              wallet_delta: topupAmt,
+              method: topupMethod,
+              reference: res?.reference || submitted?.reference || '',
+              customer_name: res?.customer_name || custObj.name,
+              customer_phone: res?.customer_phone || custObj.phone,
+              wallet_balance: res?.wallet_balance,
+              loyalty_points: res?.loyalty_points ?? custObj.loyalty_points,
+              cashier: res?.cashier || ctx.user?.name,
+            },
+            settings || {},
+            branch?.name || ''
+          ),
+          settings || {},
+          { silent: true }
+        );
         onRefresh?.();
-        ctx.setNotice('Customer wallet topped up successfully.');
+        ctx.setNotice('Customer wallet topped up · Bill printed & SMS sent.');
       },
     });
   };

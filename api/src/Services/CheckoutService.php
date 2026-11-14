@@ -299,6 +299,30 @@ class CheckoutService {
 
         $invoice = SaleRepository::invoiceDetails($id, $branch);
         $invoice['change'] = $change;
+
+        if ($reservation === null && $customerRow) {
+            $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+            $settledPaid = max(0, $total - $credit);
+            $smsMsg = SmsService::buildPaymentReceivedMessage([
+                'type' => 'sale',
+                'customer' => (string) ($customerRow['name'] ?? 'Customer'),
+                'invoice_no' => $invoiceNo,
+                'total' => $total,
+                'paid' => $settledPaid,
+                'credit' => $credit,
+                'method' => $paymentMethods,
+            ], $settings, (string) ($invoice['branch'] ?? ''));
+            $invoice['sms'] = SmsService::send(
+                $branch,
+                null,
+                (string) ($customerRow['phone'] ?? ''),
+                $smsMsg,
+                'payment_received',
+                $customer,
+                (string) ($customerRow['name'] ?? '')
+            );
+        }
+
         return $invoice;
     }
 
@@ -338,7 +362,34 @@ class CheckoutService {
             );
         }
 
-        return SaleRepository::invoiceDetails($sale['id'], $branch);
+        $invoice = SaleRepository::invoiceDetails($sale['id'], $branch);
+        if ($invoice) {
+            $invoice['billTitle'] = 'Credit Payment Invoice';
+            $invoice['last_payment_amount'] = $amount;
+            $invoice['last_payment_method'] = $method;
+            $invoice['last_payment_ref'] = $ref;
+
+            $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+            $invCode = (string) ($invoice['invoice_no'] ?: Helpers::ref('INV', (int) $sale['id']));
+            $smsMsg = SmsService::buildPaymentReceivedMessage([
+                'type' => 'credit_payment',
+                'customer' => (string) ($invoice['customer'] ?? 'Customer'),
+                'invoice_no' => $invCode,
+                'amount' => $amount,
+                'method' => $method,
+                'remaining' => (int) ($invoice['credit'] ?? 0),
+            ], $settings, (string) ($invoice['branch'] ?? ''));
+            $invoice['sms'] = SmsService::send(
+                $branch,
+                null,
+                (string) ($invoice['customer_phone'] ?? ''),
+                $smsMsg,
+                'payment_received',
+                !empty($sale['customer_id']) ? (int) $sale['customer_id'] : null,
+                (string) ($invoice['customer'] ?? '')
+            );
+        }
+        return $invoice;
     }
 
     public static function salePayment(array $user, array $drawer, int $saleId, int $amount, string $method, ?string $reference, string $kind): void {

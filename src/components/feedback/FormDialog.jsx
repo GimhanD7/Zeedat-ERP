@@ -104,8 +104,9 @@ export function FormDialog({ spec, close, mutate }) {
     setBusy(true);
     setError('');
     try {
-      const result = await mutate(spec.route, spec.transform ? spec.transform(values) : values);
-      spec.onSuccess?.(result);
+      const payload = spec.transform ? spec.transform(values) : values;
+      const result = await mutate(spec.route, payload);
+      spec.onSuccess?.(result, payload);
       close();
     } catch (e) {
       setError(e.message);

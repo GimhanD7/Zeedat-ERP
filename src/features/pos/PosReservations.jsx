@@ -3,7 +3,7 @@ import { Printer } from 'lucide-react';
 import { Badge, Button, Field, FilterTabs, Modal, Select } from '../../components/common';
 import { Alert } from '../../components/feedback';
 import { useData } from '../../hooks/useData';
-import { cents, money, printBill, printThermalReceipt, ref, reservationToBill } from '../../utils';
+import { cents, money, printBill, printThermalReceipt, ref, reservationToBill, triggerCashDrawerForSettlement } from '../../utils';
 import { reservationPaymentMethods, reservationStock } from '../operations/ReservationActions';
 import './posReservations.css';
 
@@ -149,14 +149,26 @@ export function PosReservations({
       setSelectedId(result.id);
       setInvoice(result.invoice || null);
       const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
+      if ((creating || action === 'pay') && method === 'Cash' && deposit > 0) {
+        triggerCashDrawerForSettlement(ref('RSV', result.id), settings);
+      }
       if (result.invoice) {
-        printThermalReceipt(result.invoice, settings, { silent: true });
+        printThermalReceipt(
+          {
+            ...result.invoice,
+            billTitle: 'Reservation Handover Invoice',
+            reservation_ref: ref('RSV', result.id),
+          },
+          settings,
+          { silent: true }
+        );
       } else {
         printBill(
           reservationToBill(
             {
               id: result.id,
               product: creating ? product?.name : selected?.product,
+              sku: creating ? product?.sku : selected?.sku,
               unit_code: creating
                 ? availableUnits(product).find(u => String(u.id) === unitId)?.code
                 : selected?.unit_code,
@@ -165,6 +177,9 @@ export function PosReservations({
               paid: creating ? deposit : Number(selected?.paid || 0) + (action === 'pay' ? deposit : 0),
               status: action === 'cancel' ? 'Cancelled' : 'Held',
               points_earned: result.points_earned || selected?.points_earned || 0,
+              ...(result.reservation || {}),
+              last_payment_amount: creating || action === 'pay' ? deposit : 0,
+              last_payment_method: method,
               customer_name: customer?.name,
               customer_phone: customer?.phone,
             },
@@ -175,10 +190,15 @@ export function PosReservations({
           { silent: true }
         );
       }
-      const notice = creating ? 'Reservation created, deposit recorded & bill printed.' : action === 'deliver'
-        ? 'Item handed over & invoice printed.' : action === 'cancel'
-          ? 'Reservation cancelled. Deposit returned to the customer wallet.'
-          : result.balance === 0 ? 'Payment recorded & bill printed. Ready for handover.' : 'Payment recorded & bill printed.';
+      const notice = creating
+        ? 'Reservation created · Deposit bill printed & SMS sent.'
+        : action === 'deliver'
+          ? 'Reserved item handed over · Handover invoice printed & SMS sent.'
+          : action === 'cancel'
+            ? 'Reservation cancelled. Deposit returned to the customer wallet & receipt printed.'
+            : result.balance === 0
+              ? 'Payment recorded · Bill printed & SMS sent. Ready for handover.'
+              : 'Payment recorded · Bill printed & SMS sent.';
       setMessage(result.points_earned > 0 ? notice + ' +' + result.points_earned + ' loyalty points.' : notice);
       state.refresh();
       if (creating) {
@@ -289,8 +309,26 @@ export function PosReservations({
                   )}
                   {!action && (
                     <div className="pos-reservation-actions">
-                      <Button type="button" icon={Printer} variant="outline" onClick={() => {
+                      <Button type="button" icon={Printer} variant="outline" onClick={async () => {
                         const brName = ctx.branches?.find(b => Number(b.id) === branch)?.name || '';
+                        if (selected.status === 'Delivered' && selected.sale_id) {
+                          try {
+                            const fullInv = await ctx.get('invoice', { id: selected.sale_id, branch });
+                            printThermalReceipt(
+                              {
+                                ...fullInv,
+                                billTitle: 'Reservation Handover Invoice',
+                                reservation_ref: ref('RSV', selected.id),
+                              },
+                              settings,
+                              { silent: true, reprint: true }
+                            );
+                            setMessage('Reservation handover invoice sent to printer.');
+                            return;
+                          } catch {
+                            // Fallback to reservation bill if invoice fetch fails
+                          }
+                        }
                         printBill(reservationToBill({ ...selected, customer_name: customer?.name, customer_phone: customer?.phone }, settings, brName), settings, { silent: true, reprint: true });
                         setMessage('Reservation bill sent to printer.');
                       }}>Print Bill</Button>

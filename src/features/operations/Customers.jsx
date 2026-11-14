@@ -35,6 +35,7 @@ import {
   initials,
   money,
   options,
+  paymentReceivedToBill,
   printBill,
   printHtmlDocument,
   printThermalReceipt,
@@ -44,6 +45,7 @@ import {
   tenders,
   timeLabel,
   today,
+  triggerCashDrawerForSettlement,
 } from '../../utils';
 import { openReservationAction, openReserveItem, ReservationTable } from './ReservationActions';
 import { buildCustomerDirectoryHtml, buildCustomerStatementHtml } from './customerStatementPrint';
@@ -343,7 +345,46 @@ export function Customers({ ctx }) {
                 : []),
             ],
             transform: v => ({ ...v, amount: cents(v.amount) }),
-            onSuccess: () => ctx.setNotice('Credit payment recorded & loyalty points updated.'),
+            onSuccess: (inv, submitted) => {
+              const payMethod = inv?.last_payment_method || submitted?.method || 'Cash';
+              const payAmount = Number(inv?.last_payment_amount ?? submitted?.amount ?? 0);
+              if (payMethod === 'Cash') {
+                triggerCashDrawerForSettlement(inv?.invoice_no || submitted?.invoice, settings || {});
+              }
+              if (inv && inv.id) {
+                printThermalReceipt(
+                  {
+                    ...inv,
+                    billTitle: 'Credit Payment Invoice',
+                    last_payment_amount: payAmount,
+                    last_payment_method: payMethod,
+                  },
+                  settings || {},
+                  { silent: true }
+                );
+              } else {
+                printBill(
+                  paymentReceivedToBill(
+                    {
+                      title: 'Credit Payment Receipt',
+                      kind: 'Credit Invoice Payment Received',
+                      invoice_no: submitted?.invoice,
+                      amount: payAmount,
+                      method: payMethod,
+                      reference: submitted?.reference || '',
+                      customer_name: person?.name,
+                      customer_phone: person?.phone,
+                      cashier: ctx.user?.name,
+                    },
+                    settings || {},
+                    person?.branch || ''
+                  ),
+                  settings || {},
+                  { silent: true }
+                );
+              }
+              ctx.setNotice('Credit payment recorded · Bill printed & SMS sent.');
+            },
           });
         };
 
@@ -353,7 +394,7 @@ export function Customers({ ctx }) {
             title: `Top Up Customer Wallet · ${person.name}`,
             description: `Current Wallet Balance: ${money(person.wallet_balance || 0)}`,
             route: 'customer.wallet.topup',
-            submit: 'Add Funds to Wallet',
+            submit: 'Add Funds & Print Bill',
             values: {
               branch: person.branch_id,
               customer_id: person.id,
@@ -369,7 +410,37 @@ export function Customers({ ctx }) {
                 : []),
             ],
             transform: v => ({ ...v, amount: cents(v.amount || 0) }),
-            onSuccess: () => ctx.setNotice('Customer wallet topped up successfully.'),
+            onSuccess: (res, submitted) => {
+              const topupMethod = res?.method || submitted?.method || 'Cash';
+              const topupAmt = Number(res?.amount ?? submitted?.amount ?? 0);
+              if (topupMethod === 'Cash') {
+                triggerCashDrawerForSettlement(ref('WLT', res?.log_id || person.id), settings || {});
+              }
+              printBill(
+                paymentReceivedToBill(
+                  {
+                    ...res,
+                    id: res?.log_id || person.id,
+                    title: 'Wallet Top-Up Receipt',
+                    kind: 'Wallet Top-Up Payment Received',
+                    amount: topupAmt,
+                    wallet_delta: topupAmt,
+                    method: topupMethod,
+                    reference: res?.reference || submitted?.reference || '',
+                    customer_name: res?.customer_name || person?.name,
+                    customer_phone: res?.customer_phone || person?.phone,
+                    wallet_balance: res?.wallet_balance,
+                    loyalty_points: res?.loyalty_points ?? person?.loyalty_points,
+                    cashier: res?.cashier || ctx.user?.name,
+                  },
+                  settings || {},
+                  person?.branch || ''
+                ),
+                settings || {},
+                { silent: true }
+              );
+              ctx.setNotice('Customer wallet topped up · Bill printed & SMS sent.');
+            },
           });
         };
 
@@ -432,11 +503,19 @@ export function Customers({ ctx }) {
               { name: 'payment_method', label: 'Payment Method', choices: [...tenders, 'Wallet'] },
             ],
             transform: v => ({ ...v, pay_amount: cents(v.pay_amount) }),
-            onSuccess: (_res, submitted) => {
-              const paidAdd = Number(submitted?.pay_amount || 0);
+            onSuccess: (res, submitted) => {
+              const paidAdd = Number(res?.pay_amount ?? submitted?.pay_amount ?? 0);
+              const payMethod = res?.payment_method || submitted?.payment_method || 'Cash';
+              if (payMethod === 'Cash') {
+                triggerCashDrawerForSettlement(repair.job_number || ref('RJ', repair.id), settings || {});
+              }
               const updatedRepair = {
                 ...repair,
-                paid_amount: Number(repair.paid_amount ?? repair.advance_paid ?? 0) + paidAdd,
+                paid_amount: Number(
+                  res?.paid_amount ?? Number(repair.paid_amount ?? repair.advance_paid ?? 0) + paidAdd
+                ),
+                last_payment_amount: paidAdd,
+                payment_method: payMethod,
                 customer: person?.name,
                 phone: person?.phone,
                 technician: repair.technician_name || repair.technician,
@@ -451,7 +530,7 @@ export function Customers({ ctx }) {
                 settings || {},
                 { silent: true }
               );
-              ctx.setNotice('Repair payment recorded · Bill printed.');
+              ctx.setNotice('Repair payment recorded · Bill printed & SMS sent.');
             },
           });
         };
@@ -463,19 +542,36 @@ export function Customers({ ctx }) {
               ctx.get('units', { branch: person.branch_id }),
             ]);
             openReserveItem(ctx, person, products, units, {
-              onSuccess: result => {
-                if (result?.reservation) {
-                  printBill(
-                    reservationToBill(
-                      { ...result.reservation, customer_name: person?.name, customer_phone: person?.phone },
-                      settings || {},
-                      person?.branch || ''
-                    ),
-                    settings || {},
-                    { silent: true }
-                  );
-                  ctx.setNotice('Reservation created · Bill printed.');
+              onSuccess: (result, submitted) => {
+                const payMethod = result?.last_payment_method || submitted?.method || 'Cash';
+                const payAmt = Number(result?.last_payment_amount ?? submitted?.amount ?? 0);
+                if (payMethod === 'Cash' && payAmt > 0) {
+                  triggerCashDrawerForSettlement(ref('RSV', result?.id || 0), settings || {});
                 }
+                const pickedProduct = products.find(p => String(p.id) === String(submitted?.product_id));
+                const pickedUnit = units.find(u => String(u.id) === String(submitted?.unit_id));
+                const rsvData = {
+                  id: result?.id,
+                  product: pickedProduct?.name || 'Reserved Item',
+                  sku: pickedProduct?.sku || '',
+                  unit_code: pickedUnit?.code || pickedUnit?.imei || '',
+                  qty: Number(submitted?.qty || 1),
+                  total: Number(result?.reservation?.total ?? submitted?.expected_total ?? 0),
+                  paid: Number(result?.reservation?.paid ?? payAmt),
+                  status: 'Held',
+                  points_earned: Number(result?.points_earned || 0),
+                  ...(result?.reservation || {}),
+                  last_payment_amount: payAmt,
+                  last_payment_method: payMethod,
+                  customer_name: person?.name,
+                  customer_phone: person?.phone,
+                };
+                printBill(
+                  reservationToBill(rsvData, settings || {}, person?.branch || ''),
+                  settings || {},
+                  { silent: true }
+                );
+                ctx.setNotice('Reservation created · Deposit bill printed & SMS sent.');
               },
             });
           } catch (error) {
@@ -844,7 +940,28 @@ export function Customers({ ctx }) {
                         <ReservationTable
                           rows={reservations}
                           canCancel={['owner', 'manager'].includes(ctx.user.role)}
-                          onPrint={row => {
+                          onPrint={async row => {
+                            if (row.status === 'Delivered' && row.sale_id) {
+                              try {
+                                const fullInv = await ctx.get('invoice', {
+                                  id: row.sale_id,
+                                  branch: row.branch_id || person?.branch_id || 0,
+                                });
+                                printThermalReceipt(
+                                  {
+                                    ...fullInv,
+                                    billTitle: 'Reservation Handover Invoice',
+                                    reservation_ref: ref('RSV', row.id),
+                                  },
+                                  settings || {},
+                                  { silent: true, reprint: true }
+                                );
+                                ctx.setNotice(`Handover invoice ${fullInv.invoice_no || ref('INV', row.sale_id)} printed.`);
+                                return;
+                              } catch {
+                                // Fallback to reservation bill if invoice fetch fails
+                              }
+                            }
                             printBill(
                               reservationToBill(
                                 { ...row, customer_name: person?.name, customer_phone: person?.phone },
@@ -852,27 +969,58 @@ export function Customers({ ctx }) {
                                 person?.branch || ''
                               ),
                               settings || {},
-                              { silent: true }
+                              { silent: true, reprint: true }
                             );
                             ctx.setNotice(`Reservation bill ${ref('RSV', row.id)} printed.`);
                           }}
-                          onAction={(row, action) => openReservationAction(ctx, row, action, result => {
-                            if (result?.invoice) {
-                              printThermalReceipt(result.invoice, settings || {}, { silent: true });
-                              ctx.setNotice('Handover bill printed.');
-                            } else if (result?.reservation) {
-                              printBill(
-                                reservationToBill(
-                                  { ...result.reservation, customer_name: person?.name, customer_phone: person?.phone },
+                          onAction={(row, action) =>
+                            openReservationAction(ctx, row, action, (result, submitted) => {
+                              const payMethod = result?.last_payment_method || submitted?.method || 'Cash';
+                              const payAmt = Number(result?.last_payment_amount ?? submitted?.amount ?? 0);
+                              if (action === 'pay' && payMethod === 'Cash' && payAmt > 0) {
+                                triggerCashDrawerForSettlement(ref('RSV', row.id), settings || {});
+                              }
+                              if (result?.invoice) {
+                                printThermalReceipt(
+                                  {
+                                    ...result.invoice,
+                                    billTitle: 'Reservation Handover Invoice',
+                                    reservation_ref: ref('RSV', row.id),
+                                  },
                                   settings || {},
-                                  person?.branch || ''
-                                ),
-                                settings || {},
-                                { silent: true }
-                              );
-                              ctx.setNotice(`Reservation bill ${ref('RSV', row.id)} printed.`);
-                            }
-                          })}
+                                  { silent: true }
+                                );
+                                ctx.setNotice('Reserved item handed over · Handover invoice printed & SMS sent.');
+                              } else {
+                                const mergedRsv = {
+                                  ...row,
+                                  ...(result?.reservation || {}),
+                                  paid: Number(
+                                    result?.reservation?.paid ??
+                                      (action === 'pay' ? Number(row.paid || 0) + payAmt : row.paid || 0)
+                                  ),
+                                  status:
+                                    result?.reservation?.status ||
+                                    (action === 'cancel' ? 'Cancelled' : action === 'deliver' ? 'Delivered' : row.status),
+                                  points_earned: Number(result?.points_earned ?? row.points_earned ?? 0),
+                                  last_payment_amount: action === 'pay' ? payAmt : 0,
+                                  last_payment_method: payMethod,
+                                  customer_name: person?.name,
+                                  customer_phone: person?.phone,
+                                };
+                                printBill(
+                                  reservationToBill(mergedRsv, settings || {}, person?.branch || ''),
+                                  settings || {},
+                                  { silent: true }
+                                );
+                                ctx.setNotice(
+                                  action === 'pay'
+                                    ? `Reservation payment recorded · Bill ${ref('RSV', row.id)} printed & SMS sent.`
+                                    : `Reservation ${ref('RSV', row.id)} updated · Bill printed.`
+                                );
+                              }
+                            })
+                          }
                         />
                       </>
                     )}
@@ -903,14 +1051,24 @@ export function Customers({ ctx }) {
                           [
                             'Action',
                             r => (
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                icon={CheckCircle2}
-                                onClick={() => openCreditPayment(r)}
-                              >
-                                Collect
-                              </Button>
+                              <div className="row-actions">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  icon={CheckCircle2}
+                                  onClick={() => openCreditPayment(r)}
+                                >
+                                  Collect
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  icon={Printer}
+                                  onClick={() => handleViewInvoice(r)}
+                                >
+                                  Print Bill
+                                </Button>
+                              </div>
                             ),
                           ],
                         ]}
@@ -959,11 +1117,43 @@ export function Customers({ ctx }) {
                         empty={ledgerLoading ? 'Loading payment history…' : 'No credit settlement payments recorded yet.'}
                         columns={[
                           ['Date & Time', r => timeLabel(r.created_at)],
-                          ['Invoice', r => <strong>{ref('INV', r.sale_id)}</strong>],
+                          ['Invoice', r => <strong>{r.invoice_no || ref('INV', r.sale_id)}</strong>],
                           ['Method', r => <Badge tone="blue">{r.method}</Badge>],
                           ['Reference', r => r.reference || '—'],
                           ['Collected By', r => r.user_name],
                           ['Amount', r => <strong className="text-green">{money(r.amount)}</strong>],
+                          [
+                            'Receipt',
+                            r => (
+                              <Button
+                                size="sm"
+                                icon={Printer}
+                                variant="ghost"
+                                onClick={() => {
+                                  printBill(
+                                    paymentReceivedToBill(
+                                      {
+                                        ...r,
+                                        title: 'Credit Payment Invoice',
+                                        kind: 'Credit Invoice Payment Received',
+                                        invoice_no: r.invoice_no || ref('INV', r.sale_id),
+                                        customer_name: person?.name,
+                                        customer_phone: person?.phone,
+                                        loyalty_points: person?.loyalty_points,
+                                      },
+                                      settings || {},
+                                      person?.branch || ''
+                                    ),
+                                    settings || {},
+                                    { silent: true, reprint: true }
+                                  );
+                                  ctx.setNotice(`Credit payment bill ${ref('PAY', r.id)} printed.`);
+                                }}
+                              >
+                                Print Bill
+                              </Button>
+                            ),
+                          ],
                         ]}
                       />
                     )}
@@ -1002,6 +1192,40 @@ export function Customers({ ctx }) {
                                 </Badge>
                               );
                             },
+                          ],
+                          [
+                            'Receipt',
+                            r => (
+                              <Button
+                                size="sm"
+                                icon={Printer}
+                                variant="ghost"
+                                onClick={() => {
+                                  printBill(
+                                    paymentReceivedToBill(
+                                      {
+                                        ...r,
+                                        title:
+                                          r.kind === 'Top-Up'
+                                            ? 'Wallet Top-Up Receipt'
+                                            : `${r.kind || 'Payment Received'} Receipt`,
+                                        customer_name: person?.name,
+                                        customer_phone: person?.phone,
+                                        wallet_balance: person?.wallet_balance,
+                                        loyalty_points: person?.loyalty_points,
+                                      },
+                                      settings || {},
+                                      person?.branch || ''
+                                    ),
+                                    settings || {},
+                                    { silent: true, reprint: true }
+                                  );
+                                  ctx.setNotice(`Receipt ${ref('PAY', r.id)} printed.`);
+                                }}
+                              >
+                                Print Bill
+                              </Button>
+                            ),
                           ],
                         ]}
                       />

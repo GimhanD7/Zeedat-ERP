@@ -540,7 +540,7 @@ class InventoryService {
         }
         $reference = Validator::str($body, 'reference', 100, false) ?: '';
 
-        return BaseRepository::transaction(function () use ($user, $branch, $cid, $amount, $method, $reference) {
+        $out = BaseRepository::transaction(function () use ($user, $branch, $cid, $amount, $method, $reference) {
             $cust = BaseRepository::one('SELECT * FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$cid, $branch]);
             if (!$cust) {
                 throw new ApiError('Customer not found in this branch.', 404);
@@ -561,7 +561,7 @@ class InventoryService {
                 'UPDATE customers SET wallet_balance = COALESCE(wallet_balance, 0) + ?, synced=0 WHERE id=?',
                 [$amount, $cid]
             );
-            BaseRepository::run(
+            $logId = BaseRepository::insert(
                 'INSERT INTO customer_wallet_logs(branch_id, customer_id, user_id, amount, points_delta, kind, method, reference) VALUES (?,?,?,?,0,?,?,?)',
                 [$branch, $cid, (int) ($user['id'] ?? 1), $amount, 'Top-Up', $method, $reference]
             );
@@ -572,12 +572,42 @@ class InventoryService {
             );
             return [
                 'id' => $cid,
+                'log_id' => $logId,
+                'customer_id' => $cid,
+                'customer_name' => (string) ($cust['name'] ?? ''),
+                'customer_phone' => (string) ($cust['phone'] ?? ''),
+                'branch_id' => $branch,
+                'cashier' => (string) ($user['name'] ?? 'Staff'),
                 'amount' => $amount,
                 'method' => $method,
+                'reference' => $reference !== '' ? $reference : sprintf('WLT-%06d', $logId),
                 'wallet_balance' => (int) ($updated['wallet_balance'] ?? 0),
                 'loyalty_points' => (int) ($updated['loyalty_points'] ?? 0),
+                'created_at' => date('Y-m-d H:i:s'),
             ];
         });
+
+        $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $smsMsg = SmsService::buildPaymentReceivedMessage([
+            'type' => 'wallet_topup',
+            'customer' => $out['customer_name'],
+            'amount' => $out['amount'],
+            'method' => $out['method'],
+            'wallet_balance' => $out['wallet_balance'],
+        ], $settings, $branchName);
+        $out['branch_name'] = $branchName;
+        $out['sms'] = SmsService::send(
+            $branch,
+            null,
+            $out['customer_phone'],
+            $smsMsg,
+            'payment_received',
+            $cid,
+            $out['customer_name']
+        );
+
+        return $out;
     }
 
     public static function getCustomerLedger(int $branch, int $customerId): array {
@@ -606,7 +636,8 @@ class InventoryService {
         );
 
         $creditPayments = BaseRepository::rows(
-            "SELECT pm.id, pm.sale_id, pm.method, pm.amount, pm.reference, pm.created_at,
+            "SELECT pm.id, pm.sale_id, s.invoice_no, s.total AS sale_total, s.paid_amount AS sale_paid, s.credit AS sale_credit,
+                    pm.method, pm.amount, pm.reference, pm.created_at,
                     COALESCE(u.name, 'Staff') AS user_name
              FROM payments pm
              JOIN sales s ON s.id=pm.sale_id

@@ -349,7 +349,7 @@ export function buildBillHtml(bill = {}, settings = {}) {
    Data mappers -> unified bill shape
 --------------------------------------------------------------------- */
 
-/** POS sales invoice / review copy / wallet & credit receipts. */
+/** POS sales invoice / review copy / wallet & credit receipts / reservation handover invoice. */
 export function saleInvoiceToBill(invoice = {}, settings = {}) {
   const showTax = settings?.show_tax_on_receipt !== 0 && settings?.show_tax_on_receipt !== '0';
   const number =
@@ -361,6 +361,15 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
   const change = Number(invoice.change ?? invoice.change_amount ?? 0);
   const credit = Number(invoice.credit || 0);
   const total = Number(invoice.total || 0);
+  const paidAmount = Number(invoice.paid_amount ?? Math.max(0, total - credit));
+  const isReservationHandover =
+    Boolean(invoice.reservation_ref || invoice.reservation_id) ||
+    String(invoice.payment_methods || '').includes('Reservation') ||
+    /^Reservation\s+RSV-/i.test(String(invoice.notes || ''));
+  const reservationRef =
+    invoice.reservation_ref ||
+    (invoice.reservation_id ? ref('RSV', invoice.reservation_id) : '') ||
+    (String(invoice.notes || '').match(/RSV-\d+/i)?.[0] ?? '');
 
   const totals = [{ label: 'Subtotal', value: Number(invoice.subtotal || 0) }];
   if (Number(invoice.discount || 0) > 0)
@@ -376,8 +385,27 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
       value: Number(p.amount || 0),
     })
   );
+  const recordedSum =
+    Number(invoice.wallet_used || 0) +
+    (invoice.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  if (paidAmount > recordedSum) {
+    payments.push({
+      label: isReservationHandover
+        ? `Reservation Deposit Paid${reservationRef ? ` (${reservationRef})` : ''}`
+        : invoice.payment_methods || 'Paid',
+      value: paidAmount - recordedSum,
+    });
+  }
 
   const extras = [];
+  if (Number(invoice.last_payment_amount || 0) > 0) {
+    extras.push({
+      label: `Payment Received (${invoice.last_payment_method || 'Cash'}${invoice.last_payment_ref ? ` · ${invoice.last_payment_ref}` : ''})`,
+      value: Number(invoice.last_payment_amount),
+      strong: true,
+    });
+    extras.push({ label: 'Total Paid to Date', value: paidAmount });
+  }
   if (cashTendered > 0) extras.push({ label: 'Cash Tendered', value: cashTendered });
   if (change > 0) extras.push({ label: 'CHANGE', value: change, strong: true });
   if (Number(invoice.refunded || 0) > 0) extras.push({ label: 'Refunded', value: Number(invoice.refunded) });
@@ -391,7 +419,15 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
   }
 
   return {
-    title: invoice.billTitle || (invoice.isPreview ? 'Bill Review' : 'Sales Invoice'),
+    title:
+      invoice.billTitle ||
+      (invoice.isPreview
+        ? 'Bill Review'
+        : isReservationHandover
+          ? 'Reservation Handover Invoice'
+          : Number(invoice.last_payment_amount || 0) > 0
+            ? 'Credit Payment Invoice'
+            : 'Sales Invoice'),
     number,
     numberLabel: 'Bill No',
     date: invoice.created_at,
@@ -399,6 +435,7 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
     copyLabel: invoice.isPreview ? 'REVIEW COPY' : invoice.isReprint ? 'REPRINT' : '',
     parties: [
       ['Customer', `${invoice.customer || 'Walk-in customer'}${invoice.customer_phone ? ` (${invoice.customer_phone})` : ''}`],
+      ...(reservationRef ? [['Reservation Ref', reservationRef]] : []),
       ['Cashier', invoice.cashier],
       ['Sales Staff', invoice.seller_name],
     ],
@@ -424,7 +461,7 @@ export function saleInvoiceToBill(invoice = {}, settings = {}) {
         ? { tone: 'info', label: Number(invoice.refunded) >= total ? 'Refunded' : 'Partially Refunded', value: Number(invoice.refunded) }
       : credit > 0
         ? { tone: 'due', label: `${credit >= total ? 'Unpaid' : 'Partially Paid'}${invoice.due_date ? ' · ' + dateLabel(invoice.due_date) : ''}`, value: credit }
-        : { tone: 'paid', label: 'Paid in Full' },
+        : { tone: 'paid', label: isReservationHandover ? 'Item Handed Over · Paid in Full' : 'Paid in Full' },
     notes: invoice.notes,
   };
 }
@@ -435,13 +472,27 @@ export function repairJobToBill(job = {}, settings = {}, branchName = '', mode =
   const charge = Number(job.final_charge || job.estimate || 0);
   const paid = Number(job.paid_amount ?? job.advance_paid ?? job.advance ?? 0);
   const balance = Math.max(0, charge - paid);
+  const lastPay = Number(job.last_payment_amount || job.pay_amount || 0);
 
   const payments = [];
+  if (lastPay > 0 && lastPay < paid) {
+    payments.push({
+      label: `Payment Received (${job.payment_method || 'Cash'})`,
+      value: lastPay,
+    });
+  }
   if (paid > 0)
-    payments.push({ label: `${delivery ? 'Total Paid' : 'Advance Paid'}${job.payment_method ? ` (${job.payment_method})` : ''}`, value: paid });
+    payments.push({
+      label: `${delivery ? 'Total Paid' : lastPay > 0 ? 'Total Paid to Date' : 'Advance Paid'}${job.payment_method ? ` (${job.payment_method})` : ''}`,
+      value: paid,
+    });
 
   return {
-    title: delivery ? 'Repair Delivery Bill' : 'Repair Intake Receipt',
+    title: delivery
+      ? 'Repair Handover & Delivery Bill'
+      : lastPay > 0
+        ? 'Repair Payment Bill'
+        : 'Repair Intake Receipt',
     number: job.job_number || (job.id ? ref('RJ', job.id) : '—'),
     numberLabel: 'Job No',
     date: job.delivered_at && delivery ? job.delivered_at : job.created_at,
@@ -474,7 +525,7 @@ export function repairJobToBill(job = {}, settings = {}, branchName = '', mode =
     status:
       balance > 0
         ? { tone: 'due', label: paid > 0 ? 'Partially Paid' : 'Unpaid', value: balance }
-        : { tone: 'paid', label: charge > 0 ? 'Paid in Full' : 'No Charge' },
+        : { tone: 'paid', label: delivery ? 'Handed Over · Paid in Full' : charge > 0 ? 'Paid in Full' : 'No Charge' },
     footerNote: delivery
       ? 'Device handed over in working condition. Warranty as per shop policy.'
       : 'Please bring this slip when collecting your device.',
@@ -486,41 +537,142 @@ export function reservationToBill(rsv = {}, settings = {}, branchName = '') {
   const total = Number(rsv.total || 0);
   const paid = Number(rsv.paid || 0);
   const balance = Math.max(0, total - paid);
-  const unitPrice = Number(rsv.unit_price || (rsv.qty ? Math.round(total / Number(rsv.qty)) : total));
   const qty = Number(rsv.qty || 1);
+  const unitPrice = Number(rsv.unit_price || (qty ? Math.round(total / qty) : total));
+  const subtotal = unitPrice * qty;
+  const tax = Math.max(0, total - subtotal);
+  const lastPay = Number(rsv.last_payment_amount || 0);
+  const lastMethod = rsv.last_payment_method || 'Cash';
+  const handoverInv = rsv.sale_invoice_no || (rsv.sale_id ? ref('INV', rsv.sale_id) : '');
+
+  const totals = [];
+  if (tax > 0) {
+    totals.push({ label: 'Subtotal', value: subtotal });
+    totals.push({ label: 'Tax' + pct(rsv.tax_bps), value: tax });
+  }
+  totals.push({ label: 'RESERVATION TOTAL', value: total, grand: true });
+
+  const payments = [];
+  if (lastPay > 0) {
+    payments.push({ label: `Payment Received (${lastMethod})`, value: lastPay });
+    if (paid !== lastPay) {
+      payments.push({ label: 'Total Paid to Date', value: paid });
+    }
+  } else if (paid > 0) {
+    payments.push({ label: 'Total Deposit / Paid', value: paid });
+  }
+
+  const extras = [];
+  if (rsv.status !== 'Cancelled') {
+    extras.push({ label: 'Balance Due', value: balance, strong: balance > 0 });
+  }
+  if (Number(rsv.points_earned || 0) > 0) {
+    extras.push({ label: 'Loyalty Points Earned', value: `+${Number(rsv.points_earned).toLocaleString()} pts` });
+  }
 
   return {
-    title: rsv.status === 'Delivered' ? 'Reservation Handover Bill' : 'Reservation Slip',
+    title:
+      rsv.status === 'Delivered'
+        ? 'Reservation Handover Bill'
+        : lastPay > 0
+          ? 'Reservation Payment Bill'
+          : 'Reservation Bill',
     number: rsv.id ? ref('RSV', rsv.id) : '—',
     numberLabel: 'Reservation No',
     date: rsv.created_at,
     branch: branchName || rsv.branch_name || '',
     parties: [
       ['Customer', `${rsv.customer_name || rsv.customer || 'Customer'}${rsv.customer_phone ? ` (${rsv.customer_phone})` : ''}`],
-      ['Status', rsv.status || 'Held'],
+      ['Status', rsv.status === 'Delivered' ? 'Handed Over (Delivered)' : balance > 0 ? 'Reserved · Balance Due' : 'Reserved · Paid in Full'],
+      ...(handoverInv ? [['Handover Invoice', handoverInv]] : []),
     ],
     items: [
       {
         name: rsv.product || 'Reserved Item',
-        meta: rsv.unit_code ? `S/N: ${rsv.unit_code}` : '',
+        meta: [
+          rsv.product_sku ? `SKU: ${rsv.product_sku}` : '',
+          rsv.unit_code ? `S/N: ${rsv.unit_code}` : '',
+          rsv.unit_imei ? `IMEI: ${rsv.unit_imei}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
         qty,
         price: unitPrice,
         total,
       },
     ],
-    totals: [{ label: 'RESERVATION TOTAL', value: total, grand: true }],
-    payments: paid > 0 ? [{ label: 'Deposit / Paid', value: paid }] : [],
-    extras:
-      Number(rsv.points_earned || 0) > 0
-        ? [{ label: 'Loyalty Points Earned', value: `+${Number(rsv.points_earned).toLocaleString()} pts` }]
-        : [],
+    totals,
+    payments,
+    extras,
     status:
       rsv.status === 'Cancelled'
-        ? { tone: 'info', label: 'Cancelled · Deposit Refunded' }
+        ? { tone: 'info', label: 'Cancelled · Deposit Returned to Wallet' }
         : balance > 0
-          ? { tone: 'due', label: paid > 0 ? 'Partially Paid' : 'Unpaid', value: balance }
-          : { tone: 'paid', label: rsv.status === 'Delivered' ? 'Handed Over · Paid' : 'Ready for Handover' },
-    footerNote: 'Please present this reservation slip when collecting your reserved item.',
+          ? { tone: 'due', label: paid > 0 ? 'Partially Paid · Balance Due' : 'Unpaid', value: balance }
+          : { tone: 'paid', label: rsv.status === 'Delivered' ? 'Item Handed Over · Paid in Full' : 'Paid in Full · Ready for Handover' },
+    footerNote:
+      rsv.status === 'Delivered'
+        ? 'Reserved item handed over to customer. Warranty as per shop policy.'
+        : 'Please present this reservation bill when making payments or collecting your reserved item.',
+  };
+}
+
+/** Generic Customer Payment Received / Wallet Top-Up / Credit Settlement Bill. */
+export function paymentReceivedToBill(entry = {}, settings = {}, branchName = '') {
+  const amt = Math.abs(Number(entry.amount ?? entry.wallet_delta ?? 0));
+  const method = entry.method || 'Cash';
+  const refCode =
+    entry.reference ||
+    entry.invoice_no ||
+    (entry.sale_id ? ref('INV', entry.sale_id) : '') ||
+    (entry.id ? ref('PMT', entry.id) : 'PMT');
+  const kindLabel = entry.description || entry.kind || 'Payment Received';
+
+  const extras = [];
+  if (entry.sale_total !== undefined) {
+    extras.push({ label: 'Invoice Total', value: Number(entry.sale_total || 0) });
+  }
+  if (entry.sale_paid !== undefined) {
+    extras.push({ label: 'Total Paid on Invoice', value: Number(entry.sale_paid || 0) });
+  }
+  if (entry.sale_credit !== undefined) {
+    extras.push({ label: 'Remaining Credit Due', value: Number(entry.sale_credit || 0), strong: true });
+  }
+  if (entry.wallet_balance !== undefined) {
+    extras.push({ label: 'Wallet Balance', value: Number(entry.wallet_balance || 0), strong: true });
+  }
+  if (Number(entry.points_delta || 0) !== 0) {
+    const pts = Number(entry.points_delta);
+    extras.push({ label: 'Loyalty Points Δ', value: `${pts > 0 ? '+' : ''}${pts.toLocaleString()} pts` });
+  } else if (entry.loyalty_points !== undefined) {
+    extras.push({ label: 'Loyalty Points', value: `${Number(entry.loyalty_points || 0).toLocaleString()} pts` });
+  }
+
+  return {
+    title: entry.title || 'Payment Received Bill',
+    number: refCode,
+    numberLabel: 'Receipt / Ref No',
+    date: entry.created_at,
+    branch: branchName || entry.branch_name || entry.branch || '',
+    parties: [
+      ['Customer', `${entry.customer_name || entry.customer || 'Customer'}${entry.customer_phone ? ` (${entry.customer_phone})` : ''}`],
+      ['Payment Method', method],
+      ['Collected By', entry.user_name || entry.cashier || 'Staff'],
+    ],
+    items: [
+      {
+        name: kindLabel,
+        meta: entry.reference ? `Reference: ${entry.reference}` : `Method: ${method}`,
+        qty: 1,
+        price: amt,
+        total: amt,
+      },
+    ],
+    totals: [{ label: 'PAYMENT RECEIVED', value: amt, grand: true }],
+    payments: [{ label: `${method}${entry.reference ? ` (${entry.reference})` : ''}`, value: amt }],
+    extras,
+    status: { tone: 'paid', label: 'Payment Received', value: amt },
+    footerNote: 'Official payment receipt. Thank you for your payment!',
   };
 }
 

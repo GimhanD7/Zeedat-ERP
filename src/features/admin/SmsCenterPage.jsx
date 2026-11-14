@@ -117,6 +117,9 @@ const statusLabel = status => {
 
 const kindLabel = kind => {
   const k = String(kind || '').toLowerCase();
+  if (k === 'payment_received') return 'Payment Received';
+  if (k === 'reservation_payment') return 'Reservation Payment';
+  if (k === 'reservation_handover') return 'Reservation Handover';
   if (k === 'intake') return 'Repair Intake';
   if (k === 'ready') return 'Repair Ready';
   if (k === 'delivered') return 'Repair Delivered';
@@ -295,9 +298,10 @@ export function SmsCenterPage({ ctx }) {
           if (statusFilter === 'manual' && st !== 'manual' && st !== 'queued') return false;
           if (statusFilter === 'rejected_or_failed' && st !== 'rejected' && st !== 'failed' && st !== 'no_phone') return false;
 
+          if (kindFilter === 'payment_all' && !['payment_received', 'reservation_payment', 'reservation_handover'].includes(kd)) return false;
           if (kindFilter === 'repair' && !['intake', 'ready', 'delivered', 'repair'].includes(kd)) return false;
           if (kindFilter === 'single_bulk' && !['single', 'bulk', 'promo', 'reminder', 'reservation', 'test'].includes(kd)) return false;
-          if (kindFilter !== 'all' && kindFilter !== 'repair' && kindFilter !== 'single_bulk' && kd !== kindFilter) return false;
+          if (kindFilter !== 'all' && kindFilter !== 'payment_all' && kindFilter !== 'repair' && kindFilter !== 'single_bulk' && kd !== kindFilter) return false;
 
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
@@ -741,6 +745,10 @@ export function SmsCenterPage({ ctx }) {
                       value={kindFilter}
                       options={[
                         ['all', 'All SMS Categories'],
+                        ['payment_all', 'All Payments & Reservations'],
+                        ['payment_received', 'Payment Received Only'],
+                        ['reservation_payment', 'Reservation Payments Only'],
+                        ['reservation_handover', 'Reservation Handovers Only'],
                         ['single_bulk', 'Single, Bulk & Promotions'],
                         ['repair', 'All Repair SMS'],
                         ['single', 'Single SMS Only'],

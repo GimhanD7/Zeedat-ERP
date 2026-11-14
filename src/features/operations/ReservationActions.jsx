@@ -1,4 +1,5 @@
-import { Button, Table } from '../../components/common';
+import { Printer } from 'lucide-react';
+import { Badge, Button, Table } from '../../components/common';
 import { cents, money, ref, tenders } from '../../utils';
 
 export const reservationPaymentMethods = [...tenders, 'Wallet'];
@@ -31,7 +32,7 @@ export function openReserveItem(ctx, customer, products, units, { productId, onS
   ctx.setDialog({
     title: 'Reserve item · ' + customer.name,
     route: 'reservation.create',
-    submit: 'Reserve & Record Deposit',
+    submit: 'Reserve, Record Deposit & Print Bill',
     values: {
       customer_id: customer.id,
       branch,
@@ -61,7 +62,11 @@ export function openReserveItem(ctx, customer, products, units, { productId, onS
 
 export function openReservationAction(ctx, reservation, action, onSuccess) {
   const due = balance(reservation);
-  const titles = { pay: 'Collect Reservation Payment', deliver: 'Hand Over Reserved Item', cancel: 'Cancel Reservation' };
+  const titles = {
+    pay: 'Collect Reservation Payment & Print Bill',
+    deliver: 'Hand Over Item & Print Bill',
+    cancel: 'Cancel Reservation',
+  };
   ctx.setDialog({
     title: titles[action],
     description: action === 'cancel'
@@ -82,20 +87,25 @@ export function openReservationAction(ctx, reservation, action, onSuccess) {
 export function ReservationTable({ rows, onAction, onPrint, canCancel = false, disabled = false }) {
   return (
     <Table rows={rows} empty="No reserved items for this customer." columns={[
+      ['Reservation #', row => <strong>{ref('RSV', row.id)}</strong>],
       ['Item', row => row.product + (row.unit_code ? ' · ' + row.unit_code : '')],
       ['Qty', row => row.qty],
       ['Total', row => money(row.total)],
       ['Paid', row => money(row.paid)],
       ['Balance', row => money(balance(row))],
-      ['Status', row => row.status],
+      ['Status', row => (
+        <Badge tone={row.status === 'Delivered' ? 'green' : row.status === 'Cancelled' ? 'slate' : balance(row) > 0 ? 'amber' : 'blue'}>
+          {row.status === 'Delivered' ? 'Handed Over' : row.status}
+        </Badge>
+      )],
       ['Actions', row => (
         <div className="row-actions">
-          {onPrint && <Button variant="outline" onClick={() => onPrint(row)}>Bill</Button>}
+          {onPrint && <Button icon={Printer} variant="outline" onClick={() => onPrint(row)}>Print Bill</Button>}
           {row.status === 'Held' && (
             <>
               {balance(row) > 0
-                ? <Button disabled={disabled} onClick={() => onAction(row, 'pay')}>Collect Payment</Button>
-                : <Button disabled={disabled} onClick={() => onAction(row, 'deliver')}>Hand Over</Button>}
+                ? <Button variant="primary" disabled={disabled} onClick={() => onAction(row, 'pay')}>Collect Payment</Button>
+                : <Button variant="primary" disabled={disabled} onClick={() => onAction(row, 'deliver')}>Hand Over</Button>}
               {canCancel && <Button disabled={disabled} onClick={() => onAction(row, 'cancel')}>Cancel</Button>}
             </>
           )}

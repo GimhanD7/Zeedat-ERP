@@ -377,6 +377,33 @@ class ReturnService
             [$drawer['id'] ?? null, $reference, $id]
         );
 
+        $sms = null;
+        if ($diff !== null && $diff > 0 && !empty($row['customer_id'])) {
+            $custRow = BaseRepository::one('SELECT id, name, phone FROM customers WHERE id=?', [(int) $row['customer_id']]);
+            if ($custRow) {
+                $branchName = (string) (BaseRepository::scalar('SELECT name FROM branches WHERE id=?', [$branch]) ?: '');
+                $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+                $payMethodLabel = !empty($payments) ? implode(' + ', array_column($payments, 'method')) : 'Cash';
+                $smsMsg = SmsService::buildPaymentReceivedMessage([
+                    'type' => 'exchange_payment',
+                    'customer' => (string) ($custRow['name'] ?? 'Customer'),
+                    'invoice_no' => $replacementSaleId ? Helpers::ref('INV', $replacementSaleId) : Helpers::ref('INV', (int) $row['sale_id']),
+                    'return_ref' => Helpers::ref('RET', $id),
+                    'amount' => $diff,
+                    'method' => $payMethodLabel,
+                ], $settings, $branchName);
+                $sms = SmsService::send(
+                    $branch,
+                    null,
+                    (string) ($custRow['phone'] ?? ''),
+                    $smsMsg,
+                    'payment_received',
+                    (int) $custRow['id'],
+                    (string) ($custRow['name'] ?? '')
+                );
+            }
+        }
+
         return [
             'id' => $id,
             'status' => 'Completed',
@@ -388,6 +415,7 @@ class ReturnService
             'reference' => $reference,
             'cash_received' => $cashReceived,
             'change' => $change,
+            'sms' => $sms,
         ];
     }
 }
