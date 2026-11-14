@@ -24,7 +24,7 @@ export function SearchSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  const [box, setBox] = useState(null);
+  const [openUp, setOpenUp] = useState(false);
 
   const items = useMemo(() => choices.map(pair), [choices]);
   const selected = items.find(([id]) => String(id) === String(value));
@@ -38,31 +38,29 @@ export function SearchSelect({
     });
   }, [items, query]);
 
-  const place = () => {
+  const checkDirection = () => {
     const rect = inputRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const below = window.innerHeight - rect.bottom;
-    const height = Math.min(260, Math.max(120, filtered.length * 38 + 8));
-    const up = below < height && rect.top > below;
-    setBox({
-      left: rect.left,
-      width: rect.width,
-      top: up ? undefined : rect.bottom + 4,
-      bottom: up ? window.innerHeight - rect.top + 4 : undefined,
-    });
+    const modalEl = inputRef.current?.closest('.modal-body, .modal');
+    const containerBottom = modalEl ? modalEl.getBoundingClientRect().bottom : window.innerHeight;
+    const containerTop = modalEl ? modalEl.getBoundingClientRect().top : 0;
+    const below = containerBottom - rect.bottom;
+    const above = rect.top - containerTop;
+    const needed = Math.min(230, Math.max(110, filtered.length * 36 + 12));
+    setOpenUp(below < needed && above > below);
   };
 
   useEffect(() => {
     if (!open) return undefined;
-    place();
+    checkDirection();
     const outside = e => {
-      if (!wrapRef.current?.contains(e.target) && !listRef.current?.contains(e.target)) close();
+      if (!wrapRef.current?.contains(e.target)) close();
     };
     document.addEventListener('mousedown', outside);
-    window.addEventListener('resize', place);
+    window.addEventListener('resize', checkDirection);
     return () => {
       document.removeEventListener('mousedown', outside);
-      window.removeEventListener('resize', place);
+      window.removeEventListener('resize', checkDirection);
     };
   }, [open, filtered.length]);
 
@@ -104,7 +102,7 @@ export function SearchSelect({
   const showBlank = blank !== undefined && !query;
 
   return (
-    <span className={'select-wrap ss-wrap ' + (hideIcon ? 'no-icon ' : '') + className} ref={wrapRef}>
+    <span className={'select-wrap ss-wrap ' + (hideIcon ? 'no-icon ' : '') + (open ? 'is-open ' : '') + className} ref={wrapRef}>
       {!hideIcon && <Search size={14} className="ss-icon" />}
       <input
         ref={inputRef}
@@ -118,17 +116,25 @@ export function SearchSelect({
         aria-label={rest['aria-label']}
         value={open ? query : selected ? String(selected[1]) : ''}
         placeholder={open ? (selected ? String(selected[1]) : 'Type to search…') : placeholder || blank || 'Type to search…'}
-        onFocus={() => { setOpen(true); setActive(0); }}
-        onClick={() => setOpen(true)}
-        onChange={e => { setQuery(e.target.value); setOpen(true); setActive(0); }}
+        onClick={() => {
+          if (!open) {
+            setOpen(true);
+            setActive(0);
+          }
+        }}
+        onChange={e => {
+          setQuery(e.target.value);
+          setOpen(true);
+          setActive(0);
+        }}
         onKeyDown={onKeyDown}
       />
       <ChevronDown size={14} className="ss-chevron" />
       {required && (
         <input className="ss-required" tabIndex={-1} aria-hidden="true" required value={value === null ? '' : String(value)} onChange={() => {}} />
       )}
-      {open && box && (
-        <div ref={listRef} className="ss-list" role="listbox" style={box}>
+      {open && (
+        <div ref={listRef} className={'ss-list' + (openUp ? ' up' : '')} role="listbox">
           {showBlank && (
             <div className={'ss-opt muted' + (active === 0 ? ' active' : '')} role="option"
               onMouseDown={e => { e.preventDefault(); commit(''); }}>{blank}</div>

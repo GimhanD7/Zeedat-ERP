@@ -1035,15 +1035,27 @@ textarea {
 }
 
 .ss-wrap {
+  position: relative;
   display: flex;
   width: 100%;
+  min-width: 0;
 }
 
-.ss-wrap .ss-input {
+.ss-wrap.is-open {
+  z-index: 60;
+}
+
+.ss-wrap input.ss-input {
   width: 100%;
-  padding-left: 31px;
-  padding-right: 29px;
+  min-width: 0;
+  padding-left: 32px !important;
+  padding-right: 28px !important;
   text-overflow: ellipsis;
+}
+
+.ss-wrap.no-icon input.ss-input,
+.zk-input-box .ss-wrap input.ss-input {
+  padding-left: 4px !important;
 }
 
 .select-wrap svg.ss-icon {
@@ -1065,15 +1077,23 @@ textarea {
 }
 
 .ss-list {
-  position: fixed;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
   z-index: 3000;
-  max-height: 260px;
+  max-height: 240px;
   overflow-y: auto;
   padding: 4px;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 11px;
   box-shadow: 0 12px 32px #1c2f4a2b;
+}
+
+.ss-list.up {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 
 .ss-opt {

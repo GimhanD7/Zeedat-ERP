@@ -1285,6 +1285,7 @@ function BillingView({ ctx, data, onRefresh }) {
           <div className="modal-body">
             <Field label="Available serial / IMEI">
               <Select
+                searchable
                 value={chosenUnit}
                 onChange={e => setChosenUnit(e.target.value)}
                 blank="Select a device"
