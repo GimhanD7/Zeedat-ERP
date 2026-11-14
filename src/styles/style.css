@@ -3436,12 +3436,12 @@
    ZEEDAT POS - ENLARGED POPUP WINDOWS & PAGE-WISE PAGINATION BAR
 ===================================================================== */
 .modal.wide {
-  width: min(96vw, 1020px);
+  width: min(100%, 980px);
 }
 
 .modal.xl {
-  width: min(96vw, 1280px);
-  max-height: calc(100dvh - 24px);
+  width: min(100%, 1160px);
+  max-height: calc(100dvh - 28px);
 }
 
 .batch-layout-grid.xl {
@@ -5540,6 +5540,20 @@
 .modal {
   position: relative;
   z-index: 1001 !important;
+  box-sizing: border-box;
+}
+
+/* Hide any parent/outer modal box when a child modal is open on top of it */
+.modal-backdrop:has(~ .modal-backdrop) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  pointer-events: none !important;
+}
+
+.modal-backdrop:has(~ .modal-backdrop) > .modal {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 /* Unified bill preview (same HTML as printed bill) */
 .zk-bill-preview {

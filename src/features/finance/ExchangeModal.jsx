@@ -408,6 +408,7 @@ export function ExchangeModal({
       description={`${ref('INV', invoice.id)} · ${invoice.customer || 'Walk-in Customer'} · ${invoice.branch || ''} · Select specific item(s) from this bill`}
       onClose={onClose}
       xl
+      className="xm-modal"
       busy={busy}
     >
       <form className="xm-form" onSubmit={submit}>
@@ -1147,27 +1148,36 @@ export function ExchangeModal({
         </div>
 
         <div className="modal-footer xm-footer">
-          <Button type="button" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            icon={isExchange ? Repeat2 : RotateCcw}
-            disabled={busy || !selectedLines.length}
-          >
-            {busy
-              ? 'Processing…'
-              : processNow
-                ? !isExchange
-                  ? `Complete Return & Refund ${money(returnCredit)}`
-                  : collect
-                    ? `Complete & Collect ${money(difference)}`
-                    : refund
-                      ? `Complete & Refund ${money(-difference)}`
-                      : 'Complete Even Exchange'
-                : 'Submit Pending Request'}
-          </Button>
+          <div className="xm-footer-meta">
+            <span>
+              <strong>{selectedLines.length}</strong> of <strong>{billItems.length}</strong> bill
+              item(s) selected ({totalSelectedQty} qty) ·{' '}
+              <strong>{keptUnitsCount}</strong> unit(s) kept on bill
+            </span>
+          </div>
+          <div className="xm-footer-actions">
+            <Button type="button" onClick={onClose} disabled={busy}>
+              Back to Bill
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              icon={isExchange ? Repeat2 : RotateCcw}
+              disabled={busy || !selectedLines.length}
+            >
+              {busy
+                ? 'Processing…'
+                : processNow
+                  ? !isExchange
+                    ? `Complete Return & Refund ${money(returnCredit)}`
+                    : collect
+                      ? `Complete & Collect ${money(difference)}`
+                      : refund
+                        ? `Complete & Refund ${money(-difference)}`
+                        : 'Complete Even Exchange'
+                  : 'Submit Pending Request'}
+            </Button>
+          </div>
         </div>
       </form>
     </Modal>
