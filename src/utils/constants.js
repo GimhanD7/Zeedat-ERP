@@ -51,6 +51,7 @@ export const allBranchPages = [
   'purchases',
   'transfers',
   'customers',
+  'sms',
   'reports',
   'sales',
   'staff',

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Zeedat\Services;
 
 use Zeedat\Repositories\BaseRepository;
+use Zeedat\Support\ApiError;
+use Zeedat\Support\Validator;
 
 class SmsService {
     public static function normalizePhone(string $phone): string {
@@ -54,7 +56,16 @@ class SmsService {
         return implode(' ', array_filter($parts));
     }
 
-    public static function send(int $branchId, ?int $repairId, string $phone, string $message, string $kind = 'intake'): array {
+    public static function send(
+        int $branchId,
+        ?int $repairId,
+        string $phone,
+        string $message,
+        string $kind = 'intake',
+        ?int $customerId = null,
+        string $customerName = '',
+        ?int $existingLogId = null
+    ): array {
         $cleanPhone = self::normalizePhone($phone);
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $enabled = !empty($settings['sms_enabled']);
@@ -62,20 +73,47 @@ class SmsService {
         $apiKey = trim((string) ($settings['sms_api_key'] ?? ''));
         $senderId = trim((string) ($settings['sms_sender_id'] ?? ($settings['shop_name'] ?? 'ZEEDAT')));
 
-        if ($cleanPhone === '') {
+        if ($cleanPhone === '' || strlen($cleanPhone) < 9) {
+            $errReason = $cleanPhone === '' ? 'Missing phone number' : 'Invalid phone number (' . $phone . ')';
+            $logId = self::saveLog(
+                $existingLogId,
+                $branchId,
+                $repairId,
+                $customerId,
+                $customerName,
+                $phone !== '' ? $phone : '—',
+                $message,
+                $kind,
+                'rejected',
+                $errReason
+            );
             return [
+                'id' => $logId,
                 'sent' => false,
-                'status' => 'no_phone',
-                'phone' => '',
+                'status' => 'rejected',
+                'error' => $errReason,
+                'phone' => $phone,
                 'message' => $message,
             ];
         }
 
         if (!$enabled || $urlTemplate === '' || !function_exists('curl_init')) {
-            self::log($branchId, $repairId, $cleanPhone, $message, $kind, 'manual', '');
+            $logId = self::saveLog(
+                $existingLogId,
+                $branchId,
+                $repairId,
+                $customerId,
+                $customerName,
+                $cleanPhone,
+                $message,
+                $kind,
+                'manual',
+                ''
+            );
             return [
+                'id' => $logId,
                 'sent' => false,
-                'status' => 'not_configured',
+                'status' => 'manual',
                 'phone' => $cleanPhone,
                 'message' => $message,
             ];
@@ -127,17 +165,41 @@ class SmsService {
 
         if ($response === false || $code < 200 || $code >= 300) {
             $errorMsg = $err ?: "HTTP {$code}";
-            self::log($branchId, $repairId, $cleanPhone, $message, $kind, 'failed', substr($errorMsg, 0, 240));
+            $status = ($code >= 400 && $code < 500) ? 'rejected' : 'failed';
+            $logId = self::saveLog(
+                $existingLogId,
+                $branchId,
+                $repairId,
+                $customerId,
+                $customerName,
+                $cleanPhone,
+                $message,
+                $kind,
+                $status,
+                substr($errorMsg, 0, 240)
+            );
             return [
+                'id' => $logId,
                 'sent' => false,
-                'status' => 'failed',
+                'status' => $status,
                 'error' => $errorMsg,
                 'phone' => $cleanPhone,
                 'message' => $message,
             ];
         }
 
-        self::log($branchId, $repairId, $cleanPhone, $message, $kind, 'sent', '');
+        $logId = self::saveLog(
+            $existingLogId,
+            $branchId,
+            $repairId,
+            $customerId,
+            $customerName,
+            $cleanPhone,
+            $message,
+            $kind,
+            'sent',
+            ''
+        );
         if ($repairId) {
             try {
                 BaseRepository::run('UPDATE repairs SET sms_sent=1 WHERE id=?', [$repairId]);
@@ -146,6 +208,7 @@ class SmsService {
         }
 
         return [
+            'id' => $logId,
             'sent' => true,
             'status' => 'sent',
             'phone' => $cleanPhone,
@@ -153,13 +216,216 @@ class SmsService {
         ];
     }
 
-    private static function log(int $branchId, ?int $repairId, string $phone, string $message, string $kind, string $status, string $error): void {
-        try {
+    public static function getLogs(int $branch, array $query = []): array {
+        $params = [];
+        $where = [];
+        if ($branch > 0) {
+            $where[] = '(l.branch_id = ? OR l.branch_id = 0)';
+            $params[] = $branch;
+        }
+        $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+        return BaseRepository::rows(
+            "SELECT l.id,
+                    l.branch_id,
+                    COALESCE(b.name, 'All Branches') AS branch_name,
+                    l.repair_id,
+                    l.customer_id,
+                    COALESCE(NULLIF(l.customer_name, ''), c.name, rc.name, 'Direct Recipient') AS customer_name,
+                    l.phone,
+                    l.message,
+                    l.kind,
+                    l.status,
+                    l.error_message,
+                    l.created_at
+             FROM sms_logs l
+             LEFT JOIN branches b ON b.id = l.branch_id
+             LEFT JOIN customers c ON c.id = l.customer_id
+             LEFT JOIN repairs r ON r.id = l.repair_id
+             LEFT JOIN customers rc ON rc.id = r.customer_id
+             {$whereSql}
+             ORDER BY l.id DESC
+             LIMIT 600",
+            $params
+        );
+    }
+
+    public static function sendSingle(int $branch, array $body): array {
+        $phone = trim((string) ($body['phone'] ?? ''));
+        $message = Validator::str($body, 'message', 1000);
+        $kind = Validator::str($body, 'kind', 30, false) ?: 'single';
+        $customerId = !empty($body['customer_id']) ? (int) $body['customer_id'] : null;
+        $customerName = Validator::str($body, 'customer_name', 150, false) ?: '';
+        $forceRejected = !empty($body['reject_immediately']);
+        $rejectReason = Validator::str($body, 'reject_reason', 240, false) ?: 'Rejected manually';
+
+        if ($customerId && $customerName === '') {
+            $cust = BaseRepository::one('SELECT name, phone FROM customers WHERE id=?', [$customerId]);
+            if ($cust) {
+                $customerName = (string) ($cust['name'] ?? '');
+                if ($phone === '') {
+                    $phone = (string) ($cust['phone'] ?? '');
+                }
+            }
+        }
+
+        if ($forceRejected) {
+            $cleanPhone = self::normalizePhone($phone) ?: ($phone ?: '—');
+            $logId = self::saveLog(
+                null,
+                $branch,
+                null,
+                $customerId,
+                $customerName,
+                $cleanPhone,
+                $message,
+                $kind,
+                'rejected',
+                $rejectReason
+            );
+            return [
+                'id' => $logId,
+                'sent' => false,
+                'status' => 'rejected',
+                'phone' => $cleanPhone,
+                'message' => $message,
+                'error' => $rejectReason,
+            ];
+        }
+
+        return self::send($branch, null, $phone, $message, $kind, $customerId, $customerName);
+    }
+
+    public static function sendBulk(int $branch, array $body): array {
+        $recipients = $body['recipients'] ?? [];
+        if (!is_array($recipients) || empty($recipients)) {
+            throw new ApiError('Select at least one customer recipient.');
+        }
+        if (count($recipients) > 500) {
+            throw new ApiError('Select at most 500 recipients per bulk batch.');
+        }
+        $template = Validator::str($body, 'message', 1000);
+        $kind = Validator::str($body, 'kind', 30, false) ?: 'bulk';
+        $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
+        $shopName = trim((string) ($settings['shop_name'] ?? 'ZEEDAT POS')) ?: 'ZEEDAT POS';
+
+        $sent = 0;
+        $manual = 0;
+        $failed = 0;
+        $rejected = 0;
+
+        foreach ($recipients as $rec) {
+            if (!is_array($rec)) continue;
+            $cId = !empty($rec['customer_id']) ? (int) $rec['customer_id'] : null;
+            $cName = trim((string) ($rec['customer_name'] ?? $rec['name'] ?? 'Customer')) ?: 'Customer';
+            $cPhone = trim((string) ($rec['phone'] ?? ''));
+            $cCredit = 'LKR ' . number_format(((int) ($rec['credit'] ?? 0)) / 100, 2);
+            $cPoints = (string) ((int) ($rec['points'] ?? $rec['loyalty_points'] ?? 0));
+            $cBranch = trim((string) ($rec['branch'] ?? ''));
+
+            $msg = strtr($template, [
+                '{name}' => $cName,
+                '{shop}' => $shopName,
+                '{phone}' => $cPhone,
+                '{credit}' => $cCredit,
+                '{points}' => $cPoints,
+                '{branch}' => $cBranch,
+            ]);
+
+            $res = self::send($branch, null, $cPhone, $msg, $kind, $cId, $cName);
+            $st = $res['status'] ?? 'manual';
+            if ($st === 'sent') {
+                $sent++;
+            } elseif ($st === 'rejected') {
+                $rejected++;
+            } elseif ($st === 'failed') {
+                $failed++;
+            } else {
+                $manual++;
+            }
+        }
+
+        return [
+            'total' => count($recipients),
+            'sent' => $sent,
+            'manual' => $manual,
+            'failed' => $failed,
+            'rejected' => $rejected,
+        ];
+    }
+
+    public static function manageLog(int $branch, array $body): array {
+        $id = Validator::integer($body['id'] ?? null, 'SMS record');
+        $operation = Validator::str($body, 'operation', 30);
+        $row = BaseRepository::one('SELECT * FROM sms_logs WHERE id=?', [$id]);
+        if (!$row) {
+            throw new ApiError('SMS record not found.', 404);
+        }
+
+        if ($operation === 'delete') {
+            BaseRepository::run('DELETE FROM sms_logs WHERE id=?', [$id]);
+            return ['id' => $id, 'deleted' => true];
+        }
+
+        if ($operation === 'reject') {
+            $reason = Validator::str($body, 'reason', 240, false) ?: 'Rejected by staff';
             BaseRepository::run(
-                'INSERT INTO sms_logs(branch_id, repair_id, phone, message, kind, status, error_message) VALUES (?,?,?,?,?,?,?)',
-                [$branchId, $repairId, $phone, $message, $kind, $status, $error]
+                "UPDATE sms_logs SET status='rejected', error_message=? WHERE id=?",
+                [$reason, $id]
+            );
+            return ['id' => $id, 'status' => 'rejected', 'error_message' => $reason];
+        }
+
+        if ($operation === 'mark_sent') {
+            BaseRepository::run(
+                "UPDATE sms_logs SET status='sent', error_message='' WHERE id=?",
+                [$id]
+            );
+            return ['id' => $id, 'status' => 'sent'];
+        }
+
+        if ($operation === 'retry') {
+            return self::send(
+                (int) ($row['branch_id'] ?: $branch),
+                !empty($row['repair_id']) ? (int) $row['repair_id'] : null,
+                (string) $row['phone'],
+                (string) $row['message'],
+                (string) ($row['kind'] ?: 'single'),
+                !empty($row['customer_id']) ? (int) $row['customer_id'] : null,
+                (string) ($row['customer_name'] ?? ''),
+                $id
+            );
+        }
+
+        throw new ApiError('Unsupported SMS operation.');
+    }
+
+    private static function saveLog(
+        ?int $existingLogId,
+        int $branchId,
+        ?int $repairId,
+        ?int $customerId,
+        string $customerName,
+        string $phone,
+        string $message,
+        string $kind,
+        string $status,
+        string $error
+    ): int {
+        try {
+            if ($existingLogId) {
+                BaseRepository::run(
+                    'UPDATE sms_logs SET phone=?, message=?, kind=?, status=?, error_message=?, created_at=CURRENT_TIMESTAMP WHERE id=?',
+                    [$phone, $message, $kind, $status, $error, $existingLogId]
+                );
+                return $existingLogId;
+            }
+            return BaseRepository::insert(
+                'INSERT INTO sms_logs(branch_id, repair_id, customer_id, customer_name, phone, message, kind, status, error_message) VALUES (?,?,?,?,?,?,?,?,?)',
+                [$branchId, $repairId, $customerId, $customerName, $phone, $message, $kind, $status, $error]
             );
         } catch (\Throwable) {
+            return 0;
         }
     }
 }

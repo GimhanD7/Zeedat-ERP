@@ -9,6 +9,7 @@ import {
   Lock,
   Mail,
   MapPin,
+  MessageSquareText,
   Pencil,
   Percent,
   Phone,
@@ -494,24 +495,50 @@ export function SettingsPage({ ctx }) {
               {/* TAB 1: STORE & RECEIPT SETTINGS + LIVE PREVIEW */}
               {activeTab === 'Store & Receipt' && (
                 <div className="zk-settings-grid zk-bill-settings" style={{ '--bill-preview-width': `${billPaperWidth(form)}mm` }}>
-                  {/* LEFT: INLINE EDITABLE FORM */}
-                  <form onSubmit={handleSaveStoreSettings} className="zk-settings-card">
-                    <div className="zk-card-header">
-                      <div className="zk-card-title">
-                        <Settings size={17} style={{ color: '#0d9488' }} />
-                        <span>Business & Bill Settings</span>
+                  {/* LEFT: STRUCTURED BUSINESS & BILL SETTINGS BREAKDOWN */}
+                  <form onSubmit={handleSaveStoreSettings} className="zk-bill-breakdown-stack">
+                    {/* HEADER BANNER CARD */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header" style={{ marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+                        <div>
+                          <div className="zk-card-title">
+                            <Settings size={18} style={{ color: '#0d9488' }} />
+                            <span>Business &amp; Bill Settings Breakdown</span>
+                          </div>
+                          <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: '#64748b' }}>
+                            Organized into 4 clear sections: Business Identity, Tax &amp; Numbering, Printer &amp; Hardware, and Bill Branding &amp; Terms.
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <Badge tone="blue">
+                            {form.bill_layout.format === 'a4' ? 'A4 Invoice' : `${form.paper_width}mm Thermal`}
+                          </Badge>
+                          <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
+                            {savingStore ? 'Saving…' : 'Save Settings'}
+                          </Button>
+                        </div>
                       </div>
-                      <Badge tone="blue">{form.bill_layout.format === 'a4' ? 'A4' : form.paper_width + ' mm'}</Badge>
+
+                      {storeMsg && (
+                        <div
+                          className={`zk-notice-banner ${storeMsg.type === 'error' ? 'error' : 'success'}`}
+                          style={{ marginTop: '14px', marginBottom: 0 }}
+                        >
+                          {storeMsg.text}
+                        </div>
+                      )}
                     </div>
 
-                    {storeMsg && (
-                      <div className={`zk-notice-banner ${storeMsg.type === 'error' ? 'error' : 'success'}`}>
-                        {storeMsg.text}
+                    {/* SECTION 1: BUSINESS IDENTITY & CONTACT */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <Store size={17} style={{ color: '#0d9488' }} />
+                          <span>1. Business Identity &amp; Contact Information</span>
+                        </div>
+                        <Badge tone="green">Printed on Header</Badge>
                       </div>
-                    )}
 
-                    <div className="zk-settings-section">
-                      <h4 className="zk-settings-subtitle">Business Identity</h4>
                       <div className="zk-form-row-2">
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">Shop / Receipt Title *</label>
@@ -540,7 +567,7 @@ export function SettingsPage({ ctx }) {
                         </div>
                       </div>
 
-                      <div className="zk-form-row-2">
+                      <div className="zk-form-row-2" style={{ marginTop: '12px' }}>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">Business Email / Website</label>
                           <div className="zk-input-box">
@@ -569,8 +596,16 @@ export function SettingsPage({ ctx }) {
                       </div>
                     </div>
 
-                    <div className="zk-settings-section">
-                      <h4 className="zk-settings-subtitle">Tax &amp; Invoice Numbering</h4>
+                    {/* SECTION 2: TAX & INVOICE NUMBERING */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <Receipt size={17} style={{ color: '#0d9488' }} />
+                          <span>2. Tax Rate &amp; Invoice Numbering</span>
+                        </div>
+                        <Badge tone="slate">Prefix: {form.invoice_prefix || 'INV-'}</Badge>
+                      </div>
+
                       <div className="zk-form-row-2">
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">Default VAT / Tax Rate (%)</label>
@@ -600,204 +635,321 @@ export function SettingsPage({ ctx }) {
                           </div>
                         </div>
                       </div>
+
+                      <div style={{ marginTop: '12px' }}>
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                            Show tax breakdown line on printed receipt
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.show_tax_on_receipt}
+                            onChange={e => setForm({ ...form, show_tax_on_receipt: e.target.checked })}
+                          />
+                        </label>
+                      </div>
                     </div>
 
-                    <div className="zk-settings-section">
-                      <h4 className="zk-settings-subtitle">Thermal Printer &amp; Receipt Layout</h4>
+                    {/* SECTION 3: THERMAL PRINTER, PAPER SIZE & CASH DRAWER */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <Printer size={17} style={{ color: '#0d9488' }} />
+                          <span>3. Thermal Printer, Paper Format &amp; Cash Drawer</span>
+                        </div>
+                        <Badge tone="teal">Silent Direct Print</Badge>
+                      </div>
+
                       <div className="zk-field-wrap">
-                        <label className="zk-field-label">Thermal Receipt Paper Width</label>
-                        <div className="zk-paper-selector">
+                        <label className="zk-field-label">Bill Print Format &amp; Paper Size</label>
+                        <div className="zk-paper-selector three-col">
                           <button
                             type="button"
-                            className={`zk-paper-option ${form.paper_width === '58' ? 'active' : ''}`}
-                            onClick={() => setForm({ ...form, paper_width: '58' })}
+                            className={`zk-paper-option ${form.bill_layout.format !== 'a4' && form.paper_width === '58' ? 'active' : ''}`}
+                            onClick={() =>
+                              setForm(prev => ({
+                                ...prev,
+                                paper_width: '58',
+                                bill_layout: { ...prev.bill_layout, format: 'thermal' },
+                              }))
+                            }
                           >
-                            <Printer size={18} style={{ color: form.paper_width === '58' ? '#0d9488' : '#64748b' }} />
+                            <Printer
+                              size={18}
+                              style={{
+                                color:
+                                  form.bill_layout.format !== 'a4' && form.paper_width === '58'
+                                    ? '#0d9488'
+                                    : '#64748b',
+                              }}
+                            />
                             <div>
                               <strong style={{ display: 'block', fontSize: '13px' }}>58mm Compact</strong>
-                              <small style={{ color: '#64748b', fontSize: '11px' }}>Mini Bluetooth / Portable POS</small>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>
+                                Mini Thermal Roll
+                              </small>
                             </div>
                           </button>
 
                           <button
                             type="button"
-                            className={`zk-paper-option ${form.paper_width === '80' ? 'active' : ''}`}
-                            onClick={() => setForm({ ...form, paper_width: '80' })}
+                            className={`zk-paper-option ${form.bill_layout.format !== 'a4' && form.paper_width === '80' ? 'active' : ''}`}
+                            onClick={() =>
+                              setForm(prev => ({
+                                ...prev,
+                                paper_width: '80',
+                                bill_layout: { ...prev.bill_layout, format: 'thermal' },
+                              }))
+                            }
                           >
-                            <Printer size={18} style={{ color: form.paper_width === '80' ? '#0d9488' : '#64748b' }} />
+                            <Printer
+                              size={18}
+                              style={{
+                                color:
+                                  form.bill_layout.format !== 'a4' && form.paper_width === '80'
+                                    ? '#0d9488'
+                                    : '#64748b',
+                              }}
+                            />
                             <div>
                               <strong style={{ display: 'block', fontSize: '13px' }}>80mm Standard</strong>
-                              <small style={{ color: '#64748b', fontSize: '11px' }}>Desktop Auto-Cutter Printer</small>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>
+                                Desktop Thermal Roll
+                              </small>
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`zk-paper-option ${form.bill_layout.format === 'a4' ? 'active' : ''}`}
+                            onClick={() => updateBillLayout('format', 'a4')}
+                          >
+                            <Receipt
+                              size={18}
+                              style={{
+                                color: form.bill_layout.format === 'a4' ? '#0d9488' : '#64748b',
+                              }}
+                            />
+                            <div>
+                              <strong style={{ display: 'block', fontSize: '13px' }}>A4 Full Sheet</strong>
+                              <small style={{ color: '#64748b', fontSize: '11px' }}>
+                                Standard A4 Invoice
+                              </small>
                             </div>
                           </button>
                         </div>
                       </div>
 
-                      <div className="zk-field-wrap">
-                        <label className="zk-field-label">Receipt Footer / Warranty Message</label>
+                      <div className="zk-field-wrap" style={{ marginTop: '12px' }}>
+                        <label className="zk-field-label">Receipt Printer &amp; Cash Drawer Port</label>
+                        <select
+                          className="input"
+                          value={form.receipt_printer_name}
+                          onChange={e => setForm({ ...form, receipt_printer_name: e.target.value })}
+                        >
+                          <option value="">System Default Thermal Printer</option>
+                          {printers.map(p => (
+                            <option key={p.name} value={p.name}>
+                              {p.name}
+                              {p.isDefault ? ' (Default)' : ''}
+                            </option>
+                          ))}
+                          {form.receipt_printer_name &&
+                            !printers.some(p => p.name === form.receipt_printer_name) && (
+                              <option value={form.receipt_printer_name}>
+                                {form.receipt_printer_name}
+                              </option>
+                            )}
+                        </select>
+                      </div>
+
+                      <div className="zk-form-row-2" style={{ marginTop: '12px' }}>
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                            Auto-print bill immediately after sale
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.auto_print}
+                            onChange={e => setForm({ ...form, auto_print: e.target.checked })}
+                          />
+                        </label>
+
+                        <label className="zk-toggle-row">
+                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                            Auto-open cash drawer (Cash sales)
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={form.cash_drawer_enabled}
+                            onChange={e =>
+                              setForm({ ...form, cash_drawer_enabled: e.target.checked })
+                            }
+                          />
+                        </label>
+                      </div>
+
+                      {window.electronAPI?.openCashDrawer && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                          <Button type="button" variant="outline" onClick={loadPrinters}>
+                            Refresh Printers
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={drawerTesting}
+                            onClick={handleTestDrawer}
+                          >
+                            {drawerTesting ? 'Opening Drawer…' : 'Test Cash Drawer Kick'}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 4: BILL BRANDING, HEADER, FOOTER & WARRANTY TERMS */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title">
+                          <ClipboardList size={17} style={{ color: '#0d9488' }} />
+                          <span>4. Bill Branding, Logo, Footer &amp; Warranty Terms</span>
+                        </div>
+                        <Badge tone="violet">Custom Content</Badge>
+                      </div>
+
+                      <div className="zk-form-row-2">
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">
+                            Bill Logo <small style={{ fontWeight: 400, color: '#64748b' }}>(PNG, JPEG or WebP · max 130 KB)</small>
+                          </label>
+                          <input
+                            type="file"
+                            className="input"
+                            accept="image/png,image/jpeg,image/webp"
+                            onChange={async e => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              if (
+                                file.size > 130000 ||
+                                !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
+                              ) {
+                                setStoreMsg({
+                                  type: 'error',
+                                  text: 'Choose a PNG, JPEG or WebP logo under 130 KB.',
+                                });
+                                return;
+                              }
+                              const reader = new FileReader();
+                              reader.onload = () => updateBillLayout('logo', reader.result);
+                              reader.onerror = () =>
+                                setStoreMsg({ type: 'error', text: 'Could not read the logo.' });
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                          {form.bill_layout.logo && (
+                            <div style={{ marginTop: '6px' }}>
+                              <Button
+                                type="button"
+                                variant="outline-red"
+                                onClick={() => updateBillLayout('logo', '')}
+                              >
+                                Remove Logo
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="zk-field-wrap">
+                          <label className="zk-field-label">Custom Bill Header Line / Tagline</label>
+                          <input
+                            type="text"
+                            className="input"
+                            maxLength={100}
+                            placeholder="e.g. Authorized Mobile & Computer Dealer"
+                            value={form.bill_layout.heading || ''}
+                            onChange={e => updateBillLayout('heading', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="zk-field-wrap" style={{ marginTop: '12px' }}>
+                        <label className="zk-field-label">
+                          Additional Business Details (Registration / Tax No)
+                        </label>
+                        <div className="zk-textarea-box">
+                          <textarea
+                            rows={2}
+                            maxLength={700}
+                            placeholder="Business registration number, VAT/TIN number, or hotline details"
+                            value={form.bill_layout.details || ''}
+                            onChange={e => updateBillLayout('details', e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="zk-field-wrap" style={{ marginTop: '12px' }}>
+                        <label className="zk-field-label">Receipt Footer Message</label>
                         <div className="zk-textarea-box">
                           <textarea
                             rows={2}
                             maxLength={250}
                             value={form.receipt_footer}
                             onChange={e => setForm({ ...form, receipt_footer: e.target.value })}
-                            placeholder="Thank you! Goods sold are returnable within 7 days with tag & receipt."
+                            placeholder="Thank you for your business! Please retain this receipt for warranty."
                           />
                         </div>
                       </div>
 
-                      <div className="zk-form-row-2">
-                        <label className="zk-toggle-row">
-                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-print bill after sale</span>
-                          <input
-                            type="checkbox"
-                            checked={form.auto_print}
-                            onChange={e => setForm({ ...form, auto_print: e.target.checked })}
-                           
+                      <div className="zk-field-wrap" style={{ marginTop: '12px' }}>
+                        <label className="zk-field-label">Warranty &amp; Exchange Terms</label>
+                        <div className="zk-textarea-box">
+                          <textarea
+                            rows={3}
+                            maxLength={1000}
+                            placeholder="Enter warranty conditions or return policy printed at the bottom of bills…"
+                            value={form.bill_layout.terms || ''}
+                            onChange={e => updateBillLayout('terms', e.target.value)}
                           />
-                        </label>
-
-                        <label className="zk-toggle-row">
-                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Show tax breakdown on receipt</span>
-                          <input
-                            type="checkbox"
-                            checked={form.show_tax_on_receipt}
-                            onChange={e => setForm({ ...form, show_tax_on_receipt: e.target.checked })}
-                           
-                          />
-                        </label>
+                        </div>
                       </div>
 
-                      <div className="zk-form-row-2" style={{ marginTop: '12px', alignItems: 'end' }}>
-                        <div className="zk-field-wrap" style={{ marginBottom: 0 }}>
-                          <label className="zk-field-label">Receipt Printer &amp; Cash Drawer Port</label>
-                          <select
-                            className="input"
-                            value={form.receipt_printer_name}
-                            onChange={e => setForm({ ...form, receipt_printer_name: e.target.value })}
-                          >
-                            <option value="">System Default Thermal Printer</option>
-                            {printers.map(p => (
-                              <option key={p.name} value={p.name}>
-                                {p.name}{p.isDefault ? ' (Default)' : ''}
-                              </option>
-                            ))}
-                            {form.receipt_printer_name && !printers.some(p => p.name === form.receipt_printer_name) && (
-                              <option value={form.receipt_printer_name}>{form.receipt_printer_name}</option>
-                            )}
-                          </select>
-                        </div>
-
-                        <label className="zk-toggle-row">
-                          <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-open cash drawer (Cash only)</span>
-                          <input
-                            type="checkbox"
-                            checked={form.cash_drawer_enabled}
-                            onChange={e => setForm({ ...form, cash_drawer_enabled: e.target.checked })}
-                           
-                          />
-                        </label>
-                      </div>
-
-                      {window.electronAPI?.openCashDrawer && (
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-                          <Button type="button" variant="outline" onClick={loadPrinters}>
-                            Refresh Printers
-                          </Button>
-                          <Button type="button" variant="outline" disabled={drawerTesting} onClick={handleTestDrawer}>
-                            {drawerTesting ? 'Opening Drawer...' : 'Test Cash Drawer Kick'}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="zk-settings-section">
-                      <div className="zk-settings-sec-title">Repair Intake &amp; Ready SMS Gateway</div>
-                      <label className="zk-toggle-row">
-                        <span style={{ fontSize: '12.5px', fontWeight: 600 }}>Auto-send SMS when repair device is received</span>
-                        <input
-                          type="checkbox"
-                          checked={form.sms_enabled}
-                          onChange={e => setForm({ ...form, sms_enabled: e.target.checked })}
-                         
-                        />
-                      </label>
-                      <div className="zk-form-row-2">
-                        <div className="zk-field-wrap" style={{ gridColumn: '1 / -1' }}>
-                          <label className="zk-field-label">SMS Gateway URL (GET placeholders {'{phone}'}, {'{message}'}, {'{sender_id}'}, {'{api_key}'} or JSON POST URL)</label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="https://app.notify.lk/api/v1/send?user_id=...&api_key={api_key}&sender_id={sender_id}&to={phone}&message={message}"
-                            value={form.sms_provider_url}
-                            onChange={e => setForm({ ...form, sms_provider_url: e.target.value })}
-                          />
-                        </div>
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">Sender ID</label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="ZEEDAT"
-                            maxLength={40}
-                            value={form.sms_sender_id}
-                            onChange={e => setForm({ ...form, sms_sender_id: e.target.value })}
-                          />
-                        </div>
-                        <div className="zk-field-wrap">
-                          <label className="zk-field-label">API Key / Bearer Token</label>
-                          <input
-                            type="password"
-                            className="input"
-                            placeholder="Gateway API key"
-                            value={form.sms_api_key}
-                            onChange={e => setForm({ ...form, sms_api_key: e.target.value })}
-                          />
-                        </div>
+                      <div className="zk-form-footer">
+                        <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
+                          {savingStore ? 'Saving Settings…' : 'Save Store & Bill Settings'}
+                        </Button>
                       </div>
                     </div>
 
-                      <section className="zk-settings-section zk-bill-layout-fields">
-                        <h4 className="zk-settings-subtitle">Bill Layout</h4>
-                        <label>Print format
-                          <Select value={form.bill_layout.format || 'thermal'} options={[[ 'thermal', 'Thermal receipt' ], [ 'a4', 'A4 invoice' ]]}
-                            onChange={e => updateBillLayout('format', e.target.value)} />
-                        </label>
-                        <label>Logo <small>PNG, JPEG or WebP · up to 130 KB</small>
-                          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            if (file.size > 130000 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-                              setStoreMsg({ type: 'error', text: 'Choose a PNG, JPEG or WebP logo under 130 KB.' });
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onload = () => updateBillLayout('logo', reader.result);
-                            reader.onerror = () => setStoreMsg({ type: 'error', text: 'Could not read the logo.' });
-                            reader.readAsDataURL(file);
-                          }} />
-                        </label>
-                        {form.bill_layout.logo && <div><Button type="button" onClick={() => updateBillLayout('logo', '')}>Remove Logo</Button></div>}
-                        <label>Header line
-                          <input maxLength={100} value={form.bill_layout.heading || ''} onChange={e => updateBillLayout('heading', e.target.value)} />
-                        </label>
-                        <label>Additional details
-                          <textarea rows={2} maxLength={700} placeholder="Business registration or tax number" value={form.bill_layout.details || ''} onChange={e => updateBillLayout('details', e.target.value)} />
-                        </label>
-                        <label>Terms and warranty
-                          <textarea rows={3} maxLength={1000} value={form.bill_layout.terms || ''} onChange={e => updateBillLayout('terms', e.target.value)} />
-                        </label>
-                      </section>
-                    <div className="zk-form-footer">
-                      <Button type="submit" icon={Save} variant="primary" disabled={savingStore}>
-                        {savingStore ? 'Saving Settings...' : 'Save Store & Receipt Settings'}
-                      </Button>
+                    {/* DEDICATED SMS CENTER SHORTCUT CARD */}
+                    <div className="zk-settings-card zk-bill-section-card" style={{ background: '#f0fdfa', borderColor: '#99f6e4' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div className="zk-kpi-icon-square green" style={{ width: '42px', height: '42px' }}>
+                            <MessageSquareText size={20} />
+                          </div>
+                          <div>
+                            <strong style={{ display: 'block', fontSize: '14px', color: '#0f172a' }}>
+                              SMS Gateway, Bulk Customer SMS &amp; Rejected SMS History
+                            </strong>
+                            <span style={{ fontSize: '12px', color: '#475569' }}>
+                              SMS settings, Single/Bulk customer SMS, and Rejected SMS logs have moved to the dedicated SMS Center page.
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          icon={MessageSquareText}
+                          onClick={() => ctx.navigate('sms')}
+                        >
+                          Open SMS Center
+                        </Button>
+                      </div>
                     </div>
                   </form>
 
                   <div className="zk-receipt-preview-box">
                     <div className="zk-bill-settings-preview-heading">
-                      <strong>Bill Preview</strong>
+                      <strong>Live Bill Preview</strong>
                       <Button icon={Printer} onClick={() => printBill(sampleBill, form, { silent: false })}>Test Print</Button>
                     </div>
                     <BillPreview html={buildBillHtml(sampleBill, form)} paperWidth={billPaperWidth(form)} fullHeight />

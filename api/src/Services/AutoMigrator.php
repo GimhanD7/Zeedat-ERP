@@ -638,6 +638,8 @@ class AutoMigrator
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     branch_id INTEGER NOT NULL DEFAULT 0,
                     repair_id INTEGER NULL,
+                    customer_id INTEGER NULL,
+                    customer_name TEXT NOT NULL DEFAULT '',
                     phone TEXT NOT NULL,
                     message TEXT NOT NULL,
                     kind TEXT NOT NULL DEFAULT 'intake',
@@ -645,6 +647,13 @@ class AutoMigrator
                     error_message TEXT NOT NULL DEFAULT '',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )");
+                $smsCols = array_column($db->query('PRAGMA table_info(sms_logs)')->fetchAll(), 'name');
+                if (!in_array('customer_id', $smsCols, true)) {
+                    $db->exec('ALTER TABLE sms_logs ADD COLUMN customer_id INTEGER NULL');
+                }
+                if (!in_array('customer_name', $smsCols, true)) {
+                    $db->exec("ALTER TABLE sms_logs ADD COLUMN customer_name TEXT NOT NULL DEFAULT ''");
+                }
             } else {
                 foreach ($repairColsSpec as $col => $def) {
                     if (empty($db->query("SHOW COLUMNS FROM repairs LIKE '{$col}'")->fetchAll())) {
@@ -660,6 +669,8 @@ class AutoMigrator
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     branch_id INT NOT NULL DEFAULT 0,
                     repair_id INT NULL,
+                    customer_id INT NULL,
+                    customer_name VARCHAR(150) NOT NULL DEFAULT '',
                     phone VARCHAR(40) NOT NULL,
                     message TEXT NOT NULL,
                     kind VARCHAR(30) NOT NULL DEFAULT 'intake',
@@ -668,6 +679,12 @@ class AutoMigrator
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     INDEX(repair_id, created_at)
                 ) ENGINE=InnoDB");
+                if (empty($db->query("SHOW COLUMNS FROM sms_logs LIKE 'customer_id'")->fetchAll())) {
+                    $db->exec('ALTER TABLE sms_logs ADD COLUMN customer_id INT NULL');
+                }
+                if (empty($db->query("SHOW COLUMNS FROM sms_logs LIKE 'customer_name'")->fetchAll())) {
+                    $db->exec("ALTER TABLE sms_logs ADD COLUMN customer_name VARCHAR(150) NOT NULL DEFAULT ''");
+                }
             }
         } catch (Throwable) {
         }

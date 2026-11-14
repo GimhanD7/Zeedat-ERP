@@ -247,10 +247,19 @@ class AdminController
         $showTax = !empty($body['show_tax_on_receipt']) ? 1 : 0;
         $receiptPrinterName = Validator::str($body, 'receipt_printer_name', 150, false) ?: '';
         $cashDrawerEnabled = array_key_exists('cash_drawer_enabled', $body) ? (!empty($body['cash_drawer_enabled']) ? 1 : 0) : 1;
-        $smsEnabled = !empty($body['sms_enabled']) ? 1 : 0;
-        $smsProviderUrl = Validator::str($body, 'sms_provider_url', 500, false) ?: '';
-        $smsApiKey = Validator::str($body, 'sms_api_key', 255, false) ?: '';
-        $smsSenderId = Validator::str($body, 'sms_sender_id', 40, false) ?: '';
+        $currentSettings = BaseRepository::one('SELECT sms_enabled, sms_provider_url, sms_api_key, sms_sender_id FROM settings WHERE id=1') ?? [];
+        $smsEnabled = array_key_exists('sms_enabled', $body)
+            ? (!empty($body['sms_enabled']) ? 1 : 0)
+            : (int) ($currentSettings['sms_enabled'] ?? 0);
+        $smsProviderUrl = array_key_exists('sms_provider_url', $body)
+            ? (Validator::str($body, 'sms_provider_url', 500, false) ?: '')
+            : (string) ($currentSettings['sms_provider_url'] ?? '');
+        $smsApiKey = array_key_exists('sms_api_key', $body)
+            ? (Validator::str($body, 'sms_api_key', 255, false) ?: '')
+            : (string) ($currentSettings['sms_api_key'] ?? '');
+        $smsSenderId = array_key_exists('sms_sender_id', $body)
+            ? (Validator::str($body, 'sms_sender_id', 40, false) ?: '')
+            : (string) ($currentSettings['sms_sender_id'] ?? '');
         $layout = $body['bill_layout'] ?? null;
         $encodedLayout = null;
         if (is_array($layout)) {
@@ -309,6 +318,26 @@ class AdminController
             'show_tax_on_receipt' => $showTax,
             'receipt_printer_name' => $receiptPrinterName,
             'cash_drawer_enabled' => $cashDrawerEnabled,
+            'sms_enabled' => $smsEnabled,
+            'sms_provider_url' => $smsProviderUrl,
+            'sms_api_key' => $smsApiKey,
+            'sms_sender_id' => $smsSenderId,
+        ];
+    }
+
+    public static function saveSmsSettings(array $body): array
+    {
+        $smsEnabled = !empty($body['sms_enabled']) ? 1 : 0;
+        $smsProviderUrl = Validator::str($body, 'sms_provider_url', 500, false) ?: '';
+        $smsApiKey = Validator::str($body, 'sms_api_key', 255, false) ?: '';
+        $smsSenderId = Validator::str($body, 'sms_sender_id', 40, false) ?: '';
+
+        BaseRepository::run(
+            'UPDATE settings SET sms_enabled=?, sms_provider_url=?, sms_api_key=?, sms_sender_id=? WHERE id=1',
+            [$smsEnabled, $smsProviderUrl, $smsApiKey, $smsSenderId]
+        );
+
+        return [
             'sms_enabled' => $smsEnabled,
             'sms_provider_url' => $smsProviderUrl,
             'sms_api_key' => $smsApiKey,

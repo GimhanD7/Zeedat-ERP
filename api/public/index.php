@@ -119,7 +119,7 @@ try {
             }
         }
 
-        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
+        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'sms.settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         $result = Idempotency::execute($user, $action, function () use ($action, $user, $branch, $body) {
             return match ($action) {
@@ -250,8 +250,24 @@ try {
                         return RepairController::completeAndPay($user, $branch, ['payment_only' => true] + $body);
                     })(),
                 'repair.sms' => (function () use ($user, $branch, $body) {
-                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos');
+                        RoleGuard::allowAnyPermission($user, 'repairs', 'pos', 'settings', 'customers');
                         return RepairController::sendSms($branch, $body);
+                    })(),
+                'sms.send' => (function () use ($user, $branch, $body) {
+                        RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs', 'pos');
+                        return \Zeedat\Services\SmsService::sendSingle($branch, $body);
+                    })(),
+                'sms.bulk' => (function () use ($user, $branch, $body) {
+                        RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs', 'pos');
+                        return \Zeedat\Services\SmsService::sendBulk($branch, $body);
+                    })(),
+                'sms.manage' => (function () use ($user, $branch, $body) {
+                        RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs', 'pos');
+                        return \Zeedat\Services\SmsService::manageLog($branch, $body);
+                    })(),
+                'sms.settings.save' => (function () use ($user, $body) {
+                        RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs');
+                        return AdminController::saveSmsSettings($body);
                     })(),
                 'supplier.create' => (function () use ($user, $body) {
                         RoleGuard::allowPermission($user, 'purchases');
@@ -570,6 +586,10 @@ try {
         'audit' => (function () use ($user) {
                 RoleGuard::allowPermission($user, 'settings');
                 return AdminController::getAudit($_GET);
+            })(),
+        'sms.logs' => (function () use ($user, $branch) {
+                RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs', 'pos');
+                return \Zeedat\Services\SmsService::getLogs($branch, $_GET);
             })(),
         'barcode.generate' => (function () use ($user) {
                 RoleGuard::allowPermission($user, 'inventory');
