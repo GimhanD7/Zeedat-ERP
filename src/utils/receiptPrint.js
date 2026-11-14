@@ -532,15 +532,27 @@ export function returnToBill(ret = {}, settings = {}, branchName = '') {
   const diff = quoted - refundAmt;
   const qty = Number(ret.qty || 1);
 
-  const items = [
-    {
-      name: `${ret.product || 'Returned Item'} (Returned)`,
-      meta: ret.condition_note ? `Condition: ${ret.condition_note}` : '',
-      qty,
-      price: qty ? Math.round(refundAmt / qty) : refundAmt,
-      total: refundAmt,
-    },
-  ];
+  const items = ret.returned_items?.length
+    ? ret.returned_items.map(ri => {
+        const rQty = Number(ri.qty || 1);
+        const rAmt = Number(ri.amount || 0);
+        return {
+          name: `${ri.name || 'Returned Item'} (Returned)`,
+          meta: ret.condition_note ? `Condition: ${ret.condition_note}` : '',
+          qty: rQty,
+          price: rQty ? Math.round(rAmt / rQty) : rAmt,
+          total: rAmt,
+        };
+      })
+    : [
+        {
+          name: `${ret.product || 'Returned Item'} (Returned)`,
+          meta: ret.condition_note ? `Condition: ${ret.condition_note}` : '',
+          qty,
+          price: qty ? Math.round(refundAmt / qty) : refundAmt,
+          total: refundAmt,
+        },
+      ];
   if (isExchange) {
     const replacements = ret.replacement_items?.length ? ret.replacement_items : [{
       name: ret.replacement,

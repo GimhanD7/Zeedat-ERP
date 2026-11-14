@@ -35,7 +35,10 @@ class ReturnService
         }
 
         $qty = Validator::integer($body['qty'] ?? null, 'Return quantity', 1, $line['qty']);
-        if (BaseRepository::scalar("SELECT id FROM returns_log WHERE sale_item_id=? AND status='Pending' LIMIT 1", [$item])) {
+        if (
+            BaseRepository::scalar("SELECT id FROM returns_log WHERE sale_item_id=? AND status='Pending' LIMIT 1", [$item])
+            || BaseRepository::scalar("SELECT re.id FROM return_extra_items re JOIN returns_log r ON r.id=re.return_id WHERE re.sale_item_id=? AND r.status='Pending' LIMIT 1", [$item])
+        ) {
             throw new ApiError('Review the existing pending request for this line first.', 409);
         }
         if ($qty + $line['refunded_qty'] > $line['qty']) {
@@ -59,10 +62,61 @@ class ReturnService
         $amount = self::refundAmount((int) $line['total'], (int) $line['qty'], (int) $line['refunded_qty'], $qty);
         $restock = !empty($body['restock']) && !$line['unit_id'] && $line['category'] !== 'Services';
 
+        $extraReturns = [];
+        if (!empty($body['extra_returns'])) {
+            if (!is_array($body['extra_returns']) || count($body['extra_returns']) > 99) {
+                throw new ApiError('Add at most 99 extra return items.');
+            }
+            $seenItems = [$item => true];
+            foreach ($body['extra_returns'] as $extra) {
+                if (!is_array($extra)) {
+                    throw new ApiError('Invalid return item.');
+                }
+                $eItemId = Validator::integer($extra['item_id'] ?? null, 'Invoice line');
+                if (isset($seenItems[$eItemId])) {
+                    throw new ApiError('Duplicate invoice line in return request.', 409);
+                }
+                $seenItems[$eItemId] = true;
+                $eLine = BaseRepository::one(
+                    'SELECT i.*, p.category FROM sale_items i JOIN products p ON p.id=i.product_id WHERE i.id=? AND i.sale_id=? FOR UPDATE',
+                    [$eItemId, $line['sale_id']]
+                );
+                if (!$eLine) {
+                    throw new ApiError('Invoice line not found on this bill.', 404);
+                }
+                $eQty = Validator::integer($extra['qty'] ?? null, 'Return quantity', 1, $eLine['qty']);
+                if (
+                    BaseRepository::scalar("SELECT id FROM returns_log WHERE sale_item_id=? AND status='Pending' LIMIT 1", [$eItemId])
+                    || BaseRepository::scalar("SELECT re.id FROM return_extra_items re JOIN returns_log r ON r.id=re.return_id WHERE re.sale_item_id=? AND r.status='Pending' LIMIT 1", [$eItemId])
+                ) {
+                    throw new ApiError('Review the existing pending request for ' . $eLine['name'] . ' first.', 409);
+                }
+                if ($eQty + $eLine['refunded_qty'] > $eLine['qty']) {
+                    throw new ApiError('Quantity exceeds the available return balance for ' . $eLine['name'] . '.', 409);
+                }
+                $eAmount = self::refundAmount((int) $eLine['total'], (int) $eLine['qty'], (int) $eLine['refunded_qty'], $eQty);
+                $eRestock = !empty($extra['restock']) && !$eLine['unit_id'] && $eLine['category'] !== 'Services';
+                $extraReturns[] = [
+                    'sale_item_id' => $eItemId,
+                    'qty' => $eQty,
+                    'restock' => $eRestock ? 1 : 0,
+                    'amount' => $eAmount,
+                ];
+                $amount += $eAmount;
+            }
+        }
+
         $id = BaseRepository::insert(
             'INSERT INTO returns_log(branch_id, sale_item_id, qty, reason, condition_note, restock, amount, method) VALUES (?,?,?,?,?,?,?,?)',
             [$branch, $item, $qty, Validator::str($body, 'reason', 500), Validator::str($body, 'condition_note', 100), $restock ? 1 : 0, $amount, $method]
         );
+
+        foreach ($extraReturns as $er) {
+            BaseRepository::run(
+                'INSERT INTO return_extra_items(return_id, sale_item_id, qty, restock, amount) VALUES (?,?,?,?,?)',
+                [$id, $er['sale_item_id'], $er['qty'], $er['restock'], $er['amount']]
+            );
+        }
 
         if (!empty($body['replacement_product_id'])) {
             $addons = $body['addons'] ?? [];
@@ -193,6 +247,19 @@ class ReturnService
             throw new ApiError('The invoice balance changed. Review this return request.', 409);
         }
 
+        $extraReturnLines = BaseRepository::rows(
+            'SELECT re.*, si.product_id, si.unit_id, si.name product, si.qty line_qty, si.refunded_qty line_refunded_qty
+             FROM return_extra_items re
+             JOIN sale_items si ON si.id=re.sale_item_id
+             WHERE re.return_id=? ORDER BY re.id',
+            [$id]
+        );
+        foreach ($extraReturnLines as $er) {
+            if ((int) $er['line_refunded_qty'] + (int) $er['qty'] > (int) $er['line_qty']) {
+                throw new ApiError('The invoice balance changed for ' . $er['product'] . '. Review this return request.', 409);
+            }
+        }
+
         $drawer = null;
         if ($row['method'] === 'Cash' || $row['replacement_product_id']) {
             $drawer = DrawerService::openDrawer($user, $branch);
@@ -210,6 +277,15 @@ class ReturnService
         }
 
         BaseRepository::run('UPDATE sale_items SET refunded_qty=refunded_qty+? WHERE id=?', [$row['qty'], $row['sale_item_id']]);
+
+        foreach ($extraReturnLines as $er) {
+            if ($er['unit_id']) {
+                BaseRepository::run("UPDATE units SET state='Inspection', synced=0 WHERE id=?", [$er['unit_id']]);
+            } elseif ($er['restock']) {
+                ProductRepository::adjustStock($branch, (int) $er['product_id'], (int) $er['qty'], 'Return restock', Helpers::ref('RET', $id), (int) $user['id']);
+            }
+            BaseRepository::run('UPDATE sale_items SET refunded_qty=refunded_qty+? WHERE id=?', [$er['qty'], $er['sale_item_id']]);
+        }
 
         $items = [];
         $payments = [];

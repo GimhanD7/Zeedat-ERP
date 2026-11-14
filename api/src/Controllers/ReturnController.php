@@ -25,6 +25,18 @@ class ReturnController
             $params
         );
         foreach ($returns as &$return) {
+            $extraRet = BaseRepository::rows(
+                'SELECT re.qty, re.amount, si.name FROM return_extra_items re JOIN sale_items si ON si.id=re.sale_item_id WHERE re.return_id=? ORDER BY re.id',
+                [$return['id']]
+            );
+            if ($extraRet) {
+                $primaryAmt = (int) $return['amount'] - array_sum(array_column($extraRet, 'amount'));
+                $return['returned_items'] = [
+                    ['name' => $return['product'], 'qty' => (int) $return['qty'], 'amount' => $primaryAmt],
+                    ...array_map(static fn($e) => ['name' => $e['name'], 'qty' => (int) $e['qty'], 'amount' => (int) $e['amount']], $extraRet),
+                ];
+                $return['product'] = $return['product'] . ' +' . count($extraRet) . ' more';
+            }
             if (!$return['replacement_sale_id']) continue;
             $return['replacement_items'] = BaseRepository::rows(
                 'SELECT name,qty,price,total FROM sale_items WHERE sale_id=? ORDER BY id', [$return['replacement_sale_id']]

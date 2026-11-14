@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  ArrowLeftRight,
   Banknote,
   Building2,
   Check,
@@ -9,8 +10,10 @@ import {
   FileText,
   Layers,
   Minus,
+  PackageCheck,
   Plus,
   Repeat2,
+  RotateCcw,
   Smartphone,
   Trash2,
   Undo2,
@@ -34,6 +37,14 @@ const lineTotal = (price, qty, taxBps) => {
   return subtotal + Math.floor((subtotal * taxBps + 5000) / 10000);
 };
 
+const calcItemRefund = (line, returnQty) => {
+  const sold = Math.max(1, Number(line.qty) || 1);
+  const refunded = Number(line.refunded_qty) || 0;
+  const total = Number(line.total) || 0;
+  const share = n => Math.floor((total * n) / sold);
+  return share(refunded + returnQty) - share(refunded);
+};
+
 let rowSeed = 1;
 const newRow = () => ({ key: rowSeed++, product_id: '', unit_id: '', qty: 1 });
 
@@ -41,6 +52,7 @@ export function ExchangeModal({
   ctx,
   invoice,
   item,
+  initialMode = 'exchange',
   catalog,
   settings,
   refundMethods,
@@ -48,13 +60,37 @@ export function ExchangeModal({
   onDone,
 }) {
   const taxBps = Number(settings?.tax_bps || 0);
-  const remaining = Math.max(1, Number(item.qty) - Number(item.refunded_qty));
+  const billItems = useMemo(() => invoice?.items || [], [invoice]);
 
-  const [qty, setQty] = useState(1);
+  const defaultSelectedId = useMemo(() => {
+    if (item && Number(item.qty) > Number(item.refunded_qty)) return Number(item.id);
+    const firstEligible = billItems.find(b => Number(b.qty) > Number(b.refunded_qty));
+    return firstEligible ? Number(firstEligible.id) : Number(item?.id || 0);
+  }, [item, billItems]);
+
+  // Mode: 'exchange' (Return selected bill item(s) + Replacement item(s)) or 'return' (Return selected bill item(s) for refund only)
+  const [mode, setMode] = useState(initialMode === 'return' ? 'return' : 'exchange');
+  const isExchange = mode === 'exchange';
+
+  // Map of selected bill items: { [sale_item_id]: { selected: boolean, qty: number, restock: boolean } }
+  // Only the clicked item (qty: 1) is selected by default — never the whole bill!
+  const [selectedMap, setSelectedMap] = useState(() => {
+    const init = {};
+    for (const b of billItems) {
+      const avail = Math.max(0, Number(b.qty) - Number(b.refunded_qty));
+      const isTarget = Number(b.id) === defaultSelectedId && avail > 0;
+      init[b.id] = {
+        selected: isTarget,
+        qty: 1,
+        restock: false,
+      };
+    }
+    return init;
+  });
+
   const [refundMethod, setRefundMethod] = useState(refundMethods[0] || 'Cash');
   const [condition, setCondition] = useState('');
   const [reason, setReason] = useState('');
-  const [restock, setRestock] = useState(false);
   const [rows, setRows] = useState([newRow()]);
   const [processNow, setProcessNow] = useState(true);
   const [payMethod, setPayMethod] = useState('Cash');
@@ -63,6 +99,109 @@ export function ExchangeModal({
   const [refundRef, setRefundRef] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const toggleBillItem = (line, checked) => {
+    const avail = Math.max(0, Number(line.qty) - Number(line.refunded_qty));
+    if (avail <= 0) return;
+    setSelectedMap(prev => ({
+      ...prev,
+      [line.id]: {
+        ...(prev[line.id] || { qty: 1, restock: false }),
+        selected: checked,
+        qty: Math.min(avail, Math.max(1, Number(prev[line.id]?.qty) || 1)),
+      },
+    }));
+  };
+
+  const setBillItemQty = (line, nextQty) => {
+    const avail = Math.max(1, Number(line.qty) - Number(line.refunded_qty));
+    const clamped = Math.min(avail, Math.max(1, Number(nextQty) || 1));
+    setSelectedMap(prev => ({
+      ...prev,
+      [line.id]: {
+        ...(prev[line.id] || { selected: true, restock: false }),
+        selected: true,
+        qty: clamped,
+      },
+    }));
+  };
+
+  const setBillItemRestock = (line, restockVal) => {
+    setSelectedMap(prev => ({
+      ...prev,
+      [line.id]: {
+        ...(prev[line.id] || { selected: true, qty: 1 }),
+        restock: Boolean(restockVal),
+      },
+    }));
+  };
+
+  const selectSingleItemOnly = targetId => {
+    setSelectedMap(prev => {
+      const next = {};
+      for (const b of billItems) {
+        const avail = Math.max(0, Number(b.qty) - Number(b.refunded_qty));
+        next[b.id] = {
+          selected: Number(b.id) === Number(targetId) && avail > 0,
+          qty: 1,
+          restock: prev[b.id]?.restock || false,
+        };
+      }
+      return next;
+    });
+  };
+
+  // Detailed breakdown of all items on the bill
+  const annotatedBillItems = useMemo(
+    () =>
+      billItems.map(b => {
+        const sold = Number(b.qty) || 0;
+        const refunded = Number(b.refunded_qty) || 0;
+        const avail = Math.max(0, sold - refunded);
+        const entry = selectedMap[b.id] || { selected: false, qty: 1, restock: false };
+        const isSelected = Boolean(entry.selected && avail > 0);
+        const selQty = isSelected ? Math.min(avail, Math.max(1, Number(entry.qty) || 1)) : 0;
+        const keptQty = Math.max(0, avail - selQty);
+        const credit = isSelected ? calcItemRefund(b, selQty) : 0;
+        return {
+          ...b,
+          sold,
+          refunded,
+          avail,
+          isSelected,
+          selQty,
+          keptQty,
+          restock: Boolean(entry.restock),
+          credit,
+        };
+      }),
+    [billItems, selectedMap]
+  );
+
+  const selectedLines = useMemo(
+    () => annotatedBillItems.filter(b => b.isSelected && b.selQty > 0),
+    [annotatedBillItems]
+  );
+
+  const totalSelectedQty = useMemo(
+    () => selectedLines.reduce((sum, b) => sum + b.selQty, 0),
+    [selectedLines]
+  );
+
+  const keptItemsCount = useMemo(
+    () => annotatedBillItems.filter(b => b.keptQty > 0).length,
+    [annotatedBillItems]
+  );
+
+  const keptUnitsCount = useMemo(
+    () => annotatedBillItems.reduce((sum, b) => sum + b.keptQty, 0),
+    [annotatedBillItems]
+  );
+
+  const returnCredit = useMemo(
+    () => selectedLines.reduce((sum, b) => sum + b.credit, 0),
+    [selectedLines]
+  );
 
   const products = useMemo(
     () =>
@@ -95,19 +234,14 @@ export function ExchangeModal({
     return { ...r, product, qty: q, subtotal, total };
   });
 
-  const sold = Number(item.qty);
-  const refunded = Number(item.refunded_qty);
-  const share = n => Math.floor((Number(item.total) * n) / sold);
-  const returnCredit = share(refunded + qty) - share(refunded);
-  const newSubtotal = priced.reduce((sum, r) => sum + r.subtotal, 0);
-  const newTotal = priced.reduce((sum, r) => sum + r.total, 0);
+  const newSubtotal = isExchange ? priced.reduce((sum, r) => sum + r.subtotal, 0) : 0;
+  const newTotal = isExchange ? priced.reduce((sum, r) => sum + r.total, 0) : 0;
   const newTax = newTotal - newSubtotal;
-  const difference = newTotal - returnCredit;
-  const collect = difference > 0;
+  const difference = isExchange ? newTotal - returnCredit : -returnCredit;
+  const collect = isExchange && difference > 0;
   const refund = difference < 0;
 
   const split = payMethod === SPLIT;
-  const activeMethods = split ? tenders : [payMethod];
 
   const entered = useMemo(() => {
     if (!collect) return 0;
@@ -166,12 +300,17 @@ export function ExchangeModal({
   };
 
   const validate = () => {
+    if (!selectedLines.length) {
+      return `Select at least one item from bill ${ref('INV', invoice.id)} to ${isExchange ? 'exchange' : 'return'}.`;
+    }
     if (!refundMethod) return 'Choose the original payment method.';
-    if (!condition.trim()) return 'Describe the condition of the returned item.';
-    if (!reason.trim()) return 'Enter the reason for the exchange.';
-    if (priced.some(r => !r.product)) return 'Choose a replacement product for every item line.';
-    if (priced.some(r => r.product.serialized && !r.unit_id)) {
-      return 'Choose a device serial / IMEI for each serialized product.';
+    if (!condition.trim()) return 'Describe the condition of the returned item(s).';
+    if (!reason.trim()) return `Enter the reason for the ${isExchange ? 'exchange' : 'return'}.`;
+    if (isExchange) {
+      if (priced.some(r => !r.product)) return 'Choose a replacement product for every item line.';
+      if (priced.some(r => r.product.serialized && !r.unit_id)) {
+        return 'Choose a device serial / IMEI for each serialized replacement product.';
+      }
     }
     if (processNow && collect) {
       if (split || payMethod === 'Cash') {
@@ -201,26 +340,38 @@ export function ExchangeModal({
     }
     setBusy(true);
     setError('');
-    const [first, ...extra] = priced;
+    const [primaryReturn, ...extraReturnItems] = selectedLines;
+    const [firstRep, ...extraRep] = priced;
+
     let created;
     try {
-      created = await ctx.mutate('return.request', {
+      const payload = {
         branch: invoice.branch_id,
-        item_id: item.id,
-        qty,
+        item_id: primaryReturn.id,
+        qty: primaryReturn.selQty,
         method: refundMethod,
         condition_note: condition.trim(),
         reason: reason.trim(),
-        restock: item.unit_id ? undefined : restock,
-        replacement_product_id: first.product_id,
-        replacement_qty: first.qty,
-        replacement_unit_id: first.product.serialized ? first.unit_id : undefined,
-        addons: extra.map(r => ({
+        restock: primaryReturn.unit_id ? undefined : primaryReturn.restock,
+        extra_returns: extraReturnItems.map(er => ({
+          item_id: er.id,
+          qty: er.selQty,
+          restock: er.unit_id ? undefined : er.restock,
+        })),
+      };
+
+      if (isExchange) {
+        payload.replacement_product_id = firstRep.product_id;
+        payload.replacement_qty = firstRep.qty;
+        payload.replacement_unit_id = firstRep.product.serialized ? firstRep.unit_id : undefined;
+        payload.addons = extraRep.map(r => ({
           product_id: r.product_id,
           qty: r.qty,
           unit_id: r.product.serialized ? r.unit_id : undefined,
-        })),
-      });
+        }));
+      }
+
+      created = await ctx.mutate('return.request', payload);
     } catch (failure) {
       setError(failure.message);
       setBusy(false);
@@ -229,7 +380,7 @@ export function ExchangeModal({
 
     if (!processNow) {
       setBusy(false);
-      onDone({ id: created.id, processed: false });
+      onDone({ id: created.id, processed: false, mode });
       return;
     }
 
@@ -238,23 +389,23 @@ export function ExchangeModal({
         branch: invoice.branch_id,
         id: created.id,
         decision: 'Completed',
-        payments: buildPayments(),
+        payments: isExchange ? buildPayments() : undefined,
         reference: refund && refundMethod !== 'Cash' ? refundRef.trim() : undefined,
       });
-      onDone({ id: created.id, processed: true, result, difference });
+      onDone({ id: created.id, processed: true, result, difference, mode });
     } catch (failure) {
       setBusy(false);
       setError(
         `Request ${ref('RET', created.id)} was saved but could not be completed: ${failure.message}. Process it from Return History.`
       );
-      onDone({ id: created.id, processed: false, failed: true });
+      onDone({ id: created.id, processed: false, failed: true, mode });
     }
   };
 
   return (
     <Modal
-      title="New Exchange Request"
-      description={`${ref('INV', invoice.id)} · ${invoice.customer || 'Walk-in Customer'} · ${invoice.branch || ''}`}
+      title={isExchange ? 'Bill Item Exchange Request' : 'Bill Item Return & Refund'}
+      description={`${ref('INV', invoice.id)} · ${invoice.customer || 'Walk-in Customer'} · ${invoice.branch || ''} · Select specific item(s) from this bill`}
       onClose={onClose}
       xl
       busy={busy}
@@ -263,57 +414,228 @@ export function ExchangeModal({
         <div className="modal-body xm-body">
           <Alert>{error}</Alert>
 
-          {/* TOP SUMMARY STRIP: RETURNING ITEM */}
+          {/* MODE SWITCHER + BILL ITEM SUMMARY BANNER */}
           <div className="xm-top-banner">
             <div className="xm-top-item">
               <span className="xm-top-icon">
-                <Undo2 size={18} />
+                {isExchange ? <ArrowLeftRight size={18} /> : <Undo2 size={18} />}
               </span>
               <div className="xm-top-meta">
-                <small>Returning from {ref('INV', invoice.id)}</small>
-                <strong>{item.name}</strong>
+                <small>
+                  Original Bill {ref('INV', invoice.id)} · {billItems.length} Bill Item(s) · Bill Total {money(invoice.total)}
+                </small>
+                <strong>
+                  {selectedLines.length === 0
+                    ? 'No bill items selected yet'
+                    : selectedLines.length === 1
+                      ? `${selectedLines[0].name} (${selectedLines[0].selQty} of ${selectedLines[0].avail} qty)`
+                      : `${selectedLines.length} Bill Items Selected (${totalSelectedQty} units)`}
+                </strong>
                 <span>
-                  {item.imei || item.code
-                    ? `IMEI / Serial: ${item.imei || item.code}`
-                    : `Sold: ${item.qty} · Already returned: ${item.refunded_qty} · Available to return: ${remaining}`}
+                  {keptUnitsCount > 0
+                    ? `Partial Bill ${isExchange ? 'Exchange' : 'Return'}: ${keptUnitsCount} unit(s) across ${keptItemsCount} item(s) stay on the bill (not ${isExchange ? 'exchanged' : 'returned'})`
+                    : 'All remaining units on this bill are selected'}
                 </span>
               </div>
             </div>
-            <div className="xm-top-credit">
-              <small>Return Credit ({qty} qty)</small>
-              <strong>{money(returnCredit)}</strong>
+
+            <div className="xm-top-right">
+              <div className="xm-type-tabs" role="tablist" aria-label="Action type">
+                <button
+                  type="button"
+                  className={'xm-type-tab' + (isExchange ? ' active' : '')}
+                  onClick={() => setMode('exchange')}
+                >
+                  <Repeat2 size={14} />
+                  <span>Exchange Item(s)</span>
+                </button>
+                <button
+                  type="button"
+                  className={'xm-type-tab' + (!isExchange ? ' active' : '')}
+                  onClick={() => setMode('return')}
+                >
+                  <RotateCcw size={14} />
+                  <span>Return Only (Refund)</span>
+                </button>
+              </div>
+              <div className="xm-top-credit">
+                <small>Selected Item Credit ({totalSelectedQty} qty)</small>
+                <strong>{money(returnCredit)}</strong>
+              </div>
             </div>
           </div>
 
           {/* 2-COLUMN WORKSPACE */}
           <div className="xm-workspace">
-            {/* LEFT COLUMN: RETURN DETAILS + REPLACEMENT ITEMS */}
+            {/* LEFT COLUMN: BILL ITEMS SELECTION + REPLACEMENT ITEMS */}
             <div className="xm-col">
-              {/* STEP 1: RETURN ITEM DETAILS */}
+              {/* STEP 1: ALL ITEMS ON THE BILL — SELECT WHICH ITEM(S) TO EXCHANGE/RETURN */}
               <section className="xm-panel">
                 <header className="xm-panel-head">
                   <div className="xm-panel-title">
                     <FileText size={16} />
-                    <span>1. Return Item Details</span>
+                    <span>
+                      1. Items on Bill {ref('INV', invoice.id)} — Select Item(s) to{' '}
+                      {isExchange ? 'Exchange' : 'Return'}
+                    </span>
                   </div>
-                  <Badge tone="amber">Max {remaining} qty</Badge>
+                  <div className="xm-panel-badges">
+                    <Badge tone="teal">
+                      {selectedLines.length} Selected
+                    </Badge>
+                    <Badge tone="slate">
+                      {keptUnitsCount} Kept on Bill
+                    </Badge>
+                  </div>
                 </header>
 
+                <div className="xm-bill-hint">
+                  <span>
+                    Check only the specific item(s) and quantity the customer is bringing back. Unchecked items remain on the bill.
+                  </span>
+                  {selectedLines.length > 1 && (
+                    <button
+                      type="button"
+                      className="xm-reset-single"
+                      onClick={() => selectSingleItemOnly(defaultSelectedId)}
+                    >
+                      Select only {item?.name || '1 item'}
+                    </button>
+                  )}
+                </div>
+
+                {/* BILL ITEMS LIST */}
+                <div className="xm-bill-list">
+                  {annotatedBillItems.map((b, idx) => {
+                    const disabled = b.avail <= 0;
+                    return (
+                      <div
+                        key={b.id}
+                        className={
+                          'xm-bill-card' +
+                          (b.isSelected ? ' selected' : '') +
+                          (disabled ? ' exhausted' : '')
+                        }
+                      >
+                        <div className="xm-bill-row-main">
+                          <label className="xm-bill-check">
+                            <input
+                              type="checkbox"
+                              checked={b.isSelected}
+                              disabled={disabled}
+                              onChange={ev => toggleBillItem(b, ev.target.checked)}
+                            />
+                            <span className="xm-bill-idx">#{idx + 1}</span>
+                          </label>
+
+                          <div
+                            className="xm-bill-info"
+                            onClick={() => !disabled && toggleBillItem(b, !b.isSelected)}
+                          >
+                            <div className="xm-bill-name-row">
+                              <strong>{b.name}</strong>
+                              {b.isSelected ? (
+                                <Badge tone="teal">
+                                  {isExchange ? 'Exchanging' : 'Returning'} {b.selQty} of {b.avail}
+                                </Badge>
+                              ) : disabled ? (
+                                <Badge tone="red">Already Returned</Badge>
+                              ) : (
+                                <Badge tone="slate">Kept on Bill</Badge>
+                              )}
+                              {b.isSelected && b.keptQty > 0 && (
+                                <Badge tone="amber">{b.keptQty} Kept on Bill</Badge>
+                              )}
+                            </div>
+                            <div className="xm-bill-submeta">
+                              <span>Unit: {money(b.price)}</span>
+                              <span>·</span>
+                              <span>Sold: {b.sold}</span>
+                              {b.refunded > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <span>Returned: {b.refunded}</span>
+                                </>
+                              )}
+                              <span>·</span>
+                              <span>Available: {b.avail}</span>
+                              {(b.imei || b.code) && (
+                                <>
+                                  <span>·</span>
+                                  <span className="xm-imei-tag">
+                                    IMEI/SN: {b.imei || b.code}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="xm-bill-price-col">
+                            <small>Bill Line Total</small>
+                            <strong>{money(b.total)}</strong>
+                          </div>
+                        </div>
+
+                        {/* EXPANDED CONTROLS WHEN THIS BILL ITEM IS SELECTED */}
+                        {b.isSelected && (
+                          <div className="xm-bill-controls">
+                            <div className="xm-rep-qty">
+                              <span className="xm-sub-label">
+                                {isExchange ? 'Qty to Exchange:' : 'Qty to Return:'}
+                              </span>
+                              <div className="xm-stepper">
+                                <button
+                                  type="button"
+                                  disabled={b.selQty <= 1}
+                                  onClick={() => setBillItemQty(b, b.selQty - 1)}
+                                >
+                                  <Minus size={13} />
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={b.avail}
+                                  value={b.selQty}
+                                  aria-label={`Quantity to return for ${b.name}`}
+                                  onChange={ev => setBillItemQty(b, ev.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={b.selQty >= b.avail}
+                                  onClick={() => setBillItemQty(b, b.selQty + 1)}
+                                >
+                                  <Plus size={13} />
+                                </button>
+                              </div>
+                              <small className="muted">of {b.avail} available</small>
+                            </div>
+
+                            {!b.unit_id && (
+                              <label className="xm-inline-restock">
+                                <input
+                                  type="checkbox"
+                                  checked={b.restock}
+                                  onChange={ev => setBillItemRestock(b, ev.target.checked)}
+                                />
+                                <span>Sellable — restock</span>
+                              </label>
+                            )}
+
+                            <div className="xm-bill-line-credit">
+                              <small>Item Return Credit</small>
+                              <strong>− {money(b.credit)}</strong>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* CONDITION, REASON & REFUND TENDER */}
                 <div className="xm-grid-2">
                   <label className="xm-field">
-                    <span>Quantity to Return</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={remaining}
-                      value={qty}
-                      onChange={ev =>
-                        setQty(Math.min(remaining, Math.max(1, Number(ev.target.value) || 1)))
-                      }
-                    />
-                  </label>
-                  <label className="xm-field">
-                    <span>Item Condition</span>
+                    <span>Returned Item Condition *</span>
                     <input
                       value={condition}
                       maxLength={100}
@@ -321,17 +643,16 @@ export function ExchangeModal({
                       onChange={ev => setCondition(ev.target.value)}
                     />
                   </label>
+                  <label className="xm-field">
+                    <span>Reason for {isExchange ? 'Exchange' : 'Return'} *</span>
+                    <input
+                      value={reason}
+                      maxLength={500}
+                      placeholder={`Why is the customer ${isExchange ? 'exchanging' : 'returning'} the selected item(s)?`}
+                      onChange={ev => setReason(ev.target.value)}
+                    />
+                  </label>
                 </div>
-
-                <label className="xm-field">
-                  <span>Reason for Exchange</span>
-                  <input
-                    value={reason}
-                    maxLength={500}
-                    placeholder="Why is the customer exchanging this item?"
-                    onChange={ev => setReason(ev.target.value)}
-                  />
-                </label>
 
                 <div className="xm-return-footer">
                   <div className="xm-field">
@@ -353,141 +674,167 @@ export function ExchangeModal({
                       })}
                     </div>
                   </div>
-
-                  {!item.unit_id && (
-                    <label className="xm-restock-toggle">
-                      <input
-                        type="checkbox"
-                        checked={restock}
-                        onChange={ev => setRestock(ev.target.checked)}
-                      />
-                      <span>Sellable item — return to branch stock</span>
-                    </label>
-                  )}
                 </div>
               </section>
 
-              {/* STEP 2: REPLACEMENT ITEMS */}
-              <section className="xm-panel">
-                <header className="xm-panel-head">
-                  <div className="xm-panel-title">
-                    <Repeat2 size={16} />
-                    <span>2. Replacement Items ({rows.length})</span>
-                  </div>
-                  <Button
-                    type="button"
-                    icon={Plus}
-                    variant="soft"
-                    disabled={rows.length >= 100}
-                    onClick={() => setRows(list => [...list, newRow()])}
-                  >
-                    Add Item
-                  </Button>
-                </header>
+              {/* STEP 2: REPLACEMENT ITEMS (SHOWN IN EXCHANGE MODE) */}
+              {isExchange ? (
+                <section className="xm-panel">
+                  <header className="xm-panel-head">
+                    <div className="xm-panel-title">
+                      <Repeat2 size={16} />
+                      <span>2. Replacement Items ({rows.length})</span>
+                    </div>
+                    <Button
+                      type="button"
+                      icon={Plus}
+                      variant="soft"
+                      disabled={rows.length >= 100}
+                      onClick={() => setRows(list => [...list, newRow()])}
+                    >
+                      Add Replacement Item
+                    </Button>
+                  </header>
 
-                <div className="xm-rep-list">
-                  {priced.map((r, index) => {
-                    const availUnits = r.product?.serialized
-                      ? unitsFor(r.product.id).filter(
-                          u => !rows.some(x => x.key !== r.key && String(x.unit_id) === String(u.id))
-                        )
-                      : [];
-                    return (
-                      <div className="xm-rep-card" key={r.key}>
-                        <div className="xm-rep-top">
-                          <span className="xm-rep-index">#{index + 1}</span>
-                          <div className="xm-rep-picker">
-                            <SearchSelect
-                              value={r.product_id}
-                              aria-label={`Replacement product ${index + 1}`}
-                              blank={
-                                index
-                                  ? `Extra item ${index} — type product name or SKU…`
-                                  : 'Replacement product — type product name or SKU…'
-                              }
-                              options={products.map(p => [
-                                p.id,
-                                `${p.name} (${p.sku}) · ${money(p.price)}`,
-                              ])}
-                              onChange={ev =>
-                                patchRow(r.key, { product_id: ev.target.value, unit_id: '', qty: 1 })
-                              }
-                            />
+                  <div className="xm-rep-list">
+                    {priced.map((r, index) => {
+                      const availUnits = r.product?.serialized
+                        ? unitsFor(r.product.id).filter(
+                            u =>
+                              !rows.some(
+                                x => x.key !== r.key && String(x.unit_id) === String(u.id)
+                              )
+                          )
+                        : [];
+                      return (
+                        <div className="xm-rep-card" key={r.key}>
+                          <div className="xm-rep-top">
+                            <span className="xm-rep-index">#{index + 1}</span>
+                            <div className="xm-rep-picker">
+                              <SearchSelect
+                                value={r.product_id}
+                                aria-label={`Replacement product ${index + 1}`}
+                                blank={
+                                  index
+                                    ? `Extra item ${index} — type product name or SKU…`
+                                    : 'Replacement product — type product name or SKU…'
+                                }
+                                options={products.map(p => [
+                                  p.id,
+                                  `${p.name} (${p.sku}) · ${money(p.price)}`,
+                                ])}
+                                onChange={ev =>
+                                  patchRow(r.key, {
+                                    product_id: ev.target.value,
+                                    unit_id: '',
+                                    qty: 1,
+                                  })
+                                }
+                              />
+                            </div>
+                            {rows.length > 1 && (
+                              <button
+                                type="button"
+                                className="xm-remove-btn"
+                                aria-label="Remove item"
+                                title="Remove item"
+                                onClick={() =>
+                                  setRows(list => list.filter(x => x.key !== r.key))
+                                }
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
                           </div>
-                          {rows.length > 1 && (
-                            <button
-                              type="button"
-                              className="xm-remove-btn"
-                              aria-label="Remove item"
-                              title="Remove item"
-                              onClick={() => setRows(list => list.filter(x => x.key !== r.key))}
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          )}
-                        </div>
 
-                        {r.product && (
-                          <div className="xm-rep-sub">
-                            {r.product.serialized ? (
-                              <div className="xm-rep-unit">
-                                <span className="xm-sub-label">Device IMEI / Serial:</span>
-                                <SearchSelect
-                                  value={r.unit_id}
-                                  aria-label="Device"
-                                  blank="Choose available device unit…"
-                                  options={availUnits.map(u => [
-                                    u.id,
-                                    u.code + (u.imei ? ` · ${u.imei}` : ''),
-                                  ])}
-                                  onChange={ev => patchRow(r.key, { unit_id: ev.target.value })}
-                                />
-                              </div>
-                            ) : (
-                              <div className="xm-rep-qty">
-                                <span className="xm-sub-label">Quantity:</span>
-                                <div className="xm-stepper">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      patchRow(r.key, { qty: Math.max(1, Number(r.qty || 1) - 1) })
-                                    }
-                                  >
-                                    <Minus size={13} />
-                                  </button>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={r.qty}
+                          {r.product && (
+                            <div className="xm-rep-sub">
+                              {r.product.serialized ? (
+                                <div className="xm-rep-unit">
+                                  <span className="xm-sub-label">Device IMEI / Serial:</span>
+                                  <SearchSelect
+                                    value={r.unit_id}
+                                    aria-label="Device"
+                                    blank="Choose available device unit…"
+                                    options={availUnits.map(u => [
+                                      u.id,
+                                      u.code + (u.imei ? ` · ${u.imei}` : ''),
+                                    ])}
                                     onChange={ev =>
-                                      patchRow(r.key, {
-                                        qty: Math.max(1, Number(ev.target.value) || 1),
-                                      })
+                                      patchRow(r.key, { unit_id: ev.target.value })
                                     }
                                   />
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      patchRow(r.key, { qty: Number(r.qty || 1) + 1 })
-                                    }
-                                  >
-                                    <Plus size={13} />
-                                  </button>
                                 </div>
-                                <small className="muted">× {money(r.product.price)}</small>
+                              ) : (
+                                <div className="xm-rep-qty">
+                                  <span className="xm-sub-label">Quantity:</span>
+                                  <div className="xm-stepper">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        patchRow(r.key, {
+                                          qty: Math.max(1, Number(r.qty || 1) - 1),
+                                        })
+                                      }
+                                    >
+                                      <Minus size={13} />
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={r.qty}
+                                      onChange={ev =>
+                                        patchRow(r.key, {
+                                          qty: Math.max(1, Number(ev.target.value) || 1),
+                                        })
+                                      }
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        patchRow(r.key, { qty: Number(r.qty || 1) + 1 })
+                                      }
+                                    >
+                                      <Plus size={13} />
+                                    </button>
+                                  </div>
+                                  <small className="muted">× {money(r.product.price)}</small>
+                                </div>
+                              )}
+                              <div className="xm-rep-line-total">
+                                <small>Line Total</small>
+                                <strong>{money(r.total)}</strong>
                               </div>
-                            )}
-                            <div className="xm-rep-line-total">
-                              <small>Line Total</small>
-                              <strong>{money(r.total)}</strong>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : (
+                <section className="xm-panel xm-return-only-card">
+                  <div className="xm-return-only-body">
+                    <PackageCheck size={20} />
+                    <div>
+                      <strong>Item Return Only (No Replacement Item)</strong>
+                      <p>
+                        Only the selected bill item(s) ({totalSelectedQty} qty) will be returned
+                        and refunded ({money(returnCredit)}). The remaining {keptUnitsCount}{' '}
+                        unit(s) stay on bill {ref('INV', invoice.id)}.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="soft"
+                      icon={Repeat2}
+                      onClick={() => setMode('exchange')}
+                    >
+                      Switch to Exchange
+                    </Button>
+                  </div>
+                </section>
+              )}
             </div>
 
             {/* RIGHT COLUMN: SETTLEMENT & ALL PAYMENT / SPLIT OPTIONS */}
@@ -496,57 +843,86 @@ export function ExchangeModal({
                 <header className="xm-panel-head">
                   <div className="xm-panel-title">
                     <Coins size={16} />
-                    <span>3. Settlement &amp; Payment Options</span>
+                    <span>
+                      {isExchange
+                        ? '3. Exchange Settlement & Payment Options'
+                        : '2. Return Refund Settlement'}
+                    </span>
                   </div>
                   <Badge tone={collect ? 'amber' : refund ? 'red' : 'green'}>
-                    {collect ? 'Collect Balance' : refund ? 'Issue Refund' : 'Even Exchange'}
+                    {isExchange
+                      ? collect
+                        ? 'Collect Balance'
+                        : refund
+                          ? 'Issue Refund'
+                          : 'Even Exchange'
+                      : `Refund via ${refundMethod}`}
                   </Badge>
                 </header>
 
                 {/* CALCULATION BREAKDOWN */}
                 <div className="xm-calc-box">
                   <div className="xm-calc-row">
-                    <span>Returned Item Credit ({qty} qty)</span>
-                    <strong className="text-green">− {money(returnCredit)}</strong>
+                    <span>Original Bill Total ({billItems.length} items)</span>
+                    <strong>{money(invoice.total)}</strong>
                   </div>
                   <div className="xm-calc-row">
-                    <span>Replacement Items Subtotal</span>
-                    <strong>{money(newSubtotal)}</strong>
+                    <span>Items Kept on Bill (Not {isExchange ? 'Exchanged' : 'Returned'})</span>
+                    <strong>{keptUnitsCount} unit(s)</strong>
                   </div>
-                  {taxBps > 0 && (
-                    <div className="xm-calc-row">
-                      <span>Tax ({(taxBps / 100).toFixed(taxBps % 100 === 0 ? 0 : 2)}%)</span>
-                      <strong>+ {money(newTax)}</strong>
-                    </div>
+                  <div className="xm-calc-row">
+                    <span>
+                      Selected Return Item(s) Credit ({selectedLines.length} item
+                      {selectedLines.length === 1 ? '' : 's'} · {totalSelectedQty} qty)
+                    </span>
+                    <strong className="text-green">− {money(returnCredit)}</strong>
+                  </div>
+                  {isExchange && (
+                    <>
+                      <div className="xm-calc-row">
+                        <span>Replacement Items Subtotal</span>
+                        <strong>{money(newSubtotal)}</strong>
+                      </div>
+                      {taxBps > 0 && (
+                        <div className="xm-calc-row">
+                          <span>Tax ({(taxBps / 100).toFixed(taxBps % 100 === 0 ? 0 : 2)}%)</span>
+                          <strong>+ {money(newTax)}</strong>
+                        </div>
+                      )}
+                      <div className="xm-calc-row total-line">
+                        <span>Replacement Items Total</span>
+                        <strong>{money(newTotal)}</strong>
+                      </div>
+                    </>
                   )}
-                  <div className="xm-calc-row total-line">
-                    <span>Replacement Items Total</span>
-                    <strong>{money(newTotal)}</strong>
-                  </div>
                 </div>
 
-                {/* HIGHLIGHT DIFFERENCE BANNER */}
+                {/* HIGHLIGHT DIFFERENCE / REFUND BANNER */}
                 <div className={'xm-net-banner' + (collect ? ' due' : refund ? ' back' : ' even')}>
                   <div>
                     <small>
-                      {collect
-                        ? 'Net Difference — Customer Pays'
-                        : refund
-                          ? `Net Difference — Refund via ${refundMethod}`
-                          : 'Net Difference'}
+                      {!isExchange
+                        ? `Total Refund for Selected Item(s) via ${refundMethod}`
+                        : collect
+                          ? 'Net Difference — Customer Pays'
+                          : refund
+                            ? `Net Difference — Refund via ${refundMethod}`
+                            : 'Net Difference'}
                     </small>
                     <strong>
-                      {collect
-                        ? money(difference)
-                        : refund
-                          ? money(-difference)
-                          : 'Even Exchange · LKR 0.00'}
+                      {!isExchange
+                        ? money(returnCredit)
+                        : collect
+                          ? money(difference)
+                          : refund
+                            ? money(-difference)
+                            : 'Even Exchange · LKR 0.00'}
                     </strong>
                   </div>
                 </div>
 
                 {/* PROCESSING MODE TABS */}
-                <div className="xm-mode-switch" role="radiogroup" aria-label="Exchange processing mode">
+                <div className="xm-mode-switch" role="radiogroup" aria-label="Processing mode">
                   <button
                     type="button"
                     className={'xm-mode-btn' + (processNow ? ' active' : '')}
@@ -555,7 +931,11 @@ export function ExchangeModal({
                     <Zap size={15} />
                     <div>
                       <strong>Complete &amp; Print Bill Now</strong>
-                      <small>Settle payment &amp; issue replacement invoice</small>
+                      <small>
+                        {isExchange
+                          ? 'Settle payment & issue replacement bill'
+                          : 'Process refund & print return bill immediately'}
+                      </small>
                     </div>
                   </button>
                   <button
@@ -770,15 +1150,22 @@ export function ExchangeModal({
           <Button type="button" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" icon={Repeat2} disabled={busy}>
+          <Button
+            type="submit"
+            variant="primary"
+            icon={isExchange ? Repeat2 : RotateCcw}
+            disabled={busy || !selectedLines.length}
+          >
             {busy
               ? 'Processing…'
               : processNow
-                ? collect
-                  ? `Complete & Collect ${money(difference)}`
-                  : refund
-                    ? `Complete & Refund ${money(-difference)}`
-                    : 'Complete Even Exchange'
+                ? !isExchange
+                  ? `Complete Return & Refund ${money(returnCredit)}`
+                  : collect
+                    ? `Complete & Collect ${money(difference)}`
+                    : refund
+                      ? `Complete & Refund ${money(-difference)}`
+                      : 'Complete Even Exchange'
                 : 'Submit Pending Request'}
           </Button>
         </div>

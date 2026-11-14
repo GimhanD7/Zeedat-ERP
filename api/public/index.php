@@ -407,11 +407,11 @@ try {
                 return DashboardController::getDashboard($branch, $_GET);
             })(),
         'products' => (function () use ($user, $branch) {
-                RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
+                RoleGuard::allowAnyPermission($user, 'inventory', 'pos', 'returns');
                 return InventoryController::getProducts($branch, $user);
             })(),
         'units' => (function () use ($user, $branch) {
-                RoleGuard::allowAnyPermission($user, 'inventory', 'pos');
+                RoleGuard::allowAnyPermission($user, 'inventory', 'pos', 'returns');
                 return InventoryController::getUnits($branch);
             })(),
         'stock.movements' => (function () use ($user, $branch) {
@@ -494,11 +494,11 @@ try {
                 return SaleController::getDrafts($branch, $user);
             })(),
         'sales' => (function () use ($user, $branch) {
-                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos');
+                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'returns');
                 return SaleController::getSales($branch);
             })(),
         'invoice' => (function () use ($user, $branch) {
-                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'reports');
+                RoleGuard::allowAnyPermission($user, 'sales', 'customers', 'pos', 'reports', 'returns');
                 return SaleController::getInvoice($branch, $_GET);
             })(),
         'drawer' => (function () use ($user, $branch) {
@@ -556,7 +556,7 @@ try {
                 return AdminController::getPermissions();
             })(),
         'settings' => (function () use ($user) {
-                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs', 'inventory', 'drawer');
+                RoleGuard::allowAnyPermission($user, 'settings', 'pos', 'customers', 'repairs', 'inventory', 'drawer', 'returns');
                 $settings = AdminController::getSettings();
                 if (!\Zeedat\Repositories\PermissionRepository::userHasPermission((int) $user['id'], $user['role'], 'settings')) {
                     unset($settings['cloud_api_key'], $settings['sms_api_key']);

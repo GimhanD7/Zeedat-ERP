@@ -769,8 +769,25 @@ class AutoMigrator
         try {
             if ($driver === 'sqlite') {
                 $db->exec("INSERT OR IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'repairs')");
+                $db->exec("CREATE TABLE IF NOT EXISTS return_extra_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    return_id INTEGER NOT NULL,
+                    sale_item_id INTEGER NOT NULL,
+                    qty INTEGER NOT NULL DEFAULT 1,
+                    restock INTEGER NOT NULL DEFAULT 0,
+                    amount INTEGER NOT NULL DEFAULT 0
+                )");
             } else {
                 $db->exec("INSERT IGNORE INTO role_permissions (role, permission) VALUES ('cashier', 'repairs')");
+                $db->exec("CREATE TABLE IF NOT EXISTS return_extra_items (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    return_id INT NOT NULL,
+                    sale_item_id INT NOT NULL,
+                    qty INT NOT NULL DEFAULT 1,
+                    restock TINYINT(1) NOT NULL DEFAULT 0,
+                    amount BIGINT NOT NULL DEFAULT 0,
+                    INDEX(return_id)
+                ) ENGINE=InnoDB");
             }
         } catch (Throwable) {
         }
