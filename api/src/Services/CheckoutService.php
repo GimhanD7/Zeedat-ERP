@@ -22,7 +22,7 @@ class CheckoutService {
         }
 
         $customerRow = !empty($body['customer_id'])
-            ? BaseRepository::one('SELECT id, name, phone, COALESCE(wallet_balance, 0) AS wallet_balance, COALESCE(loyalty_points, 0) AS loyalty_points FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$body['customer_id'], $branch])
+            ? BaseRepository::one('SELECT id, name, phone, COALESCE(wallet_balance, 0) AS wallet_balance, COALESCE(loyalty_points, 0) AS loyalty_points FROM customers WHERE id=? AND deleted_at IS NULL FOR UPDATE', [$body['customer_id']])
             : null;
         $customer = $customerRow ? (int) $customerRow['id'] : null;
 

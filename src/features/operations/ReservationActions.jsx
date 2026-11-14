@@ -6,11 +6,16 @@ export const reservationPaymentMethods = [...tenders, 'Wallet'];
 const balance = reservation => Math.max(0, Number(reservation.total) - Number(reservation.paid));
 
 export function reservationStock(products, units, branch) {
-  const quantity = product => Number(
-    product.branch_stocks?.find(stock => Number(stock.branch_id) === branch)?.available_qty ?? product.qty
-  );
+  const bId = Number(branch || 0);
+  const quantity = product => {
+    if (bId > 0 && Array.isArray(product.branch_stocks)) {
+      const hit = product.branch_stocks.find(stock => Number(stock.branch_id) === bId);
+      if (hit) return Number(hit.available_qty ?? hit.qty ?? 0);
+    }
+    return Number(product.qty ?? 0);
+  };
   const availableUnits = product => units.filter(unit =>
-    Number(unit.branch_id) === branch && Number(unit.product_id) === Number(product.id) &&
+    (bId <= 0 || Number(unit.branch_id) === bId) && Number(unit.product_id) === Number(product.id) &&
     unit.state === 'Available' && !Number(unit.reserved)
   );
   const available = products.filter(product =>

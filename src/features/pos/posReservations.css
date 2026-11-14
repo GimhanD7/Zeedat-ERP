@@ -4,10 +4,112 @@
   gap: 14px;
 }
 
+.pos-reservations {
+  min-height: 360px;
+}
+
 .pos-reservation-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.pos-rsv-customer-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.pos-rsv-customer-select-col {
+  flex: 1;
+  min-width: 260px;
+}
+
+.pos-rsv-customer-btn-col {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pos-rsv-new-cust-card,
+.pos-rsv-form-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+}
+
+.pos-rsv-new-cust-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pos-rsv-form-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+
+.pos-rsv-selected-item-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.pos-rsv-selected-item-banner small {
+  display: block;
+  margin-top: 3px;
+  color: #065f46;
+  font-size: 12px;
+}
+
+.pos-rsv-hint-banner {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12.5px;
+}
+
+.pos-rsv-pay-box {
+  display: grid;
+  gap: 8px;
+}
+
+.pos-rsv-preset-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pos-rsv-preset-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.pos-rsv-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .pos-reservations fieldset {
@@ -91,7 +193,12 @@
   border-radius: 10px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
+  cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.pos-rsv-kpi-card.selected {
+  box-shadow: 0 0 0 2px #0f766e;
 }
 
 .pos-rsv-kpi-card:hover {
@@ -452,6 +559,10 @@
   }
   .pos-rsv-action-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pos-rsv-new-cust-grid,
+  .pos-rsv-form-grid {
+    grid-template-columns: 1fr;
   }
 }
 

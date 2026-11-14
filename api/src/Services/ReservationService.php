@@ -116,14 +116,24 @@ final class ReservationService {
 
     public static function save(array $user, int $branch, array $body, string $action): array {
         RoleGuard::allow($user, 'owner', 'manager', 'cashier');
-        $out = BaseRepository::transaction(function () use ($user, $branch, $body, $action) {
-            $drawer = DrawerService::openDrawer($user, $branch);
+        $out = BaseRepository::transaction(function () use ($user, &$branch, $body, $action) {
             if ($action === 'reservation.create') {
+                if ($branch <= 0) {
+                    $branch = (int) ($body['branch'] ?? $user['branch_id'] ?? BaseRepository::scalar('SELECT id FROM branches ORDER BY id LIMIT 1') ?: 1);
+                }
+                $drawer = DrawerService::openDrawer($user, $branch);
                 $id = self::create($branch, $body);
+                $hold = BaseRepository::one("SELECT * FROM reservations WHERE id=? AND status='Held' FOR UPDATE", [$id]);
             } else {
                 $id = Validator::integer($body['id'] ?? null, 'Reservation');
+                $hold = $branch > 0 && $user['role'] === 'cashier'
+                    ? BaseRepository::one("SELECT * FROM reservations WHERE id=? AND branch_id=? AND status='Held' FOR UPDATE", [$id, $branch])
+                    : BaseRepository::one("SELECT * FROM reservations WHERE id=? AND status='Held' FOR UPDATE", [$id]);
+                if ($hold && (int) $hold['branch_id'] > 0) {
+                    $branch = (int) $hold['branch_id'];
+                }
+                $drawer = DrawerService::openDrawer($user, $branch);
             }
-            $hold = BaseRepository::one("SELECT * FROM reservations WHERE id=? AND branch_id=? AND status='Held' FOR UPDATE", [$id, $branch]);
             if (!$hold) {
                 throw new ApiError('This reservation is unavailable.', 409);
             }
@@ -189,6 +199,41 @@ final class ReservationService {
             BaseRepository::run('UPDATE reservations SET paid=paid+?, points_earned=points_earned+?, version=version+1, change_token=?, synced=0 WHERE id=?', [$amount, $points, $token, $id]);
             $newPaid = $paid + $amount;
             $balance = max(0, (int) $hold['total'] - $newPaid);
+
+            if (!empty($body['deliver_after_pay']) && $balance === 0) {
+                $hold['paid'] = $newPaid;
+                $hold['points_earned'] = (int) $hold['points_earned'] + $points;
+                $deliverToken = bin2hex(random_bytes(16));
+                BaseRepository::run("UPDATE reservations SET status='Delivered', version=version+1, change_token=?, synced=0 WHERE id=?", [$deliverToken, $id]);
+                $invoice = CheckoutService::checkout($user, $branch, [
+                    'customer_id' => $customer,
+                    'items' => [['product_id' => $hold['product_id'], 'unit_id' => $hold['unit_id'], 'qty' => $hold['qty']]],
+                    'expected_total' => $hold['total'],
+                    'notes' => 'Reservation ' . $reference,
+                ], $hold);
+                BaseRepository::run('UPDATE reservations SET sale_id=?, points_earned=? WHERE id=?', [$invoice['id'], $invoice['points_earned'], $id]);
+                $invoice['billTitle'] = 'Reservation Handover Invoice';
+                $invoice['reservation_id'] = $id;
+                $invoice['reservation_ref'] = $reference;
+                $invoice['reservation_paid'] = $newPaid;
+                $invoice['last_payment_amount'] = $amount;
+                $invoice['last_payment_method'] = $method;
+                $detail = self::findDetailed($id) ?: ['id' => $id, 'status' => 'Delivered'];
+                $detail['last_payment_amount'] = $amount;
+                $detail['last_payment_method'] = $method;
+                return [
+                    'id' => $id,
+                    'status' => 'Delivered',
+                    'paid' => $newPaid,
+                    'balance' => 0,
+                    'last_payment_amount' => $amount,
+                    'last_payment_method' => $method,
+                    'points_earned' => $points,
+                    'invoice' => $invoice,
+                    'reservation' => $detail,
+                ];
+            }
+
             $detail = self::findDetailed($id) ?: [
                 'id' => $id,
                 'status' => 'Held',
@@ -218,7 +263,7 @@ final class ReservationService {
         $settings = BaseRepository::one('SELECT * FROM settings WHERE id=1') ?? [];
         $refCode = Helpers::ref('RSV', (int) $out['id']);
 
-        if ($action === 'reservation.deliver') {
+        if ($action === 'reservation.deliver' || !empty($out['invoice'])) {
             $invNo = (string) ($out['invoice']['invoice_no'] ?? Helpers::ref('INV', (int) ($out['invoice']['id'] ?? 0)));
             $msg = SmsService::buildPaymentReceivedMessage([
                 'type' => 'reservation_handover',
@@ -248,8 +293,8 @@ final class ReservationService {
 
     private static function create(int $branch, array $body): int {
         $customer = Validator::integer($body['customer_id'] ?? null, 'Customer');
-        if (!BaseRepository::scalar('SELECT id FROM customers WHERE id=? AND branch_id=? AND deleted_at IS NULL FOR UPDATE', [$customer, $branch])) {
-            throw new ApiError('Customer not found in this branch.', 404);
+        if (!BaseRepository::scalar('SELECT id FROM customers WHERE id=? AND deleted_at IS NULL FOR UPDATE', [$customer])) {
+            throw new ApiError('Customer not found.', 404);
         }
         $product = BaseRepository::one('SELECT * FROM products WHERE id=? FOR UPDATE', [Validator::integer($body['product_id'] ?? null, 'Product')]);
         if (!$product || !(int) $product['active'] || $product['category'] === 'Services') {
