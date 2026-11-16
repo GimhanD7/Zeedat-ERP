@@ -398,7 +398,7 @@ export function ReportsPage({ ctx }) {
                 <Stats
                   items={[
                     { icon: Users, label: 'Active Staff', value: String(commSummary.length), note: 'All accounts tracked', tone: 'teal' },
-                    { icon: Award, label: 'Total Commission Earned', value: money(totalCommEarned), note: `${from} to ${to}`, tone: 'amber' },
+                    { icon: Award, label: 'Sales Commission Earned', value: money(totalCommEarned), note: `${from} to ${to}`, tone: 'amber' },
                     { icon: FileText, label: 'Commissioned Items', value: String(commItems.length), note: 'Individual sold lines', tone: 'mint' },
                     { icon: ShoppingBag, label: 'Attributed Sales', value: money(commSummary.reduce((a, r) => a + Number(r.sales_total || 0), 0)), note: 'By bill maker User ID', tone: 'violet' },
                   ]}
@@ -432,10 +432,25 @@ export function ReportsPage({ ctx }) {
                       ['Product', r => <div><strong>{r.product_name}</strong><div className="muted">{r.sku}</div></div>],
                       ['Qty', r => r.qty],
                       ['Total', r => money(r.total)],
-                      ['Rule', r => (r.commission_type === 'percent' ? `${(Number(r.commission_value || 0) / 100).toFixed(2)}%` : `${money(r.commission_value || 0)}/u`)],
+                      ['Current rule', r => r.commission_type === 'percent' ? `${(Number(r.commission_value || 0) / 100).toFixed(2)}%`
+                        : r.product_category === 'Accessories' && !Number(r.commission_value) ? 'Accessories default' : `${money(r.commission_value || 0)}/u`],
                       ['Commission', r => <strong className="text-green">{money(r.commission_amount || 0)}</strong>],
                     ]}
                   />
+                </Panel>
+                <Panel title="Repair Profit Commissions" icon={Wrench}>
+                  <Table rows={report.repair_commissions || []} empty="No finalized repair commissions in this period"
+                    columns={[
+                      ['Job', r => ref('RJ', r.id)],
+                      ['Earned', r => timeLabel(r.commission_earned_at)],
+                      ['Device', 'device'],
+                      ['Direct cost', r => money(r.repair_cost)],
+                      ['Profit', r => money(r.commission_profit)],
+                      ['Referral staff', r => r.referral_name || '—'],
+                      ['Referral commission', r => money(r.referral_commission)],
+                      ['Technician', r => r.technician_name || '—'],
+                      ['Technician commission', r => money(r.technician_commission)],
+                    ]} />
                 </Panel>
               </>
             )}

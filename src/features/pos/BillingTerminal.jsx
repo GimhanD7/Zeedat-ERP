@@ -398,11 +398,18 @@ function BillingView({ ctx, data, onRefresh }) {
   const tax = Math.floor(((retailSubtotal - discount) * settings.tax_bps + 5000) / 10000);
   const total = amountDue(subtotal, discount, tax);
   const reserved = new Set(cart.map(r => r.unit_id));
+  const accessoryRate = Number(settings.accessory_commission_bps ?? 250);
 
   const estimatedCommission = useMemo(() => {
     if (!lines.length) return 0;
+    const usesAccessoryDefault = product => product.category === 'Accessories'
+      && product.commission_type !== 'percent' && !Number(product.commission_value);
+    if (lines.some(({ product, repair_id }) => !repair_id && product.category !== 'Services' && product.cost == null
+      && ((product.commission_type === 'percent' && Number(product.commission_value) > 0)
+        || (usesAccessoryDefault(product) && accessoryRate > 0)))) return 0;
     let processed = 0;
     let allocated = 0;
+    let allocatedNet = 0;
     return lines.reduce((sum, r) => {
       if (r.repair_id) return sum;
       const extended = r.qty * r.product.price;
@@ -410,13 +417,20 @@ function BillingView({ ctx, data, onRefresh }) {
       const cumulative = retailSubtotal ? Math.floor((processed * (total - repairSubtotal)) / retailSubtotal) : 0;
       const lineTotal = cumulative - allocated;
       allocated = cumulative;
-      const cType = r.product.commission_type || 'fixed';
-      const cVal = Number(r.product.commission_value || 0);
+      const cumulativeNet = retailSubtotal ? Math.floor((processed * (retailSubtotal - discount)) / retailSubtotal) : 0;
+      const lineNet = cumulativeNet - allocatedNet;
+      allocatedNet = cumulativeNet;
+      const isDefault = usesAccessoryDefault(r.product);
+      const cType = isDefault ? 'percent' : (r.product.commission_type || 'fixed');
+      const cVal = isDefault ? accessoryRate : Number(r.product.commission_value || 0);
+      const commissionBase = r.product.category === 'Services'
+        ? lineTotal
+        : Math.max(0, lineNet - Number(r.product.cost ?? 0) * r.qty);
       const lineComm =
-        cType === 'percent' ? Math.floor((lineTotal * cVal + 5000) / 10000) : cVal * r.qty;
+        cType === 'percent' ? Math.floor((commissionBase * cVal + 5000) / 10000) : cVal * r.qty;
       return sum + lineComm;
     }, 0);
-  }, [lines, subtotal, total]);
+  }, [lines, retailSubtotal, repairSubtotal, discount, total, accessoryRate]);
 
   const clear = () => {
     setCart([]);

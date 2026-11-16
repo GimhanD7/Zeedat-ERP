@@ -70,6 +70,9 @@ export function SettingsPage({ ctx }) {
     shop_address: '',
     invoice_prefix: 'INV-',
     tax_pct: '0',
+    accessory_commission_pct: '2.5',
+    repair_referral_pct: '3',
+    repair_technician_pct: '50',
     paper_width: '80',
     bill_layout: {},
     receipt_footer: 'Thank you for your business! Please retain this receipt for warranty.',
@@ -119,6 +122,9 @@ export function SettingsPage({ ctx }) {
         shop_address: s.shop_address || '',
         invoice_prefix: s.invoice_prefix || 'INV-',
         tax_pct: String((s.tax_bps || 0) / 100),
+        accessory_commission_pct: String((s.accessory_commission_bps ?? 250) / 100),
+        repair_referral_pct: String((s.repair_referral_bps ?? 300) / 100),
+        repair_technician_pct: String((s.repair_technician_bps ?? 5000) / 100),
         paper_width: String(s.paper_width || '80'),
         bill_layout: billLayout(s),
         receipt_footer:
@@ -181,6 +187,9 @@ export function SettingsPage({ ctx }) {
         shop_address: form.shop_address,
         invoice_prefix: form.invoice_prefix,
         tax_bps: cents(form.tax_pct || 0),
+        accessory_commission_bps: cents(form.accessory_commission_pct),
+        repair_referral_bps: cents(form.repair_referral_pct),
+        repair_technician_bps: cents(form.repair_technician_pct),
         paper_width: form.paper_width,
         bill_layout: form.bill_layout,
         receipt_footer: form.receipt_footer,
@@ -597,6 +606,26 @@ export function SettingsPage({ ctx }) {
                     </div>
 
                     {/* SECTION 2: TAX & INVOICE NUMBERING */}
+                    <div className="zk-settings-card zk-bill-section-card">
+                      <div className="zk-card-header">
+                        <div className="zk-card-title"><Percent size={17} /> Profit commissions</div>
+                      </div>
+                      <div className="zk-form-row-2">
+                        {[
+                          ['accessory_commission_pct', 'Accessories default (%)'],
+                          ['repair_referral_pct', 'Repair referral staff (%)'],
+                          ['repair_technician_pct', 'Repair technician (%)'],
+                        ].map(([key, label]) => (
+                          <label className="zk-field-wrap" key={key}>
+                            <span className="zk-field-label">{label}</span>
+                            <div className="zk-input-box">
+                              <input type="number" min="0" max="100" step="0.01" required
+                                value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                     <div className="zk-settings-card zk-bill-section-card">
                       <div className="zk-card-header">
                         <div className="zk-card-title">

@@ -10,9 +10,30 @@ use Zeedat\Repositories\BaseRepository;
 use Zeedat\Repositories\DrawerRepository;
 use Zeedat\Repositories\UserRepository;
 use Zeedat\Support\ApiError;
+use Zeedat\Support\Helpers;
 use Zeedat\Support\Validator;
 
 class RepairService {
+    public static function earnCommission(int $id): void {
+        $job = BaseRepository::one(
+            "SELECT r.*, s.repair_referral_bps, s.repair_technician_bps FROM repairs r
+             JOIN settings s ON s.id=1 WHERE r.id=? AND r.status='Delivered'
+             AND r.commission_earned_at IS NULL AND r.repair_cost IS NOT NULL
+             AND r.paid_amount>=r.final_charge FOR UPDATE", [$id]
+        );
+        if (!$job) return;
+        $profit = max(0, (int) $job['final_charge'] - (int) $job['repair_cost']);
+        $referral = $job['referral_user_id'] ? Helpers::rate($profit, (int) $job['repair_referral_bps']) : 0;
+        $technician = $job['technician_id']
+            ? min($profit - $referral, Helpers::rate($profit, (int) $job['repair_technician_bps'])) : 0;
+        BaseRepository::run(
+            'UPDATE repairs SET commission_earned_at=CURRENT_TIMESTAMP, commission_profit=?,
+             referral_commission=?, technician_commission=?, commission_technician_id=?, synced=0
+             WHERE id=? AND commission_earned_at IS NULL',
+            [$profit, $referral, $technician, $job['technician_id'], $id]
+        );
+    }
+
     private static function collectPayment(array $user, int $branch, int $customer, int $id, int $amount, string $method, string $kind, int $alreadyPaid = 0): void {
         if (!in_array($user['role'], ['cashier', 'owner', 'manager'], true)) {
             throw new ApiError('A cashier must collect this repair payment.', 403);
@@ -31,6 +52,11 @@ class RepairService {
 
     public static function create(int $branch, array $body, ?array $user = null): array {
         $actor = $user ?: ['id' => 1, 'role' => 'owner'];
+        $referralId = empty($body['referral_user_id']) ? null : Validator::integer($body['referral_user_id'], 'Referral staff');
+        if ($referralId && !BaseRepository::scalar('SELECT id FROM users WHERE id=? AND active=1', [$referralId])) {
+            throw new ApiError('Referral staff member not found.', 404);
+        }
+        $repairCost = isset($body['repair_cost']) ? Validator::money($body, 'repair_cost') : null;
         $advance = Validator::money(['advance_payment' => $body['advance_payment'] ?? 0], 'advance_payment');
         if ($advance > 0) {
             RoleGuard::allow($actor, 'cashier', 'owner', 'manager');
@@ -123,6 +149,8 @@ class RepairService {
             $branch,
             $customerId,
             $technicianId,
+            $referralId,
+            $repairCost,
             $device,
             $serial,
             $issue,
@@ -150,6 +178,7 @@ class RepairService {
                 );
             }
 
+            BaseRepository::run('UPDATE repairs SET referral_user_id=?, repair_cost=? WHERE id=?', [$referralId, $repairCost, $id]);
             if ($advance > 0) {
                 self::collectPayment($actor, $branch, $customerId, $id, $advance, $advanceMethod, 'Repair Advance');
             }
@@ -249,6 +278,7 @@ class RepairService {
             'UPDATE repairs SET status=?, technician_id=?, synced=0 WHERE id=?',
             [$targetStatus, $newTechId, $id]
         );
+        self::earnCommission($id);
 
         $smsResult = null;
         if ($targetStatus === 'Ready' && !empty($body['send_sms'])) {
@@ -331,6 +361,8 @@ class RepairService {
             $method = $payAmount > 0 ? $method : $job['payment_method'];
 
             $totalPaid = $alreadyPaid + $payAmount;
+            $repairCost = !$job['commission_earned_at'] && isset($body['repair_cost'])
+                ? Validator::money($body, 'repair_cost') : $job['repair_cost'];
             $extraNote = trim((string) ($body['notes'] ?? ''));
             $mergedNotes = (string) ($job['notes'] ?? '');
             if ($extraNote !== '') {
@@ -338,9 +370,10 @@ class RepairService {
             }
 
             BaseRepository::run(
-                "UPDATE repairs SET status=?, technician_id=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
-                [$status, $newTechId, $finalCharge, $totalPaid, $method, $paidAt, $mergedNotes, $id]
+                "UPDATE repairs SET status=?, technician_id=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, repair_cost=?, synced=0 WHERE id=?",
+                [$status, $newTechId, $finalCharge, $totalPaid, $method, $paidAt, $mergedNotes, $repairCost, $id]
             );
+            self::earnCommission($id);
 
             UserRepository::logAudit((int) $user['id'], $branch, $paymentOnly ? 'repair.payment' : 'repair.complete', [
                 'repair_id' => $id,

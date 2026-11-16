@@ -229,10 +229,49 @@ class AdminController
         ];
     }
 
+    public static function saveAppearance(array $user, array $body): array
+    {
+        $input = $body['appearance'] ?? null;
+        if (!is_array($input)) throw new ApiError('Invalid theme settings.');
+        $theme = [];
+        foreach (['sidebar' => ['light', 'dark'], 'mode' => ['light', 'dark'],
+            'density' => ['comfortable', 'compact', 'relaxed'],
+            'font' => ['system', 'humanist', 'mono'], 'corners' => ['square', 'soft', 'round'],
+            'textSize' => ['small', 'standard', 'large']] as $key => $choices) {
+            if (!in_array($input[$key] ?? null, $choices, true)) throw new ApiError('Invalid theme option.');
+            $theme[$key] = $input[$key];
+        }
+        $theme['accent'] = Validator::str($input, 'accent', 32);
+        if (!preg_match('/^[a-z0-9-]+$/D', $theme['accent'])) throw new ApiError('Invalid theme preset.');
+        foreach (['accentColor', 'workspaceColor', 'surfaceColor', 'sidebarColor'] as $key) {
+            $color = $input[$key] ?? '';
+            if (!is_string($color) || ($color !== '' && !preg_match('/^#[0-9a-f]{6}$/iD', $color))) {
+                throw new ApiError('Choose a valid theme color.');
+            }
+            $theme[$key] = $color;
+        }
+        BaseRepository::run('UPDATE users SET appearance_json=? WHERE id=?',
+            [json_encode($theme, JSON_THROW_ON_ERROR), (int) $user['id']]);
+        return ['appearance' => $theme];
+    }
+
     public static function saveSettings(array $body): array
     {
         $shopName = Validator::str($body, 'shop_name', 100);
         $taxBps = Validator::integer($body['tax_bps'] ?? 0, 'Tax rate', 0, 10000);
+        $commissionRates = [];
+        foreach (['accessory_commission_bps', 'repair_referral_bps', 'repair_technician_bps'] as $key) {
+            if (array_key_exists($key, $body)) {
+                $commissionRates[$key] = Validator::integer($body[$key], $key, 0, 10000);
+            }
+        }
+        if (isset($commissionRates['repair_referral_bps']) || isset($commissionRates['repair_technician_bps'])) {
+            $currentRates = BaseRepository::one('SELECT repair_referral_bps, repair_technician_bps FROM settings WHERE id=1 FOR UPDATE');
+            $rates = $commissionRates + $currentRates;
+            if ((int) $rates['repair_referral_bps'] + (int) $rates['repair_technician_bps'] > 10000) {
+                throw new ApiError('Combined repair commission cannot exceed 100% of profit.');
+            }
+        }
         $paperWidth = (int) ($body['paper_width'] ?? 80);
         if (!in_array($paperWidth, [58, 80], true)) {
             throw new ApiError('Paper width must be 58 or 80 mm.');
@@ -303,6 +342,9 @@ class AdminController
         );
         if ($encodedLayout !== null) {
             BaseRepository::run('UPDATE settings SET bill_layout=? WHERE id=1', [$encodedLayout]);
+        }
+        foreach ($commissionRates as $key => $rate) {
+            BaseRepository::run("UPDATE settings SET {$key}=? WHERE id=1", [$rate]);
         }
 
         return [

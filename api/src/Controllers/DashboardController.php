@@ -221,7 +221,7 @@ class DashboardController {
                     u.id AS cashier_id, u.name AS cashier_name,
                     p.sku, si.name AS product_name, p.category,
                     si.qty, si.price, si.total, si.commission_amount,
-                    p.commission_type, p.commission_value
+                    p.category AS product_category, p.commission_type, p.commission_value
              FROM sale_items si
              JOIN sales s ON s.id=si.sale_id
              JOIN users cu ON cu.id=COALESCE(s.commission_user_id, s.user_id)
@@ -430,6 +430,17 @@ class DashboardController {
             [$from, $to, ...$bParams]
         );
 
+        $repairStaffSql = $staffId > 0 ? ' AND (r.referral_user_id=? OR r.commission_technician_id=?)' : '';
+        $repairCommissions = BaseRepository::rows(
+            "SELECT r.id, r.device, r.commission_earned_at, r.repair_cost, r.commission_profit,
+                    r.referral_commission, r.technician_commission, f.name AS referral_name, t.name AS technician_name
+             FROM repairs r LEFT JOIN users f ON f.id=r.referral_user_id
+             LEFT JOIN users t ON t.id=r.commission_technician_id
+             WHERE DATE(r.commission_earned_at)>=? AND DATE(r.commission_earned_at)<=?{$bSql('r.branch_id')}{$repairStaffSql}
+             ORDER BY r.commission_earned_at DESC, r.id DESC",
+            [$from, $to, ...$bParams, ...$staffFilterParams]
+        );
+
         // 6. Purchases & Suppliers
         $purchasesReport = BaseRepository::rows(
             "SELECT pu.id, pu.created_at, pu.invoice, b.name AS branch_name,
@@ -511,6 +522,7 @@ class DashboardController {
             'branch_info' => $branchInfo,
             'commissions_summary' => $commissionsSummary,
             'commission_items' => $commissionItems,
+            'repair_commissions' => $repairCommissions,
             'sales_totals' => $salesTotals,
             'sales_report' => $salesReport,
             'payments_breakdown' => $paymentsBreakdown,

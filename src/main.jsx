@@ -42,7 +42,7 @@ import {
 
 import './styles/style.css';
 import './features/profile/profile.css';
-import { readAppearance, saveAppearance } from './features/profile/appearance';
+import { cacheAppearance, readAppearance, themeVars } from './features/profile/appearance';
 
 const dashboard = () => import('./features/dashboard');
 const pos = () => import('./features/pos');
@@ -180,10 +180,18 @@ function Workspace({ session, onLogout }) {
   const [user, setUser] = useState(initialUser);
   const [profileModal, setProfileModal] = useState(false);
   const [appearance, setAppearance] = useState(() => readAppearance(initialUser));
-  const updateAppearance = next => {
-    setAppearance(next);
-    return saveAppearance(user, next);
-  };
+  useEffect(() => {
+    const root = document.documentElement;
+    const { colorScheme, ...vars } = themeVars(appearance);
+    root.dataset.zeedatTheme = colorScheme;
+    root.style.colorScheme = colorScheme;
+    Object.entries(vars).forEach(([key, value]) => root.style.setProperty(key, value));
+    return () => {
+      delete root.dataset.zeedatTheme;
+      root.style.removeProperty('color-scheme');
+      Object.keys(vars).forEach(key => root.style.removeProperty(key));
+    };
+  }, [appearance]);
 
   const hasPermission = useCallback(
     perm => user.role === 'owner' || (user.permissions || []).includes(perm),
@@ -507,7 +515,11 @@ function Workspace({ session, onLogout }) {
   const context = {
     user,
     appearance,
-    updateAppearance,
+    updateAppearance: async next => {
+      const result = await mutate('profile.appearance', { appearance: next });
+      setAppearance(result.appearance);
+      cacheAppearance(user, result.appearance);
+    },
     setUser,
     hasPermission,
     refreshUser,

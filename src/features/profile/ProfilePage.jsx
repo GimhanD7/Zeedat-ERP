@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Building2, Check, KeyRound, Mail, Palette, Save, UserRound } from 'lucide-react';
 import { Badge, Button, Field, Modal, Select } from '../../components/common';
 import { initials, roles } from '../../utils';
-import { themeCatalog } from './appearance';
+import { appearanceDefaults, themeCatalog, themeVars } from './appearance';
 
 const emptyPassword = { current_password: '', new_password: '', confirmation: '' };
 
@@ -12,7 +12,11 @@ export function ProfileModal({ ctx, onClose }) {
   const [password, setPassword] = useState(emptyPassword);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const [appearanceMessage, setAppearanceMessage] = useState('');
+  const [draft, setDraft] = useState(appearance);
+  const [appearanceFeedback, setAppearanceFeedback] = useState(null);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const preview = themeVars(draft);
+  const themeChanged = Object.keys(appearanceDefaults).some(key => draft[key] !== appearance[key]);
   const assigned = new Set((user.branch_ids?.length ? user.branch_ids : [user.branch_id]).map(Number));
   const branchNames = ctx.branches.filter(branch => assigned.has(Number(branch.id))).map(branch => branch.name);
 
@@ -39,9 +43,21 @@ export function ProfileModal({ ctx, onClose }) {
     }
   }
 
-  function changeAppearance(field, value) {
-    const saved = updateAppearance({ ...appearance, [field]: value });
-    setAppearanceMessage(saved ? 'Saved on this device.' : 'Applied for this session.');
+  function editTheme(next) {
+    setDraft(next);
+    setAppearanceFeedback(null);
+  }
+
+  async function saveTheme() {
+    setSavingTheme(true);
+    try {
+      await updateAppearance(draft);
+      setAppearanceFeedback({ text: 'Theme saved to your profile.' });
+    } catch (error) {
+      setAppearanceFeedback({ error: true, text: error.message });
+    } finally {
+      setSavingTheme(false);
+    }
   }
 
   return (
@@ -71,30 +87,70 @@ export function ProfileModal({ ctx, onClose }) {
         </div>
 
         {tab === 'appearance' && (
-          <section className="account-form">
-            <div className="theme-grid" role="radiogroup" aria-label="Color theme">
-              {themeCatalog.map(([id, label, primary, dark]) => (
-                <button key={id} type="button" role="radio" aria-checked={appearance.accent === id}
-                  className={'theme-card' + (appearance.accent === id ? ' active' : '')}
-                  onClick={() => changeAppearance('accent', id)}>
-                  <span className="theme-swatch" style={{ background: `linear-gradient(135deg, ${primary} 0%, ${dark} 100%)` }}>
-                    {appearance.accent === id && <Check size={16} />}
-                  </span>
-                  <span className="theme-name">{label}</span>
+          <section className="theme-studio">
+            <div className="theme-presets" aria-label="Theme presets">
+              {themeCatalog.map(([id, label, primary, dark, preferences]) => (
+                <button key={id} type="button" aria-pressed={draft.accent === id}
+                  className={'theme-card' + (draft.accent === id ? ' active' : '')}
+                  disabled={savingTheme}
+                  onClick={() => editTheme({ ...appearanceDefaults, ...preferences, accent: id })}>
+                  <span className="theme-swatch" style={{ background: primary, borderColor: dark }} />
+                  <span>{label}</span>
+                  {draft.accent === id && <Check size={15} />}
                 </button>
               ))}
             </div>
-            <div className="profile-options">
-              <Field label="Sidebar theme">
-                <Select value={appearance.sidebar} options={[['light', 'Light'], ['dark', 'Dark']]}
-                  onChange={event => changeAppearance('sidebar', event.target.value)} />
-              </Field>
-              <Field label="Sidebar spacing">
-                <Select value={appearance.density} options={[['comfortable', 'Comfortable'], ['compact', 'Compact']]}
-                  onChange={event => changeAppearance('density', event.target.value)} />
-              </Field>
+            <div className="theme-editor">
+              <div className="theme-preview" style={preview}>
+                <aside><strong>ZEEDAT POS</strong><span>Dashboard</span><span>Inventory</span></aside>
+                <section>
+                  <header><b>Sales overview</b><span>Today</span></header>
+                  <div className="theme-preview-body">
+                    <div className="theme-preview-actions"><span className="theme-preview-primary">New sale</span><span>Reports</span></div>
+                    <table aria-label="Theme sample"><thead><tr><th>Item</th><th>Amount</th></tr></thead>
+                      <tbody><tr><td>Screen protector</td><td>LKR 950</td></tr><tr><td>Phone case</td><td>LKR 1,500</td></tr></tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+              <div className="profile-options theme-colors">
+                {[
+                  ['accentColor', 'Accent', '--teal'], ['workspaceColor', 'Workspace', '--theme-workspace'],
+                  ['surfaceColor', 'Panels & forms', '--theme-surface'], ['sidebarColor', 'Sidebar', '--theme-sidebar'],
+                ].map(([field, label, variable]) => (
+                  <Field label={label} key={field}>
+                    <span className="theme-color-control">
+                      <input type="color" value={draft[field] || preview[variable]} disabled={savingTheme}
+                        onChange={event => editTheme({ ...draft, [field]: event.target.value })} />
+                      <code>{draft[field] || preview[variable]}</code>
+                      {draft[field] && <button type="button" disabled={savingTheme} onClick={() => editTheme({ ...draft, [field]: '' })}>Reset</button>}
+                    </span>
+                  </Field>
+                ))}
+              </div>
+              <div className="profile-options">
+                {[
+                  ['mode', 'Workspace mode', [['light', 'Light'], ['dark', 'Dark']]],
+                  ['sidebar', 'Sidebar mode', [['light', 'Light'], ['dark', 'Dark']]],
+                  ['font', 'Typeface', [['system', 'System'], ['humanist', 'Humanist'], ['mono', 'Monospace']]],
+                  ['textSize', 'Text size', [['small', 'Small'], ['standard', 'Standard'], ['large', 'Large']]],
+                  ['density', 'Spacing', [['compact', 'Compact'], ['comfortable', 'Comfortable'], ['relaxed', 'Relaxed']]],
+                  ['corners', 'Corners', [['square', 'Square'], ['soft', 'Soft'], ['round', 'Round']]],
+                ].map(([field, label, choices]) => (
+                  <Field label={label} key={field}>
+                    <Select value={draft[field]} options={choices} disabled={savingTheme}
+                      onChange={event => editTheme({ ...draft, [field]: event.target.value })} />
+                  </Field>
+                ))}
+              </div>
+              <div className="theme-editor-footer">
+                {appearanceFeedback && <span role={appearanceFeedback.error ? 'alert' : 'status'} className={appearanceFeedback.error ? 'text-red' : 'text-green'}>{appearanceFeedback.text}</span>}
+                <Button onClick={() => editTheme({ ...appearanceDefaults })} disabled={savingTheme}>Restore defaults</Button>
+                <Button variant="primary" icon={Save} disabled={savingTheme || !themeChanged} onClick={saveTheme}>
+                  {savingTheme ? 'Saving…' : 'Save theme'}
+                </Button>
+              </div>
             </div>
-            {appearanceMessage && <p role="status" className="text-green">{appearanceMessage}</p>}
           </section>
         )}
 

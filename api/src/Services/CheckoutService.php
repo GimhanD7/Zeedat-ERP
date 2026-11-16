@@ -249,18 +249,31 @@ class CheckoutService {
 
         $processed = 0;
         $allocated = 0;
+        $allocatedNet = 0;
+        $accessoryRate = (int) BaseRepository::scalar('SELECT accessory_commission_bps FROM settings WHERE id=1');
         foreach ($items as [$p, $qty, $unit, $extended, $isRepair]) {
             $lineTotal = $extended;
+            $lineNet = $extended;
             if (!$isRepair && $retailSubtotal > 0) {
                 $processed += $extended;
                 $cumulative = (int) bcdiv(bcmul((string) $processed, (string) ($total - $repairSubtotal), 0), (string) $retailSubtotal, 0);
                 $lineTotal = $cumulative - $allocated;
                 $allocated = $cumulative;
+                $cumulativeNet = (int) bcdiv(bcmul((string) $processed, (string) ($retailSubtotal - $discount), 0), (string) $retailSubtotal, 0);
+                $lineNet = $cumulativeNet - $allocatedNet;
+                $allocatedNet = $cumulativeNet;
             }
             $commType = (string) ($p['commission_type'] ?? 'fixed');
             $commVal = (int) ($p['commission_value'] ?? 0);
+            if ($p['category'] === 'Accessories' && $commType === 'fixed' && $commVal === 0) {
+                $commType = 'percent';
+                $commVal = $accessoryRate;
+            }
+            $commissionBase = $p['category'] === 'Services'
+                ? $lineTotal
+                : max(0, $lineNet - (int) $p['cost'] * $qty);
             $lineCommission = $commType === 'percent'
-                ? Helpers::rate($lineTotal, $commVal)
+                ? Helpers::rate($commissionBase, $commVal)
                 : $commVal * $qty;
 
             if ($unit) BaseRepository::run("UPDATE units SET state='Sold', synced=0 WHERE id=?", [$unit]);
@@ -291,6 +304,7 @@ class CheckoutService {
                 "UPDATE repairs SET final_charge=?, paid_amount=?, payment_method=?, paid_at=?, notes=?, synced=0 WHERE id=?",
                 [$newFinal, $newPaid, $paymentMethods, date('Y-m-d H:i:s'), $newNotes, $repairId]
             );
+            RepairService::earnCommission($repairId);
             CustomerWallet::entry($user, $branch, $customer, $linePrice, 'Repair paid via POS', $paymentMethods, $invoiceNo);
             CustomerWallet::entry($user, $branch, $customer, -$linePrice, 'Repair payment applied', $paymentMethods, $invoiceNo);
         }

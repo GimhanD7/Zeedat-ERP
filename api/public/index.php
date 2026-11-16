@@ -119,7 +119,7 @@ try {
             }
         }
 
-        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'sms.settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
+        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'sms.settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'profile.appearance', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         $result = Idempotency::execute($user, $action, function () use ($action, $user, $branch, $body) {
             return match ($action) {
@@ -329,6 +329,7 @@ try {
                         RoleGuard::allowPermission($user, 'settings');
                         return AdminController::saveBranch($user, $body);
                     })(),
+                'profile.appearance' => AdminController::saveAppearance($user, $body),
                 'profile.password' => (function () use ($user, $body) {
                         return AdminController::changePassword($user, $body);
                     })(),

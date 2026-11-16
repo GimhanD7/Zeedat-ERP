@@ -155,6 +155,7 @@ export function Repairs({ ctx }) {
 
   // Complete & Pay Modal State
   const [finalCharge, setFinalCharge] = useState('');
+  const [finalCost, setFinalCost] = useState('');
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
   const [completeTechId, setCompleteTechId] = useState('');
@@ -172,6 +173,8 @@ export function Repairs({ ctx }) {
   const [issue, setIssue] = useState('');
   const [notes, setNotes] = useState('');
   const [estimate, setEstimate] = useState('');
+  const [repairCost, setRepairCost] = useState('');
+  const [referralStaffId, setReferralStaffId] = useState('');
   const [advance, setAdvance] = useState('');
   const [advanceMethod, setAdvanceMethod] = useState('Cash');
   const [dueDate, setDueDate] = useState(() => {
@@ -212,6 +215,7 @@ export function Repairs({ ctx }) {
   const state = useData(ctx, {
     jobs: 'repairs',
     settings: 'settings',
+    referralStaff: 'staff.lookup',
     customers: ['customers', { branch: intakeBranch || ctx.branch }],
     technicians: ['technicians', { branch: intakeBranch || ctx.branch }],
     ...(!tech
@@ -311,6 +315,8 @@ export function Repairs({ ctx }) {
     setIssue('');
     setNotes('');
     setEstimate('');
+    setRepairCost('');
+    setReferralStaffId('');
     setAdvance('');
     setAdvanceMethod('Cash');
     setOtherAccessory('');
@@ -355,6 +361,8 @@ export function Repairs({ ctx }) {
         customer_email: newCustEmail.trim(),
         customer_notes: newCustNotes.trim(),
         technician_id: technicianId ? Number(technicianId) : null,
+        referral_user_id: referralStaffId ? Number(referralStaffId) : null,
+        repair_cost: repairCost === '' ? null : cents(repairCost),
         brand,
         model,
         device: deviceName,
@@ -514,6 +522,7 @@ export function Repairs({ ctx }) {
     const balance = Math.max(0, estCents - alreadyPaid);
     setCompleteJob(job);
     setFinalCharge(String(rupees(estCents)));
+    setFinalCost(job.repair_cost == null ? '' : String(rupees(job.repair_cost)));
     setPayAmount(String(rupees(balance)));
     setPayMethod('Cash');
     setCompleteTechId(job.technician_id ? String(job.technician_id) : '');
@@ -534,6 +543,7 @@ export function Repairs({ ctx }) {
         branch: completeJob.branch_id,
         id: completeJob.id,
         final_charge: finalCents,
+        repair_cost: finalCost === '' ? null : cents(finalCost),
         pay_amount: collectCents,
         payment_method: payMethod,
         technician_id: completeTechId ? Number(completeTechId) : null,
@@ -1066,7 +1076,7 @@ export function Repairs({ ctx }) {
                       <div className="zk-form-row-3" style={{ gap: '10px' }}>
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">
-                            Estimated Cost (LKR) <span className="req">*</span>
+                            Estimated Customer Charge (LKR) <span className="req">*</span>
                           </label>
                           <div className="zk-input-box">
                             <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>LKR</span>
@@ -1082,6 +1092,24 @@ export function Repairs({ ctx }) {
                           </div>
                         </div>
 
+                        <label className="zk-field-wrap">
+                          <span className="zk-field-label">Parts &amp; direct cost (LKR)</span>
+                          <div className="zk-input-box">
+                            <input type="number" min="0" step="0.01" value={repairCost}
+                              onChange={e => setRepairCost(e.target.value)} placeholder="Enter 0 if no cost" />
+                          </div>
+                        </label>
+                        <label className="zk-field-wrap">
+                          <span className="zk-field-label">Repair brought in by</span>
+                          <div className="zk-input-box">
+                            <select value={referralStaffId} onChange={e => setReferralStaffId(e.target.value)}>
+                              <option value="">No referral</option>
+                              {(state.data?.referralStaff || []).map(person => (
+                                <option key={person.id} value={person.id}>{person.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </label>
                         {tech ? (
                           <p className="muted">The cashier collects the assigned charge after intake.</p>
                         ) : (
@@ -1902,6 +1930,14 @@ export function Repairs({ ctx }) {
                       </div>
                     </div>
 
+                    <label className="zk-field-wrap">
+                      <span className="zk-field-label">Final parts &amp; direct cost (LKR)</span>
+                      <div className="zk-input-box">
+                        <input type="number" min="0" step="0.01" value={finalCost}
+                          readOnly={Boolean(completeJob.commission_earned_at)}
+                          onChange={e => setFinalCost(e.target.value)} placeholder="Enter 0 if no cost" />
+                      </div>
+                    </label>
                     <div className="zk-field-wrap">
                       <label className="zk-field-label">Payment Method</label>
                       <div className="zk-cb-amount-chips">

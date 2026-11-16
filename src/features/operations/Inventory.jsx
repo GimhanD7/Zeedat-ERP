@@ -83,7 +83,7 @@ const formatCommission = item => {
   if (val <= 0) return null;
   if (item?.commission_type === 'percent') {
     const pct = val / 100;
-    return `${Number.isInteger(pct) ? pct : pct.toFixed(2)}%`;
+    return `${Number.isInteger(pct) ? pct : pct.toFixed(2)}%${item.category === 'Services' ? '' : ' of profit'}`;
   }
   return money(val);
 };
@@ -220,7 +220,7 @@ export function Inventory({ ctx }) {
           label: 'Commission Type',
           choices: [
             ['fixed', 'Fixed Amount (LKR)'],
-            ['percent', 'Percentage (%)'],
+            ['percent', values.category === 'Services' ? 'Percentage (%)' : 'Percentage of profit (%)'],
           ],
         },
         {
@@ -231,7 +231,7 @@ export function Inventory({ ctx }) {
                 ? 'Service Commission (%) *'
                 : 'Service Commission (LKR) *'
               : values.commission_type === 'percent'
-                ? 'Product Commission (%, Optional)'
+                ? 'Product Commission (% of profit, optional)'
                 : 'Product Commission (LKR, Optional)',
           type: 'money',
           min: 0,

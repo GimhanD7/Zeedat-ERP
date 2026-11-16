@@ -28,8 +28,10 @@ class UserRepository extends BaseRepository {
     }
 
     public static function findActiveById(int $id): ?array {
-        $user = self::one('SELECT id, branch_id, name, email, role, badge_code FROM users WHERE id=? AND active=1', [$id]);
+        $user = self::one('SELECT id, branch_id, name, email, role, badge_code, appearance_json FROM users WHERE id=? AND active=1', [$id]);
         if ($user) {
+            $user['appearance'] = json_decode($user['appearance_json'] ?? 'null', true);
+            unset($user['appearance_json']);
             $user['badge_code'] = self::formatBadgeCode((int) $user['id'], $user['badge_code'] ?? null);
             $user['branch_ids'] = self::assignedBranchIds((int) $user['id'], $user['branch_id'] ? (int) $user['branch_id'] : null);
             $user['permissions'] = PermissionRepository::getEffectivePermissionsForUser((int) $user['id'], $user['role']);

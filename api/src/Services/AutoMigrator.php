@@ -195,6 +195,33 @@ class AutoMigrator
      */
     private static function runIncrementalMigrations(PDO $db, string $driver): void
     {
+        $profileAndCommissionColumns = [
+            'users' => ['appearance_json' => 'TEXT NULL'],
+            'settings' => [
+                'accessory_commission_bps' => 'INT NOT NULL DEFAULT 250',
+                'repair_referral_bps' => 'INT NOT NULL DEFAULT 300',
+                'repair_technician_bps' => 'INT NOT NULL DEFAULT 5000',
+            ],
+            'repairs' => [
+                'referral_user_id' => 'INT NULL',
+                'repair_cost' => 'BIGINT NULL',
+                'commission_earned_at' => 'TIMESTAMP NULL',
+                'commission_profit' => 'BIGINT NOT NULL DEFAULT 0',
+                'referral_commission' => 'BIGINT NOT NULL DEFAULT 0',
+                'technician_commission' => 'BIGINT NOT NULL DEFAULT 0',
+                'commission_technician_id' => 'INT NULL',
+            ],
+        ];
+        foreach ($profileAndCommissionColumns as $table => $columns) {
+            $existing = $driver === 'sqlite'
+                ? array_column($db->query("PRAGMA table_info({$table})")->fetchAll(PDO::FETCH_ASSOC), 'name')
+                : array_column($db->query("SHOW COLUMNS FROM {$table}")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            foreach ($columns as $name => $definition) {
+                if (!in_array($name, $existing, true)) {
+                    $db->exec("ALTER TABLE {$table} ADD COLUMN {$name} {$definition}");
+                }
+            }
+        }
         $db->exec('CREATE TABLE IF NOT EXISTS exchange_addons (
             return_id INT NOT NULL,
             line_no INT NOT NULL,

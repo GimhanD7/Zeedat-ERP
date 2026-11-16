@@ -256,11 +256,13 @@ class CloudSyncService {
                 'SELECT r.*, COALESCE(b.name, "") AS branch_name,
                         COALESCE(c.sync_uuid, c.uuid, "") AS customer_sync_uuid,
                         COALESCE(c.phone, "") AS customer_phone, COALESCE(c.name, "") AS customer_name,
-                        COALESCE(t.email, "") AS technician_email
+                        COALESCE(t.email, "") AS technician_email, referrer.email AS referral_email, earned.email AS commission_technician_email
                  FROM repairs r
                  LEFT JOIN branches b ON b.id=r.branch_id
                  LEFT JOIN customers c ON c.id=r.customer_id
                  LEFT JOIN users t ON t.id=r.technician_id
+                 LEFT JOIN users referrer ON referrer.id=r.referral_user_id
+                 LEFT JOIN users earned ON earned.id=r.commission_technician_id
                  WHERE ' . $pendingWhere('r') . ' ORDER BY r.id ASC LIMIT 100'
             ),
             static fn($r) => ($r['device'] ?? '') . '|' . ($r['created_at'] ?? '')
@@ -1029,7 +1031,7 @@ class CloudSyncService {
             if (!empty($data['settings']) && is_array($data['settings'])) {
                 $st = $data['settings'];
                 BaseRepository::run(
-                    'UPDATE settings SET shop_name=?, shop_phone=?, shop_address=?, shop_email=?, invoice_prefix=?, paper_width=?, receipt_footer=?, tax_bps=?, show_tax_on_receipt=?, bill_layout=COALESCE(?,bill_layout) WHERE id=1',
+                    'UPDATE settings SET shop_name=?, shop_phone=?, shop_address=?, shop_email=?, invoice_prefix=?, paper_width=?, receipt_footer=?, tax_bps=?, show_tax_on_receipt=?, bill_layout=COALESCE(?,bill_layout), accessory_commission_bps=COALESCE(?,accessory_commission_bps), repair_referral_bps=COALESCE(?,repair_referral_bps), repair_technician_bps=COALESCE(?,repair_technician_bps) WHERE id=1',
                     [
                         $st['shop_name'] ?? 'ZEEDAT POS',
                         $st['shop_phone'] ?? '',
@@ -1041,6 +1043,9 @@ class CloudSyncService {
                         (int) ($st['tax_bps'] ?? 0),
                         (int) ($st['show_tax_on_receipt'] ?? 1),
                         $st['bill_layout'] ?? null,
+                        $st['accessory_commission_bps'] ?? null,
+                        $st['repair_referral_bps'] ?? null,
+                        $st['repair_technician_bps'] ?? null,
                     ]
                 );
             }
@@ -1075,17 +1080,34 @@ class CloudSyncService {
                 'UPDATE repairs SET status=?, notes=?, technician_id=?, estimate=?, advance_paid=?, final_charge=?, paid_amount=?, payment_method=?, paid_at=?, synced=1 WHERE id=?',
                 [$status, $row['notes'] ?? '', $technician, $estimate, $advance, $charge, $paid, $method, $paidAt, $existing]
             );
+            self::writeSyncedRepairCommission($existing, $row);
             return;
         }
         $fields = [$branch, $customer, $technician, $row['device'], $row['serial'] ?? '', $row['issue'] ?? '',
             $row['accessories'] ?? '', $row['notes'] ?? '', $estimate, $row['due_date'] ?? date('Y-m-d'),
             $row['status'] ?? 'Received', $uuid, $row['created_at'] ?? date('Y-m-d H:i:s'), $advance, $charge, $paid, $method, $paidAt];
-        BaseRepository::run(
+        $id = BaseRepository::insert(
             'INSERT INTO repairs (' . ($sqlite ? 'uuid, ' : '') .
             'branch_id, customer_id, technician_id, device, serial, issue, accessories, notes, estimate, due_date, status, sync_uuid,
                 created_at, advance_paid, final_charge, paid_amount, payment_method, paid_at, synced)
              VALUES (' . ($sqlite ? '?, ' : '') . '?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)',
             $sqlite ? [$uuid, ...$fields] : $fields
+        );
+        self::writeSyncedRepairCommission($id, $row);
+    }
+
+    private static function writeSyncedRepairCommission(int $id, array $row): void {
+        if (!array_key_exists('repair_cost', $row)) return;
+        $referrer = empty($row['referral_email']) ? null
+            : (BaseRepository::scalar('SELECT id FROM users WHERE email=?', [$row['referral_email']]) ?: null);
+        $technician = empty($row['commission_technician_email']) ? null
+            : (BaseRepository::scalar('SELECT id FROM users WHERE email=?', [$row['commission_technician_email']]) ?: null);
+        BaseRepository::run(
+            'UPDATE repairs SET referral_user_id=COALESCE(?,referral_user_id), repair_cost=COALESCE(?,repair_cost),
+             commission_profit=?, referral_commission=?, technician_commission=?, commission_technician_id=?, commission_earned_at=?
+             WHERE id=? AND commission_earned_at IS NULL',
+            [$referrer, $row['repair_cost'], (int) ($row['commission_profit'] ?? 0), (int) ($row['referral_commission'] ?? 0),
+                (int) ($row['technician_commission'] ?? 0), $technician, $row['commission_earned_at'] ?? null, $id]
         );
     }
 
@@ -2329,9 +2351,11 @@ class CloudSyncService {
             ),
             'repairs' => self::ensureSyncUuids('repairs', 'REP', BaseRepository::rows(
                 "SELECT r.*, b.name AS branch_name, COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone,
-                        COALESCE(t.email, '') AS technician_email
+                        COALESCE(t.email, '') AS technician_email, referrer.email AS referral_email, earned.email AS commission_technician_email
                  FROM repairs r JOIN branches b ON b.id=r.branch_id LEFT JOIN customers c ON c.id=r.customer_id
-                 LEFT JOIN users t ON t.id=r.technician_id ORDER BY r.id DESC"
+                 LEFT JOIN users t ON t.id=r.technician_id
+                 LEFT JOIN users referrer ON referrer.id=r.referral_user_id
+                 LEFT JOIN users earned ON earned.id=r.commission_technician_id ORDER BY r.id DESC"
             ), static fn($r) => ($r['device'] ?? '') . '|' . ($r['created_at'] ?? ''), false),
             'drawers' => $drawers,
             'sales' => $saleEntries,
@@ -2364,6 +2388,9 @@ class CloudSyncService {
                 'receipt_footer' => $settings['receipt_footer'] ?? 'Thank you for your business!',
                 'bill_layout' => $settings['bill_layout'] ?? null,
                 'tax_bps' => (int) ($settings['tax_bps'] ?? 0),
+                'accessory_commission_bps' => (int) $settings['accessory_commission_bps'],
+                'repair_referral_bps' => (int) $settings['repair_referral_bps'],
+                'repair_technician_bps' => (int) $settings['repair_technician_bps'],
                 'show_tax_on_receipt' => (int) ($settings['show_tax_on_receipt'] ?? 1),
             ],
         ];
