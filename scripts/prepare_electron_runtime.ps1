@@ -36,10 +36,9 @@ Copy-Item 'updates/patch-manifest.json' "$appDest/updates/patch-manifest.json"
 
 # Bundled PHP runtime + required extensions
 Copy-Item "$PhpRoot/php.exe", "$PhpRoot/php8ts.dll", "$PhpRoot/license.txt" "$phpDest/"
-foreach ($file in @('libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'libsqlite3.dll', 'libssh2.dll', 'nghttp2.dll')) {
-    Copy-Item "$PhpRoot/$file" "$phpDest/"
-}
+Get-ChildItem -LiteralPath $PhpRoot -Filter '*.dll' -File | Copy-Item -Destination $phpDest
 $bundledExtensions = @('pdo_sqlite', 'sqlite3', 'pdo_mysql', 'mysqli', 'curl', 'mbstring', 'openssl', 'fileinfo')
+if (Test-Path -LiteralPath "$PhpRoot/ext/php_bcmath.dll") { $bundledExtensions += 'bcmath' }
 foreach ($extension in $bundledExtensions) {
     Copy-Item "$PhpRoot/ext/php_$extension.dll" "$phpDest/ext/"
 }
@@ -50,7 +49,7 @@ foreach ($extension in $bundledExtensions) {
     $phpArgs += @('-d', "extension=$extension")
 }
 $modules = & "$phpDest/php.exe" @phpArgs -m
-if ($LASTEXITCODE -ne 0 -or 'pdo_sqlite' -notin $modules -or 'pdo_mysql' -notin $modules -or 'curl' -notin $modules -or 'mbstring' -notin $modules) {
+if ($LASTEXITCODE -ne 0 -or 'bcmath' -notin $modules -or ($bundledExtensions | Where-Object { $_ -notin $modules })) {
     throw 'Bundled PHP extensions failed verification.'
 }
 

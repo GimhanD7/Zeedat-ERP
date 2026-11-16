@@ -39,6 +39,15 @@ patch_file="$web_root/assets/zeedat-patch-$patch_id.zip"
 install -m 644 "$release/updates/zeedat-patch.zip" "$patch_file.$release_id.tmp"
 mv -f "$patch_file.$release_id.tmp" "$patch_file"
 
+installer="$release/downloads/Zeedat-POS-Setup.exe"
+if [[ -s "$installer" ]]; then
+    mkdir -p "$web_root/downloads"
+    target="$web_root/downloads/Zeedat-POS-Setup.exe"
+    install -m 644 "$installer" "$target.$release_id.tmp"
+    mv -f "$target.$release_id.tmp" "$target"
+    rm -- "$installer"
+fi
+
 # Keep cPanel directives and replace only the block managed by this deployer.
 cache_rules="$web_root/.htaccess.$release_id.tmp"
 if [[ -f "$web_root/.htaccess" ]]; then
@@ -52,6 +61,10 @@ cat >> "$cache_rules" <<'EOF'
 <IfModule mod_headers.c>
     <Files "index.html">
         Header always set Cache-Control "no-cache, must-revalidate"
+    </Files>
+    <Files "Zeedat-POS-Setup.exe">
+        Header always set Cache-Control "no-cache, must-revalidate"
+        Header always set Content-Disposition "attachment; filename=Zeedat-POS-Setup.exe"
     </Files>
 </IfModule>
 # END ZEEDAT CACHE

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Building2, ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound } from 'lucide-react';
+import { Bell, Building2, ChevronDown, Download, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Select } from '../common/Select';
 import { initials, roles, managers, setServerImageState } from '../../utils';
@@ -236,6 +236,12 @@ export function Header({
             <div className="profile-menu">
               <small>{user.email}</small>
               <Button icon={UserRound} onClick={onOpenProfile}>My Profile</Button>
+              {!window.electronAPI && (
+                <a className="button" href="./downloads/Zeedat-POS-Setup.exe" download>
+                  <Download size={16} aria-hidden="true" />
+                  Download Windows Setup
+                </a>
+              )}
               <Button icon={LogOut} onClick={onLogout}>
                 Sign out
               </Button>

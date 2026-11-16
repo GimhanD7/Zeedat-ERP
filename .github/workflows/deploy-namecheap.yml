@@ -15,7 +15,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows-installer:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - name: Build Windows Setup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $phpZip = Join-Path $env:RUNNER_TEMP 'zeedat-php.zip'
+          $phpRoot = Join-Path $env:RUNNER_TEMP 'zeedat-php'
+          $caBundle = Join-Path $env:RUNNER_TEMP 'zeedat-cacert.pem'
+          Invoke-WebRequest -UseBasicParsing 'https://downloads.php.net/~windows/releases/archives/php-8.3.33-Win32-vs16-x64.zip' -OutFile $phpZip
+          Expand-Archive -LiteralPath $phpZip -DestinationPath $phpRoot
+          Invoke-WebRequest -UseBasicParsing 'https://curl.se/ca/cacert.pem' -OutFile $caBundle
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+          & scripts/prepare_electron_runtime.ps1 -PhpRoot $phpRoot -CaBundle $caBundle
+          & node_modules/.bin/electron-builder.cmd --win nsis --x64 --publish never '-c.electronDist=node_modules/electron/dist'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed.' }
+          $setup = @(Get-ChildItem -LiteralPath release/desktop -Filter '* Setup *.exe' -File)
+          if ($setup.Count -ne 1) { throw 'Expected one Windows Setup executable.' }
+          New-Item -ItemType Directory -Force release/downloads | Out-Null
+          Copy-Item -LiteralPath $setup[0].FullName -Destination release/downloads/Zeedat-POS-Setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/downloads/Zeedat-POS-Setup.exe
+          if-no-files-found: error
+          compression-level: 0
+
   build:
+    needs: windows-installer
+    if: "!cancelled() && (needs.windows-installer.result == 'success' || needs.windows-installer.result == 'skipped')"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -36,6 +77,11 @@ jobs:
           find api deploy -name '*.php' -type f -print0 | xargs -0 -n 1 php -l
           php -l database/setup.php
           bash -n deploy/publish.sh
+      - uses: actions/download-artifact@v4
+        if: needs.windows-installer.result == 'success' && vars.NAMECHEAP_DEPLOY_ENABLED == 'true'
+        with:
+          name: windows-installer
+          path: downloads
       - name: Deploy over SSH
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.NAMECHEAP_DEPLOY_ENABLED == 'true'
         env:
@@ -64,7 +110,8 @@ jobs:
           chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
           release_id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           archive="$ssh_dir/release.tar.gz"
-          tar -czf "$archive" dist updates api/index.php api/composer.json api/src api/public/index.php database/schema.sql database/sqlite_schema.sql database/setup.php scripts/setup_portable.php scripts/auto_sync_sqlite.php router.php deploy/hosted-api.php deploy/hosted-config.php
+          test -s downloads/Zeedat-POS-Setup.exe
+          tar -czf "$archive" dist updates downloads api/index.php api/composer.json api/src api/public/index.php database/schema.sql database/sqlite_schema.sql database/setup.php scripts/setup_portable.php scripts/auto_sync_sqlite.php router.php deploy/hosted-api.php deploy/hosted-config.php
 
           ssh -p "$PORT" -i "$ssh_dir/key" \
             -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
@@ -72,6 +119,8 @@ jobs:
             "$SSH_USER@$HOST" "bash -c $(printf '%q' "$(cat deploy/publish.sh)") publish '$WEB_ROOT' '$release_id'" < "$archive"
 
           url="${SITE_URL%/}"
+          curl --fail --silent --show-error --max-time 90 "$url/downloads/Zeedat-POS-Setup.exe?release=$release_id" --output "$ssh_dir/installer.exe"
+          cmp downloads/Zeedat-POS-Setup.exe "$ssh_dir/installer.exe"
           curl --fail --silent --show-error --max-time 20 "$url/?release=$release_id" --output "$ssh_dir/live-index.html"
           cmp dist/index.html "$ssh_dir/live-index.html"
           curl --fail --silent --show-error --max-time 20 "$url/api/index.php?route=session" |

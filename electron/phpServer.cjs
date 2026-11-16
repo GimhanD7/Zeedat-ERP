@@ -49,6 +49,7 @@ function writePhpIni(runtimeRoot, phpDir, dataDir) {
     'extension=mbstring',
     'extension=openssl',
     'extension=fileinfo',
+    ...(fs.existsSync(path.join(extDir, 'php_bcmath.dll')) ? ['extension=bcmath'] : []),
     fs.existsSync(caBundle) ? `curl.cainfo="${caBundle.replace(/\\/g, '/')}"` : '',
     fs.existsSync(caBundle) ? `openssl.cafile="${caBundle.replace(/\\/g, '/')}"` : '',
     `session.save_path="${sessionsDir.replace(/\\/g, '/')}"`,
