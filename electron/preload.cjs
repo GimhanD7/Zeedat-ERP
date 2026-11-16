@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openCashDrawer: options => ipcRenderer.invoke('open-cash-drawer', options),
   getAppInfo: () => ipcRenderer.invoke('get-app-info'),
   getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  getInstallerUpdateStatus: () => ipcRenderer.invoke('get-installer-update-status'),
+  installWindowsUpdate: () => ipcRenderer.invoke('install-windows-update'),
   checkForUpdate: (autoDownload = false) => ipcRenderer.invoke('check-for-update', Boolean(autoDownload)),
   applyUpdate: () => ipcRenderer.invoke('apply-update'),
   setAutoPatch: enabled => ipcRenderer.invoke('set-auto-patch', Boolean(enabled)),
@@ -29,5 +31,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('update-status', listener);
     return () => ipcRenderer.removeListener('update-status', listener);
+  },
+  onInstallerUpdateStatus: callback => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('installer-update-status', listener);
+    return () => ipcRenderer.removeListener('installer-update-status', listener);
   },
 });

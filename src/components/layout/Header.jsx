@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Building2, ChevronDown, Download, LogOut, Menu, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, UserRound } from 'lucide-react';
 import { Button } from '../common/Button';
+import { DesktopUpdateNotice } from '../common/DesktopUpdateNotice';
 import { Select } from '../common/Select';
 import { initials, roles, managers, setServerImageState } from '../../utils';
 import { syncManager } from '../../utils/syncManager';
@@ -26,7 +27,6 @@ export function Header({
 }) {
   const [syncInfo, setSyncInfo] = useState({ isSyncing: false, pendingCount: 0 });
   const [serverDbState, setServerDbState] = useState(null);
-  const [desktopUpdate, setDesktopUpdate] = useState(null);
 
   useEffect(() => {
     return syncManager.subscribe(setSyncInfo);
@@ -59,12 +59,6 @@ export function Header({
     };
   }, []);
 
-  useEffect(() => {
-    const api = window.electronAPI;
-    if (!api?.isElectron) return;
-    api.getUpdateStatus?.().then(st => st && setDesktopUpdate(st)).catch(() => {});
-    return api.onUpdateStatus?.(st => setDesktopUpdate(st));
-  }, []);
   return (
     <header className="topbar">
       <div className="top-left">
@@ -100,48 +94,7 @@ export function Header({
       </div>
 
       <div className="top-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        {desktopUpdate?.state === 'ready' && (
-          <button
-            onClick={() => window.electronAPI?.restartApp?.()}
-            title="New update patch downloaded. Click to restart and apply."
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#0f766e',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '20px',
-              padding: '4px 12px',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            <RefreshCw size={13} />
-            <span>Restart to Update</span>
-          </button>
-        )}
-
-        {desktopUpdate?.state === 'downloading' && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#eff6ff',
-              border: '1px solid #bfdbfe',
-              color: '#1d4ed8',
-              borderRadius: '20px',
-              padding: '4px 12px',
-              fontSize: '12px',
-              fontWeight: 600,
-            }}
-          >
-            <RefreshCw size={13} className="spin" />
-            <span>Downloading Patch...</span>
-          </div>
-        )}
+        <DesktopUpdateNotice compact />
 
         {/* Status Pill: Online */}
         <div

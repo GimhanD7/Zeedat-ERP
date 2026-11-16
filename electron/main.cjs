@@ -1,5 +1,5 @@
 // Zeedat POS - Standalone Windows Desktop Shell (Electron + Local PHP/SQLite + Auto-Patch)
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, net, shell } = require('electron');
 const { execFile, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,6 +17,7 @@ const {
   resolveActiveRuntime,
   setAutoPatchEnabled,
 } = require('./patchManager.cjs');
+const { getInstallerUpdate, downloadInstaller } = require('./installerUpdater.cjs');
 
 let mainWindow = null;
 let phpHandle = null;
@@ -26,6 +27,15 @@ let syncTimer = null;
 let isShuttingDown = false;
 let patchBusy = false;
 let syncBusy = false;
+let installerBusy = false;
+let installerStatus = { state: 'idle', version: '', error: '' };
+const installerUpdatesSupported = app.isPackaged && process.platform === 'win32' && !process.env.PORTABLE_EXECUTABLE_FILE;
+let installedBuild = 0;
+try {
+  installedBuild = require('./installer-build.json').build || 0;
+} catch {
+  // Manually built installers can update to the first published CI build.
+}
 
 let updateStatus = {
   state: 'idle',
@@ -96,6 +106,50 @@ function resolveUpdateServerUrl() {
   if (envUrl) return envUrl;
   const dbUrl = phpHandle ? phpHandle.readCloudUrl() : '';
   return dbUrl || '';
+}
+
+function publishInstallerStatus(status) {
+  installerStatus = status;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('installer-update-status', status);
+  }
+  return status;
+}
+
+async function checkInstaller({ install = false, silent = false } = {}) {
+  if (!installerUpdatesSupported || installerBusy || isShuttingDown) return installerStatus;
+  installerBusy = true;
+  const server = resolveUpdateServerUrl();
+  const fetchUpdate = (url, options) => net.fetch(url, options);
+  try {
+    const manifest = await getInstallerUpdate(fetchUpdate, server, installedBuild);
+    if (!manifest) return publishInstallerStatus({ state: 'idle', version: '', error: '' });
+    if (!install) return publishInstallerStatus({ state: 'available', version: manifest.version, error: '' });
+
+    publishInstallerStatus({ state: 'downloading', version: manifest.version, error: '' });
+    const setup = await downloadInstaller(fetchUpdate, server, manifest, path.join(getAppDataBase(), 'runtime'));
+    if (isShuttingDown) return installerStatus;
+    const child = spawn(setup, ['/S', '--updated', '--force-run'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    await new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+    child.unref();
+    isShuttingDown = true;
+    publishInstallerStatus({ state: 'installing', version: manifest.version, error: '' });
+    app.quit();
+  } catch (error) {
+    if (!silent) {
+      publishInstallerStatus({ state: 'error', version: installerStatus.version, error: error.message || 'Windows update failed.' });
+    }
+  } finally {
+    installerBusy = false;
+  }
+  return installerStatus;
 }
 
 async function runPatchCheck({ autoDownload = false, silent = false } = {}) {
@@ -491,6 +545,8 @@ ipcMain.handle('get-app-info', () => ({
 }));
 
 ipcMain.handle('get-update-status', () => updateStatus);
+ipcMain.handle('get-installer-update-status', () => installerStatus);
+ipcMain.handle('install-windows-update', () => checkInstaller({ install: true }));
 
 ipcMain.handle('check-for-update', (_event, autoDownload = false) =>
   runPatchCheck({ autoDownload: Boolean(autoDownload), silent: false })
@@ -619,12 +675,14 @@ app.whenReady().then(async () => {
     // Background auto-patch polling (8s after launch + every 15 minutes)
     if (app.isPackaged) {
       setTimeout(() => {
+        checkInstaller({ silent: true });
         if (!isShuttingDown && runtimeInfo?.autoPatchEnabled !== false) {
           runPatchCheck({ autoDownload: true, silent: true });
         }
       }, 8000);
 
       patchTimer = setInterval(() => {
+        checkInstaller({ silent: true });
         if (!isShuttingDown && runtimeInfo?.autoPatchEnabled !== false) {
           runPatchCheck({ autoDownload: true, silent: true });
         }

@@ -17,6 +17,7 @@ release/desktop/
 release/installer/
 release/win-unpacked/
 electron-runtime/
+electron/installer-build.json
 updates/
 uploads/
  

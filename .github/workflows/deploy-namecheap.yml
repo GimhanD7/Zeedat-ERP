@@ -41,16 +41,28 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
           & scripts/prepare_electron_runtime.ps1 -PhpRoot $phpRoot -CaBundle $caBundle
+          $build = [long]$env:GITHUB_RUN_NUMBER * 10000 + [long]$env:GITHUB_RUN_ATTEMPT
+          @{ build = $build } | ConvertTo-Json | Set-Content -Encoding ascii electron/installer-build.json
           & node_modules/.bin/electron-builder.cmd --win nsis --x64 --publish never '-c.electronDist=node_modules/electron/dist'
           if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed.' }
+          node -e "const a=require('@electron/asar'); const m=JSON.parse(a.extractFile('release/desktop/win-unpacked/resources/app.asar','electron/installer-build.json')); if(m.build!==Number(process.argv[1])) process.exit(1)" $build
+          if ($LASTEXITCODE -ne 0) { throw 'The packaged app is missing its installer build number.' }
           $setup = @(Get-ChildItem -LiteralPath release/desktop -Filter '* Setup *.exe' -File)
           if ($setup.Count -ne 1) { throw 'Expected one Windows Setup executable.' }
           New-Item -ItemType Directory -Force release/downloads | Out-Null
           Copy-Item -LiteralPath $setup[0].FullName -Destination release/downloads/Zeedat-POS-Setup.exe
+          @{
+            build = $build
+            version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+            size_bytes = $setup[0].Length
+            sha256 = (Get-FileHash -LiteralPath $setup[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          } | ConvertTo-Json | Set-Content -Encoding ascii release/downloads/installer-update.json
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: release/downloads/Zeedat-POS-Setup.exe
+          path: |
+            release/downloads/Zeedat-POS-Setup.exe
+            release/downloads/installer-update.json
           if-no-files-found: error
           compression-level: 0
 
@@ -111,16 +123,54 @@ jobs:
           release_id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           archive="$ssh_dir/release.tar.gz"
           test -s downloads/Zeedat-POS-Setup.exe
+          test -s downloads/installer-update.json
           tar -czf "$archive" dist updates downloads api/index.php api/composer.json api/src api/public/index.php database/schema.sql database/sqlite_schema.sql database/setup.php scripts/setup_portable.php scripts/auto_sync_sqlite.php router.php deploy/hosted-api.php deploy/hosted-config.php
 
-          ssh -p "$PORT" -i "$ssh_dir/key" \
+          ssh_args=(-p "$PORT" -i "$ssh_dir/key"
             -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts" \
-            "$SSH_USER@$HOST" "bash -c $(printf '%q' "$(cat deploy/publish.sh)") publish '$WEB_ROOT' '$release_id'" < "$archive"
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$ssh_dir/known_hosts")
+          destination="$SSH_USER@$HOST"
+          remote_stage=".zeedat/upload-$release_id"
 
+          echo "::group::SSH connection and upload setup"
+          ssh "${ssh_args[@]}" "$destination" \
+            "set -eu; cd \"\$HOME\"; test -d '$WEB_ROOT'; test -f .zeedat/config.php; umask 077; mkdir -p '$remote_stage'" < /dev/null
+          echo "::endgroup::"
+
+          echo "::group::Upload release in chunks"
+          split -b 8M -d -a 4 "$archive" "$ssh_dir/part-"
+          for part in "$ssh_dir"/part-*; do
+            name=${part##*/}
+            for attempt in 1 2 3; do
+              echo "Uploading $name (attempt $attempt)"
+              if ssh "${ssh_args[@]}" "$destination" \
+                "set -eu; cd \"\$HOME/$remote_stage\"; umask 077; cat > '$name.tmp'; mv -f '$name.tmp' '$name'" < "$part"; then
+                break
+              else
+                code=$?
+                if [[ "$code" != 255 || "$attempt" == 3 ]]; then exit "$code"; fi
+                sleep "$((attempt * 5))"
+              fi
+            done
+          done
+          echo "::endgroup::"
+
+          echo "::group::Verify and publish on Namecheap"
+          archive_sha=$(sha256sum "$archive" | cut -d ' ' -f 1)
+          publish=$(printf '%q' "$(cat deploy/publish.sh)")
+          ssh "${ssh_args[@]}" "$destination" \
+            "set -euo pipefail; cd \"\$HOME/$remote_stage\"; trap 'rm -f -- part-*; cd ..; rmdir -- upload-$release_id' EXIT; \
+             cat part-[0-9][0-9][0-9][0-9] | sha256sum --check <(printf '%s  -\\n' '$archive_sha'); \
+             cat part-[0-9][0-9][0-9][0-9] | bash -c $publish publish '$WEB_ROOT' '$release_id'" < /dev/null
+          echo "::endgroup::"
+
+          echo "::group::Verify live website and downloads"
           url="${SITE_URL%/}"
           curl --fail --silent --show-error --max-time 90 "$url/downloads/Zeedat-POS-Setup.exe?release=$release_id" --output "$ssh_dir/installer.exe"
           cmp downloads/Zeedat-POS-Setup.exe "$ssh_dir/installer.exe"
+          curl --fail --silent --show-error --max-time 20 "$url/downloads/installer-update.json?release=$release_id" --output "$ssh_dir/installer.json"
+          cmp downloads/installer-update.json "$ssh_dir/installer.json"
           curl --fail --silent --show-error --max-time 20 "$url/?release=$release_id" --output "$ssh_dir/live-index.html"
           cmp dist/index.html "$ssh_dir/live-index.html"
           curl --fail --silent --show-error --max-time 20 "$url/api/index.php?route=session" |
@@ -136,3 +186,4 @@ jobs:
           patch_route=$(jq -er '.download_route' updates/patch-manifest.json)
           curl --fail --silent --show-error --max-time 30 "$url/$patch_route" --output "$ssh_dir/desktop.zip"
           printf '%s  %s\n' "$(jq -er '.zip_sha256' updates/patch-manifest.json)" "$ssh_dir/desktop.zip" | sha256sum --check -
+          echo "::endgroup::"

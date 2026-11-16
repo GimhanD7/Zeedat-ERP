@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { DesktopUpdateNotice } from './components/common/DesktopUpdateNotice';
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -137,6 +138,7 @@ function Login({ onLogin, error: initialError }) {
           </span>
           <h2>Sign in to ZEEDAT POS</h2>
           <p>Use your staff account to open the workspace.</p>
+          <DesktopUpdateNotice />
           <form onSubmit={submit}>
             <Alert>{error}</Alert>
             <label className="field">

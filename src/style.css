@@ -2193,3 +2193,19 @@ td code {
   padding-right: 22px;
 }
 
+
+.desktop-update-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--theme-soft, #e8f5f4);
+  color: var(--teal-text);
+  font-size: 13px;
+}
+.desktop-update-notice.compact { padding: 0; border: 0; background: transparent; flex-wrap: nowrap; }
+.desktop-update-error { color: #b91c1c; }
+.desktop-update-notice.compact .desktop-update-error { max-width: 145px; }

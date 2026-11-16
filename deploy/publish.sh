@@ -41,10 +41,18 @@ mv -f "$patch_file.$release_id.tmp" "$patch_file"
 
 installer="$release/downloads/Zeedat-POS-Setup.exe"
 if [[ -s "$installer" ]]; then
+    manifest="$release/downloads/installer-update.json"
+    php -r '
+        $m = json_decode(file_get_contents($argv[1]), true, 32, JSON_THROW_ON_ERROR);
+        if (!is_int($m["build"] ?? null) || ($m["size_bytes"] ?? null) !== filesize($argv[2])
+            || !hash_equals($m["sha256"] ?? "", hash_file("sha256", $argv[2]))) exit(1);
+    ' "$manifest" "$installer"
     mkdir -p "$web_root/downloads"
     target="$web_root/downloads/Zeedat-POS-Setup.exe"
     install -m 644 "$installer" "$target.$release_id.tmp"
     mv -f "$target.$release_id.tmp" "$target"
+    install -m 644 "$manifest" "$web_root/downloads/installer-update.json.$release_id.tmp"
+    mv -f "$web_root/downloads/installer-update.json.$release_id.tmp" "$web_root/downloads/installer-update.json"
     rm -- "$installer"
 fi
 
@@ -65,6 +73,9 @@ cat >> "$cache_rules" <<'EOF'
     <Files "Zeedat-POS-Setup.exe">
         Header always set Cache-Control "no-cache, must-revalidate"
         Header always set Content-Disposition "attachment; filename=Zeedat-POS-Setup.exe"
+    </Files>
+    <Files "installer-update.json">
+        Header always set Cache-Control "no-store"
     </Files>
 </IfModule>
 # END ZEEDAT CACHE
