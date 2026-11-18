@@ -419,10 +419,16 @@ try {
     $branch = RoleGuard::branchFor($user, $_GET['branch'] ?? 0, false);
 
     $result = match ($action) {
-        'historical.revenue' => (function () use ($user) {
+        'historical.revenue' => (function () use ($user, $branch) {
             RoleGuard::allow($user, 'owner', 'manager');
             RoleGuard::allowPermission($user, 'reports');
-            return \Zeedat\Controllers\HistoricalRevenueController::get();
+            return \Zeedat\Controllers\HistoricalRevenueController::get($branch);
+        })(),
+        'daily.target' => (function () use ($user, $branch) {
+            if ($user['role'] !== 'owner' && !$branch) {
+                throw new ApiError('Your account needs an assigned branch to view daily targets.', 403);
+            }
+            return \Zeedat\Services\DailyTargetService::get($branch, isset($_GET['date']) ? Validator::date($_GET, 'date') : date('Y-m-d'));
         })(),
         'dashboard' => (function () use ($user, $branch) {
                 RoleGuard::allowPermission($user, 'dashboard');

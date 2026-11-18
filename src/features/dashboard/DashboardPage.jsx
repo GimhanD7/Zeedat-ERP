@@ -5,6 +5,7 @@ import { DataView } from '../../components/feedback';
 import { Badge, Button, Panel, Table } from '../../components/common';
 import { dateLabel, money, number, ref, timeLabel, today } from '../../utils';
 import { TrendChart } from './TrendChart';
+import { DailyTarget } from './DailyTarget';
 import './dashboard.css';
 
 export const saleColumns = [
@@ -82,6 +83,7 @@ export function DashboardPage({ ctx }) {
       <div className="branch-dash-metrics">{cards.map(([Icon, label, value, note, tone]) =>
         <article className="branch-dash-metric" key={label}><span className={`branch-dash-icon ${tone}`}><Icon size={21} /></span>
           <div><span>{label}</span><strong>{value}</strong><small>{note}</small></div></article>)}</div>
+      <DailyTarget ctx={ctx} date={date} />
       <div className="branch-dash-actions">{actions.filter(([page]) => allowed(page)).map(([page, Icon, label], i) =>
         <button type="button" key={page} className={i === 0 ? 'primary-action' : ''} onClick={() => go(page)}><Icon size={24} /><span>{label}</span><ArrowRight size={14} /></button>)}</div>
       <div className="branch-dash-grid">

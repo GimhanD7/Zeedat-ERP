@@ -52,6 +52,7 @@ const finance = () => import('./features/finance');
 const admin = () => import('./features/admin');
 const lazyPage = (load, name) => lazy(async () => ({ default: (await load())[name] }));
 const DashboardPage = lazyPage(dashboard, 'DashboardPage');
+const StaffDashboardPage = lazyPage(dashboard, 'StaffDashboardPage');
 const ProfileModal = lazyPage(() => import('./features/profile/ProfilePage'), 'ProfileModal');
 
 const pages = [
@@ -202,7 +203,7 @@ function Workspace({ session, onLogout }) {
   );
 
   const available = useMemo(
-    () => pages.filter(page => (page[0] !== 'historical-revenue' || ['owner', 'manager'].includes(user.role)) && ( page[0] === 'profile' || hasPermission(page[3]) ||
+    () => pages.filter(page => (page[0] !== 'historical-revenue' || ['owner', 'manager'].includes(user.role)) && ( page[0] === 'dashboard' || page[0] === 'profile' || hasPermission(page[3]) ||
       (page[0] === 'sms' && (hasPermission('settings') || hasPermission('customers') || hasPermission('repairs'))) ||
       (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers', 'sms'].includes(page[0])))),
     [hasPermission, user.role]
@@ -539,7 +540,9 @@ function Workspace({ session, onLogout }) {
     clearIntent: () => setIntent(''),
   };
 
-  const Page = available.find(item => item[0] === page)?.[4] || available[0]?.[4] || DashboardPage;
+  const Page = page === 'dashboard' && !hasPermission('dashboard')
+    ? StaffDashboardPage
+    : available.find(item => item[0] === page)?.[4] || available[0]?.[4] || DashboardPage;
 
   return (
     <>

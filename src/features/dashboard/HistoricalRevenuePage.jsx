@@ -30,8 +30,8 @@ export function aggregateHistory(days, from, to, group) {
 }
 
 function RevenueView({ data }) {
-  const first = data.days[0]?.day || '';
-  const last = data.days.at(-1)?.day || '';
+  const first = data.from || data.days[0]?.day || '';
+  const last = data.to || data.days.at(-1)?.day || '';
   const [from, setFrom] = useState(first);
   const [to, setTo] = useState(last);
   const [group, setGroup] = useState('month');
@@ -49,24 +49,29 @@ function RevenueView({ data }) {
   const best = rows.reduce((highest, row) => !highest || row.net > highest.net ? row : highest, null);
   function exportRows() {
     const csv = [
-      ['Period', 'Invoices', 'Units', 'Invoice total LKR', 'Discount LKR', 'Card fees LKR', 'Completed refunds LKR', 'Net revenue LKR'],
-      ...rows.map(row => [row.day, row.invoices, row.units, ...['revenue', 'discount', 'card_fees', 'refunds', 'net'].map(key => (row[key] / 100).toFixed(2))]),
+      ['Branch', 'Period', 'Invoices', 'Units', 'Invoice total LKR', 'Discount LKR', 'Card fees LKR', 'Completed refunds LKR', 'Net revenue LKR'],
+      ...rows.map(row => [data.branch_name, row.day, row.invoices, row.units, ...['revenue', 'discount', 'card_fees', 'refunds', 'net'].map(key => (row[key] / 100).toFixed(2))]),
     ].map(row => row.join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `historical-revenue-${from}-to-${to}.csv`;
+    link.download = `${data.branch_key}-revenue-${from}-to-${to}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+  if (data.available === false) {
+    return <Panel title="Historical revenue" icon={FileClock}>
+      <p className="history-empty">No historical backup has been added for {data.selected_branch || 'this branch'}. Select Battaramulla Mobile or All Branches to view the available backup.</p>
+    </Panel>;
   }
   return <div className="history-revenue">
     <header className="history-revenue-heading">
       <div><span className="history-eyebrow">LEGACY BUSINESS RECORDS</span><h1>Historical revenue</h1>
-        <p>{dateLabel(first)} — {dateLabel(last)} · LKR</p></div>
+        <p>{data.branch_name} · {dateLabel(first)} — {dateLabel(last)} · LKR</p></div>
       <Button icon={Download} onClick={exportRows} disabled={!rows.length || from > to}>Export analysis</Button>
     </header>
     <div className="history-source"><FileClock size={19} /><div><strong>{data.source}</strong>
-      <p>Invoice revenue analysis from the backup. Original invoices have no branch field, so this page shows all legacy records together.</p></div></div>
+      <p>This backup belongs to {data.branch_name}. All figures on this page are attributed to that branch.</p></div></div>
     <section className="history-filters" aria-label="Historical revenue filters">
       <label><span>From</span><input type="date" min={first} max={to || last} value={from} onChange={e => setFrom(e.target.value)} /></label>
       <label><span>To</span><input type="date" min={from || first} max={last} value={to} onChange={e => setTo(e.target.value)} /></label>
@@ -98,7 +103,7 @@ function RevenueView({ data }) {
         <p>Revenue uses each saved invoice total, rounded to cents. Completed returns reduce revenue on their return date.</p>
         <p>Discounts use the saved amount, or subtotal × discount percentage when the amount is missing. Card fees appear separately as recorded.</p>
         <p>Payment methods and collection dates are absent from this backup. These figures describe billed revenue.</p>
-        <p>Legacy product store names are {data.legacy_product_stores.join(', ')}. They are not used to assign invoice revenue to current branches.</p>
+        <p>The backup owner confirmed that this file belongs to {data.branch_name}. Branch attribution uses that confirmation.</p>
       </div></Panel>
     </div>
     <Panel title={`${group === 'day' ? 'Daily' : group === 'month' ? 'Monthly' : 'Yearly'} revenue ledger`} icon={ReceiptText}>
@@ -114,5 +119,5 @@ function RevenueView({ data }) {
 
 export function HistoricalRevenuePage({ ctx }) {
   const state = useData(ctx, { history: 'historical.revenue' });
-  return <DataView state={state}>{({ history }) => <RevenueView data={history} />}</DataView>;
+  return <DataView state={state}>{({ history }) => <RevenueView key={ctx.branch} data={history} />}</DataView>;
 }

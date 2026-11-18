@@ -3,7 +3,9 @@
     "sha256": "0853fc06781a6a6e322ffbef7118452ddad6600d61a3991c8747b399d0742f5b",
     "currency": "LKR",
     "amount_unit": "cents",
-    "branch_attribution": "Unavailable on original invoices",
+    "branch_key": "battaramulla-mobile",
+    "branch_name": "Battaramulla Mobile",
+    "branch_attribution": "Confirmed by the backup owner",
     "legacy_product_stores": [
         "Baththaramulla",
         "Kothalawala"
