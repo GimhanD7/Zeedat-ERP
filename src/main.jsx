@@ -66,6 +66,7 @@ const pages = [
   ['transfers', 'Stock Transfers', Truck, 'transfers', lazyPage(finance, 'StockTransfers')],
   ['customers', 'Customers', Users, 'customers', lazyPage(operations, 'Customers')],
   ['sms', 'SMS Center', MessageSquareText, 'settings', lazyPage(admin, 'SmsCenterPage')],
+  ['historical-revenue', 'Historical Revenue', ChartNoAxesCombined, 'reports', lazyPage(dashboard, 'HistoricalRevenuePage')],
   ['reports', 'Reports', ChartNoAxesCombined, 'reports', lazyPage(dashboard, 'ReportsPage')],
   ['sales', 'Sales History', ReceiptText, 'sales', lazyPage(pos, 'SalesHistory')],
   ['staff', 'Staff & Permissions', ShieldCheck, 'staff', lazyPage(admin, 'StaffPage')],
@@ -201,9 +202,9 @@ function Workspace({ session, onLogout }) {
   );
 
   const available = useMemo(
-    () => pages.filter(page => page[0] === 'profile' || hasPermission(page[3]) ||
+    () => pages.filter(page => (page[0] !== 'historical-revenue' || ['owner', 'manager'].includes(user.role)) && ( page[0] === 'profile' || hasPermission(page[3]) ||
       (page[0] === 'sms' && (hasPermission('settings') || hasPermission('customers') || hasPermission('repairs'))) ||
-      (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers', 'sms'].includes(page[0]))),
+      (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers', 'sms'].includes(page[0])))),
     [hasPermission, user.role]
   );
 

@@ -419,6 +419,11 @@ try {
     $branch = RoleGuard::branchFor($user, $_GET['branch'] ?? 0, false);
 
     $result = match ($action) {
+        'historical.revenue' => (function () use ($user) {
+            RoleGuard::allow($user, 'owner', 'manager');
+            RoleGuard::allowPermission($user, 'reports');
+            return \Zeedat\Controllers\HistoricalRevenueController::get();
+        })(),
         'dashboard' => (function () use ($user, $branch) {
                 RoleGuard::allowPermission($user, 'dashboard');
                 return DashboardController::getDashboard($branch, $_GET);
