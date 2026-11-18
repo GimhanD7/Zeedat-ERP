@@ -48,7 +48,7 @@ export function TrendChart({ trend }) {
       <svg
         viewBox={'0 0 ' + width + ' ' + height}
         role="img"
-        aria-label="Daily gross sales in Sri Lankan rupees"
+        aria-label="Sales trend in Sri Lankan rupees"
       >
         <defs>
           <linearGradient id="trend-fill" x1="0" x2="0" y1="0" y2="1">
@@ -120,7 +120,7 @@ export function TrendChart({ trend }) {
                             : 'middle'
                       }
                     >
-                      {dateLabel(p.day, { day: '2-digit', month: 'short' })}
+                      {p.label || dateLabel(p.day, { day: '2-digit', month: 'short' })}
                     </text>
                   </g>
                 )
@@ -148,7 +148,7 @@ export function TrendChart({ trend }) {
             top: Math.max(1, (100 * y(values[mark])) / height - 20) + '%',
           }}
         >
-          <span>{dateLabel(trend[mark].day)}</span>
+          <span>{trend[mark].label || dateLabel(trend[mark].day)}</span>
           <strong>{money(trend[mark].total)}</strong>
         </div>
       )}

@@ -1,454 +1,135 @@
-import { useState, useMemo } from 'react';
-import {
-  ArrowDownLeft,
-  ArrowRight,
-  ArrowUpRight,
-  Boxes,
-  CalendarDays,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-  Headphones,
-  LayoutGrid,
-  Package,
-  RotateCcw,
-  ShoppingCart,
-  Smartphone,
-  Tag,
-  TrendingUp,
-  Wallet,
-  Wrench,
-  Zap,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowRight, ArrowLeftRight, BarChart3, Box, CalendarDays, CheckCircle2, Cloud, FileText, Layers, Plus, RefreshCw, ShoppingCart, Wallet, Wifi, WifiOff, Wrench } from 'lucide-react';
 import { useData } from '../../hooks/useData';
 import { DataView } from '../../components/feedback';
-import { dateLabel, money, number, ref, rupees, timeLabel, today } from '../../utils';
-import { Badge } from '../../components/common';
+import { Badge, Button, Panel, Table } from '../../components/common';
+import { dateLabel, money, number, ref, timeLabel, today } from '../../utils';
+import { TrendChart } from './TrendChart';
+import './dashboard.css';
 
 export const saleColumns = [
-  ['Invoice #', r => <strong className="mono">{ref('INV', r.id)}</strong>],
-  ['Date & time', r => timeLabel(r.created_at)],
-  ['Branch', 'branch'],
-  ['Type', () => <Badge tone="green">Sale</Badge>],
-  ['Customer', 'customer'],
-  ['Items', 'items'],
-  ['Amount', r => <strong>{money(r.total)}</strong>],
+  ['Invoice #', r => <strong>{r.invoice_no || ref('INV', r.id)}</strong>],
+  ['Date & time', r => timeLabel(r.created_at)], ['Branch', 'branch'],
+  ['Type', () => <Badge tone="green">Sale</Badge>], ['Customer', 'customer'],
+  ['Items', 'items'], ['Amount', r => money(r.total)],
 ];
+const changeLabel = (value, prior) => prior > 0
+  ? `${value >= prior ? '+' : ''}${(((value - prior) / prior) * 100).toFixed(1)}% vs previous day`
+  : 'No previous-day sales';
+const palette = ['#0284c7', '#009b86', '#9770d5', '#efab43', '#e26d80'];
 
 export function DashboardPage({ ctx }) {
-  const [days, setDays] = useState(7);
-  const state = useData(ctx, { dashboard: ['dashboard', { days }] });
-
-  // Formatted date string e.g. "Today, 08 Jan 2027"
-  const formattedToday = useMemo(() => {
-    const d = new Date();
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = months[d.getMonth()];
-    const year = d.getFullYear();
-    return `Today, ${day} ${month} ${year}`;
+  const [date, setDate] = useState(today());
+  const [period, setPeriod] = useState('day');
+  const [online, setOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
   }, []);
-
-  return (
-    <DataView state={state}>
-      {({ dashboard: d }) => {
-        const salesTotal = d.sales || 28475000;
-        const billsCount = d.bills || 36;
-        const openRepairsCount = d.repairs?.open_count ?? 7;
-        const inProgressRepairs = d.repairs?.in_progress ?? 3;
-        const stockValuation = d.stock_value || 1246030000;
-
-        // Sales trend 7 days data
-        const trendData = d.trend && d.trend.length >= 7 ? d.trend.slice(-7) : [
-          { day: '02 Jan', total: 11000000 },
-          { day: '03 Jan', total: 13500000 },
-          { day: '04 Jan', total: 16500000 },
-          { day: '05 Jan', total: 18000000 },
-          { day: '06 Jan', total: 21500000 },
-          { day: '07 Jan', total: 24000000 },
-          { day: '08 Jan', total: 28475000 },
-        ];
-
-        const maxTrend = Math.max(...trendData.map(t => rupees(t.total)), 300000);
-
-        // Category breakdown for donut chart
-        const categories = [
-          { name: 'Phones', pct: 56, color: '#3b82f6' },
-          { name: 'Accessories', pct: 24, color: '#22c55e' },
-          { name: 'Repairs', pct: 12, color: '#f97316' },
-          { name: 'Others', pct: 8, color: '#a855f7' },
-        ];
-
-        // Popular products (from backend or verified high-stock catalog items)
-        const popularProducts = (d.popular_products && d.popular_products.length === 4)
-          ? d.popular_products
-          : [
-              { id: 1, name: 'iPhone 15 128GB', price: 31990000, in_stock: 5, icon: Smartphone, color: '#f3e8ff' },
-              { id: 2, name: 'Samsung A55 5G', price: 14990000, in_stock: 12, icon: Smartphone, color: '#e0f2fe' },
-              { id: 3, name: 'AirPods Pro', price: 4990000, in_stock: 18, icon: Headphones, color: '#f1f5f9' },
-              { id: 4, name: 'Phone Case', price: 195000, in_stock: 64, icon: Tag, color: '#fdf4ff' },
-            ];
-
-        // Recent feed
-        const recentFeed = (d.recent_feed && d.recent_feed.length > 0)
-          ? d.recent_feed
-          : [
-              { invoice_no: 'INV-013842', type: 'Sale', customer: 'Walk-in', amount: 8790000 },
-              { invoice_no: 'INV-013841', type: 'Repair', customer: 'Amal Perera', amount: 650000 },
-              { invoice_no: 'INV-013840', type: 'Sale', customer: 'Nimal Silva', amount: 14990000 },
-              { invoice_no: 'INV-013839', type: 'Return', customer: 'Walk-in', amount: -490000 },
-            ];
-
-        return (
-          <div className="zk-dashboard-wrap">
-            {/* DASHBOARD TOP HEADER */}
-            <div className="zk-dash-header">
-              <div className="zk-dash-title">
-                <LayoutGrid size={24} style={{ color: '#0d9488' }} />
-                <h1>Dashboard</h1>
-              </div>
-
-              <div className="zk-date-dropdown">
-                <CalendarDays size={16} style={{ color: '#64748b' }} />
-                <span>{formattedToday}</span>
-                <ChevronDown size={14} style={{ color: '#94a3b8' }} />
-              </div>
-            </div>
-
-            {/* ROW 1: TOP 4 KPI CARDS */}
-            <div className="zk-kpi-4grid">
-              {/* Card 1: Today Sales */}
-              <div className="zk-kpi-card">
-                <div className="zk-kpi-icon-square green">
-                  <ShoppingCart size={24} />
-                </div>
-                <div className="zk-kpi-content">
-                  <div className="zk-kpi-label">Today Sales</div>
-                  <div className="zk-kpi-value">{money(salesTotal)}</div>
-                  <div className="zk-kpi-trend">
-                    <TrendingUp size={13} />
-                    <span>{d.sales_growth || '+12.6%'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: Bills */}
-              <div className="zk-kpi-card">
-                <div className="zk-kpi-icon-square blue">
-                  <FileText size={24} />
-                </div>
-                <div className="zk-kpi-content">
-                  <div className="zk-kpi-label">Bills</div>
-                  <div className="zk-kpi-value">{billsCount}</div>
-                  <div className="zk-kpi-trend">
-                    <TrendingUp size={13} />
-                    <span>{d.bills_growth || '+20.0%'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Repair Jobs */}
-              <div className="zk-kpi-card">
-                <div className="zk-kpi-icon-square orange">
-                  <Wrench size={24} />
-                </div>
-                <div className="zk-kpi-content">
-                  <div className="zk-kpi-label">Repair Jobs</div>
-                  <div className="zk-kpi-value">{openRepairsCount}</div>
-                  <div>
-                    <span className="zk-kpi-badge-peach">
-                      {inProgressRepairs} In Progress
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 4: Stock Value */}
-              <div className="zk-kpi-card">
-                <div className="zk-kpi-icon-square purple">
-                  <Boxes size={24} />
-                </div>
-                <div className="zk-kpi-content">
-                  <div className="zk-kpi-label">Stock Value</div>
-                  <div className="zk-kpi-value">{money(stockValuation)}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* ROW 2: ANALYTICS (SALES TREND, SALES BY CATEGORY, QUICK ACTIONS) */}
-            <div className="zk-dash-row2">
-              {/* 1. Sales Trend Bar Chart */}
-              <div className="zk-dash-card">
-                <div className="zk-dash-card-header">
-                  <div className="zk-dash-card-title">
-                    <TrendingUp size={18} style={{ color: '#0d9488' }} />
-                    <span>Sales Trend</span>
-                  </div>
-                </div>
-
-                <div className="zk-bar-chart-wrap">
-                  <div className="zk-barchart-inner">
-                    {trendData.map((item, i) => {
-                      const val = rupees(item.total);
-                      const heightPct = Math.max(15, Math.min(100, (val / maxTrend) * 100));
-                      const label = item.day ? item.day.substring(5) || item.day : `${i + 2} Jan`;
-
-                      return (
-                        <div key={i} className="zk-bar-col">
-                          <div
-                            className="zk-bar-fill"
-                            style={{ height: `${heightPct}%` }}
-                            title={`${item.day || label}: ${money(item.total)}`}
-                          />
-                          <span className="zk-bar-label">{label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', padding: '0 4px' }}>
-                    <span>0</span>
-                    <span>50K</span>
-                    <span>100K</span>
-                    <span>150K</span>
-                    <span>200K</span>
-                    <span>250K</span>
-                    <span>300K</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Sales by Category Donut Chart */}
-              <div className="zk-dash-card">
-                <div className="zk-dash-card-header">
-                  <div className="zk-dash-card-title">
-                    <Tag size={18} style={{ color: '#0d9488' }} />
-                    <span>Sales by Category</span>
-                  </div>
-                </div>
-
-                <div className="zk-donut-layout">
-                  <div className="zk-donut-left">
-                    {/* SVG Donut Chart */}
-                    <svg viewBox="0 0 100 100" width="140" height="140">
-                      {/* Phones: 56% */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="38"
-                        fill="transparent"
-                        stroke="#3b82f6"
-                        strokeWidth="15"
-                        strokeDasharray="133.7 238.7"
-                        strokeDashoffset="60"
-                      />
-                      {/* Accessories: 24% */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="38"
-                        fill="transparent"
-                        stroke="#22c55e"
-                        strokeWidth="15"
-                        strokeDasharray="57.3 238.7"
-                        strokeDashoffset="-73.7"
-                      />
-                      {/* Repairs: 12% */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="38"
-                        fill="transparent"
-                        stroke="#f97316"
-                        strokeWidth="15"
-                        strokeDasharray="28.6 238.7"
-                        strokeDashoffset="-131"
-                      />
-                      {/* Others: 8% */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="38"
-                        fill="transparent"
-                        stroke="#a855f7"
-                        strokeWidth="15"
-                        strokeDasharray="19.1 238.7"
-                        strokeDashoffset="-159.6"
-                      />
-                    </svg>
-                    <div className="zk-donut-center-text">
-                      <div className="zk-donut-center-amt">{money(salesTotal)}</div>
-                    </div>
-                  </div>
-
-                  <div className="zk-donut-legend">
-                    {categories.map((c, i) => (
-                      <div key={i} className="zk-legend-row">
-                        <div className="zk-legend-left">
-                          <span className="zk-legend-dot" style={{ background: c.color }} />
-                          <span>{c.name}</span>
-                        </div>
-                        <span className="zk-legend-val">{c.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Quick Actions 2x2 Grid */}
-              <div className="zk-dash-card zk-actions-card">
-                <div className="zk-dash-card-header">
-                  <div className="zk-dash-card-title">
-                    <Zap size={18} style={{ color: '#0d9488' }} />
-                    <span>Quick Actions</span>
-                  </div>
-                </div>
-
-                <div className="zk-quick-actions-grid">
-                  <button
-                    type="button"
-                    className="zk-action-tile primary"
-                    onClick={() => ctx.navigate('pos')}
-                  >
-                    <ShoppingCart size={22} />
-                    <span>New Sale</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="zk-action-tile outline"
-                    onClick={() => ctx.navigate('repairs')}
-                  >
-                    <Wrench size={22} />
-                    <span>New Repair</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="zk-action-tile outline"
-                    onClick={() => ctx.navigate('purchases')}
-                  >
-                    <Package size={22} />
-                    <span>Receive Stock</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="zk-action-tile outline"
-                    onClick={() => ctx.navigate('transfers')}
-                  >
-                    <ArrowDownLeft size={22} />
-                    <span>Stock Transfer</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* ROW 3: BOTTOM OPERATIONAL FEEDS (POPULAR PRODUCTS & RECENT TRANSACTIONS) */}
-            <div className="zk-dash-row3">
-              {/* Popular Products 4 Cards */}
-              <div className="zk-dash-card">
-                <div className="zk-dash-card-header">
-                  <div className="zk-dash-card-title">
-                    <Tag size={18} style={{ color: '#0d9488' }} />
-                    <span>Popular Products</span>
-                  </div>
-                  <a
-                    className="zk-link-view-all"
-                    onClick={() => ctx.navigate('inventory')}
-                  >
-                    View All
-                  </a>
-                </div>
-
-                <div className="zk-popular-grid">
-                  {popularProducts.map((p, i) => {
-                    const Icon = p.icon || Smartphone;
-                    return (
-                      <div key={p.id || i} className="zk-popular-card">
-                        <div className="zk-popular-img-box" style={{ background: p.color || '#f1f5f9' }}>
-                          <Icon size={28} />
-                        </div>
-                        <div className="zk-popular-name" title={p.name}>
-                          {p.name}
-                        </div>
-                        <div className="zk-popular-price">
-                          {money(p.price)}
-                        </div>
-                        <div className="zk-popular-stock">
-                          In Stock: {p.in_stock || 12}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Recent Transactions Table */}
-              <div className="zk-dash-card">
-                <div className="zk-dash-card-header">
-                  <div className="zk-dash-card-title">
-                    <FileText size={18} style={{ color: '#0d9488' }} />
-                    <span>Recent Transactions</span>
-                  </div>
-                  <a
-                    className="zk-link-view-all"
-                    onClick={() => ctx.navigate('sales')}
-                  >
-                    View All
-                  </a>
-                </div>
-
-                <table className="zk-recent-table">
-                  <thead>
-                    <tr>
-                      <th>Invoice #</th>
-                      <th>Type</th>
-                      <th>Customer</th>
-                      <th style={{ textAlign: 'right' }}>Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentFeed.map((item, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>
-                          {item.invoice_no}
-                        </td>
-                        <td>
-                          {item.type === 'Sale' && (
-                            <span className="zk-feed-badge sale">
-                              <ShoppingCart size={11} /> Sale
-                            </span>
-                          )}
-                          {item.type === 'Repair' && (
-                            <span className="zk-feed-badge repair">
-                              <Wrench size={11} /> Repair
-                            </span>
-                          )}
-                          {item.type === 'Return' && (
-                            <span className="zk-feed-badge return">
-                              <RotateCcw size={11} /> Return
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ color: '#475569' }}>{item.customer}</td>
-                        <td
-                          style={{
-                            textAlign: 'right',
-                            fontWeight: 700,
-                            color: item.amount < 0 ? '#dc2626' : '#0f172a',
-                          }}
-                        >
-                          {item.amount < 0 ? `- ${money(Math.abs(item.amount))}` : money(item.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-      }}
-    </DataView>
-  );
+  const state = useData(ctx, { dashboard: ['dashboard', { days: 7, date }] });
+  const branchName = ctx.branches.find(b => Number(b.id) === Number(ctx.branch))?.name || 'All branches';
+  const go = (page, intent = '') => ctx.navigate(page, intent);
+  const allowed = page => ctx.hasPermission?.(page === 'reports' ? 'reports' : page) || ctx.user.role === 'owner';
+  async function sync() {
+    setSyncing(true);
+    try {
+      if (window.electronAPI?.triggerBackgroundSync) {
+        const result = await window.electronAPI.triggerBackgroundSync();
+        if (result?.error) throw new Error(result.error);
+        ctx.setNotice(result?.ran ? 'Synchronization completed.' : 'Synchronization checked. Open Cloud Sync settings for connection details.');
+      } else ctx.setNotice('This web workspace uses the server database.');
+      setOnline(navigator.onLine);
+      state.refresh();
+    } catch (error) { ctx.setNotice(error.message); }
+    finally { setSyncing(false); }
+  }
+  return <DataView state={state}>{({ dashboard: d }) => {
+    const cash = d.cash_drawer || {};
+    const returns = d.returns_today || [];
+    const categoryTotal = (d.category_breakdown || []).reduce((sum, row) => sum + Number(row.total), 0);
+    let offset = 0;
+    const slices = (d.category_breakdown || []).map((row, index) => {
+      const percent = categoryTotal ? Number(row.total) / categoryTotal * 100 : 0;
+      const slice = { ...row, percent, start: offset, color: palette[index % palette.length] };
+      offset += percent;
+      return slice;
+    });
+    const cards = [
+      [ShoppingCart, "Day's sales", money(d.sales), changeLabel(d.sales, d.previous_sales), 'teal'],
+      [Box, 'Items sold', number(d.items_sold), `${number(d.bills)} invoices`, 'blue'],
+      [Wrench, 'Current open repairs', number(d.repairs?.open_count || 0), `${number(d.repairs?.in_progress || 0)} in progress`, 'steel'],
+      [ArrowLeftRight, 'Returns / exchanges', number(returns.length), money(returns.reduce((sum, r) => sum + Number(r.amount), 0)), 'violet'],
+      [Wallet, 'Cash in drawer', money(cash.balance || 0), 'Includes opening float', 'green'],
+    ];
+    const actions = [
+      ['pos', ShoppingCart, 'New sale'], ['repairs', Wrench, 'New repair'],
+      ['returns', ArrowLeftRight, 'Return / exchange'], ['inventory', Plus, 'Products & stock'],
+      ['reports', FileText, 'View reports'], ['drawer', Wallet, 'Cash drawer'],
+    ];
+    const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
+    return <div className="branch-dashboard">
+      <header className="branch-dash-heading">
+        <div><span className="branch-dash-eyebrow">WORKSPACE OVERVIEW</span><h1>{greeting}, {ctx.user.name.split(' ')[0]}.</h1>
+          <p>{branchName} <span>·</span> {dateLabel(date)}</p></div>
+        <label className="branch-dash-date"><CalendarDays size={16} /><input aria-label="Dashboard date" type="date" value={date} max={today()} onChange={e => e.target.value && setDate(e.target.value)} /></label>
+      </header>
+      <div className="branch-dash-metrics">{cards.map(([Icon, label, value, note, tone]) =>
+        <article className="branch-dash-metric" key={label}><span className={`branch-dash-icon ${tone}`}><Icon size={21} /></span>
+          <div><span>{label}</span><strong>{value}</strong><small>{note}</small></div></article>)}</div>
+      <div className="branch-dash-actions">{actions.filter(([page]) => allowed(page)).map(([page, Icon, label], i) =>
+        <button type="button" key={page} className={i === 0 ? 'primary-action' : ''} onClick={() => go(page)}><Icon size={24} /><span>{label}</span><ArrowRight size={14} /></button>)}</div>
+      <div className="branch-dash-grid">
+        <Panel title="Repair orders" icon={Wrench} action={allowed('repairs') && <Button variant="link" onClick={() => go('repairs')}>View all <ArrowRight size={13} /></Button>}>
+          <Table rows={d.repair_orders || []} empty="No repair orders for this branch." columns={[
+            ['Job', r => ref('RJ', r.id)], ['Device', 'device'], ['Customer', 'customer'], ['Status', r => <Badge>{r.status}</Badge>],
+          ]} />
+        </Panel>
+        <Panel title={period === 'day' ? "Day's sales overview" : 'Seven-day sales trend'} icon={BarChart3} action={
+          <div className="branch-dash-toggle">{[['day', 'Hourly'], ['week', '7 days']].map(([id, label]) =>
+            <button type="button" key={id} aria-pressed={period === id} onClick={() => setPeriod(id)}>{label}</button>)}</div>}>
+          <div className="branch-dash-chart-total"><strong>{money(period === 'day' ? d.sales : d.trend.reduce((sum, row) => sum + Number(row.total), 0))}</strong>
+            <small>{period === 'day' ? 'Cumulative sales · LKR' : 'Daily sales · LKR'}</small></div>
+          <TrendChart trend={period === 'day' ? d.hourly_trend : d.trend} />
+        </Panel>
+        <Panel title="Cash drawer" icon={Wallet} action={<Badge tone={Number(cash.open_shifts) ? 'green' : 'slate'}>{Number(cash.open_shifts) ? `${cash.open_shifts} open` : 'Closed'}</Badge>}>
+          <dl className="branch-cash-summary">{[
+            ['Opening float', cash.opening], ['Cash sales & exchanges', cash.sales], ['Other cash in', cash.other_in], ['Cash out / refunds', -Number(cash.cash_out)], ['Current balance', cash.balance],
+          ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={value < 0 ? 'text-red' : ''}>{money(value || 0)}</dd></div>)}</dl>
+          {allowed('drawer') && <Button variant="primary" icon={Wallet} onClick={() => go('drawer')}>Manage drawer</Button>}
+        </Panel>
+        <Panel title="Returns & exchanges" icon={ArrowLeftRight} action={allowed('returns') && <Button variant="link" onClick={() => go('returns')}>View all <ArrowRight size={13} /></Button>}>
+          <Table rows={returns.slice(0, 5)} empty="No returns on the selected date." columns={[
+            ['Ref', r => ref('RET', r.id)], ['Type', r => <Badge tone={r.quoted_total == null ? 'red' : 'blue'}>{r.quoted_total == null ? 'Return' : 'Exchange'}</Badge>],
+            ['Invoice', r => ref('INV', r.sale_id)], ['Credit', r => money(r.amount)], ['Status', r => <Badge>{r.status}</Badge>],
+          ]} />
+        </Panel>
+        <Panel title="Pending offline transactions" icon={Layers} action={<Badge tone={d.pending_offline ? 'amber' : 'green'}>{d.pending_offline} pending</Badge>}>
+          <div className="branch-sync-empty"><CheckCircle2 size={42} /><strong>{d.pending_offline ? 'Transactions waiting to sync' : 'Transactions are up to date'}</strong>
+            <p>{d.database_driver === 'sqlite' ? 'Local sales, repairs and returns.' : 'Connected directly to the server database.'}</p></div>
+        </Panel>
+        <Panel title="Synchronization" icon={Cloud} action={<Badge tone={online ? 'green' : 'amber'}>{online ? 'Online' : 'Offline'}</Badge>}>
+          <dl className="branch-cash-summary"><div><dt>Storage</dt><dd>{d.database_driver === 'sqlite' ? 'Local SQLite' : 'Server MySQL'}</dd></div>
+            <div><dt>Last data sync</dt><dd>{d.last_synced_at ? timeLabel(d.last_synced_at) : 'Not recorded'}</dd></div>
+            <div><dt>Pending transactions</dt><dd>{d.pending_offline}</dd></div></dl>
+      {window.electronAPI && allowed('settings') && <Button icon={RefreshCw} onClick={sync} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}
+        </Panel>
+      </div>
+      <div className="branch-dash-bottom">
+        <Panel title="Sales by category" icon={Box}>
+          <div className="branch-category"><div className="branch-category-donut" style={{ background: slices.length ? `conic-gradient(${slices.map(s => `${s.color} ${s.start}% ${s.start + s.percent}%`).join(',')})` : 'var(--line)' }}><span><b>7 days</b><small>sales mix</small></span></div>
+            <ul>{slices.length ? slices.map(s => <li key={s.category}><i style={{ background: s.color }} /><span>{s.category}</span><b>{s.percent.toFixed(1)}%</b></li>) : <li>No sales in this period.</li>}</ul></div>
+        </Panel>
+        <Panel title="Branch performance" icon={BarChart3}>
+          <Table rows={d.branches || []} columns={[['Branch', 'name'], ['Sales', r => money(r.sales)], ['Bills', 'bills'], ['Repairs received', 'repairs']]} />
+        </Panel>
+      </div>
+      <footer className="branch-dash-footer">{online ? <Wifi size={15} /> : <WifiOff size={15} />}<span>{online ? 'Internet connected' : 'Working offline'}</span><span>{branchName}</span><span>Current stock at cost {money(d.stock_value)}</span><span>{dateLabel(date)}</span></footer>
+    </div>;
+  }}</DataView>;
 }

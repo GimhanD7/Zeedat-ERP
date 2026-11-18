@@ -11,13 +11,14 @@ use Zeedat\Support\Validator;
 class DashboardController {
     public static function getDashboard(int $branch, array $query): array {
         $days = Validator::integer($query['days'] ?? 7, 'Date range', 1, 366);
-        $today = date('Y-m-d');
+        $today = isset($query['date']) ? Validator::date($query, 'date') : date('Y-m-d');
+        $end = (new DateTimeImmutable($today))->modify('+1 day')->format('Y-m-d');
         $start = (new DateTimeImmutable($today))->modify('-' . ($days - 1) . ' days')->format('Y-m-d');
         $scope = $branch ? ' AND s.branch_id=?' : '';
         $params = $branch ? [$branch] : [];
 
         $daily = BaseRepository::rows(
-            "SELECT DATE(s.created_at) day, SUM(s.total) total FROM sales s WHERE s.created_at>=? {$scope} GROUP BY DATE(s.created_at) ORDER BY day",
+            "SELECT DATE(s.created_at) day, SUM(s.total) total FROM sales s WHERE s.created_at>=? AND s.created_at<'{$end}' {$scope} GROUP BY DATE(s.created_at) ORDER BY day",
             [$start, ...$params]
         );
         $daily = array_column($daily, 'total', 'day');
@@ -30,17 +31,17 @@ class DashboardController {
 
         $branchStats = BaseRepository::rows(
             "SELECT b.id, b.name,
-            (SELECT COALESCE(SUM(total),0) FROM sales WHERE branch_id=b.id AND created_at>=?) sales,
-            (SELECT COUNT(*) FROM sales WHERE branch_id=b.id AND created_at>=?) bills,
-            (SELECT COUNT(*) FROM repairs WHERE branch_id=b.id AND created_at>=?) repairs
+            (SELECT COALESCE(SUM(total),0) FROM sales WHERE branch_id=b.id AND created_at>=? AND created_at<'{$end}') sales,
+            (SELECT COUNT(*) FROM sales WHERE branch_id=b.id AND created_at>=? AND created_at<'{$end}') bills,
+            (SELECT COUNT(*) FROM repairs WHERE branch_id=b.id AND created_at>=? AND created_at<'{$end}') repairs
             FROM branches b " . ($branch ? 'WHERE b.id=?' : '') . ' ORDER BY b.id',
             [$today, $today, $today, ...$params]
         );
 
         $repairStats = BaseRepository::one(
-            "SELECT COUNT(*) open_count, 
+            "SELECT COUNT(*) open_count,
                     COALESCE(SUM(status IN ('In Progress', 'Waiting for Parts', 'Diagnosing')), 0) in_progress,
-                    COALESCE(SUM(due_date < ?),0) overdue 
+                    COALESCE(SUM(due_date < ?),0) overdue
              FROM repairs s WHERE status NOT IN ('Delivered','Cancelled') {$scope}",
             [$today, ...$params]
         );
@@ -49,26 +50,20 @@ class DashboardController {
             "SELECT COALESCE(SUM(s.qty * p.cost), 0) FROM stock s JOIN products p ON p.id=s.product_id WHERE COALESCE(p.active, 1)=1" . ($branch ? " AND s.branch_id=?" : ""),
             $params
         );
-        if ($stockValue === 0) {
-            $stockValue = (int) BaseRepository::scalar("SELECT COALESCE(SUM(cost * 15), 0) FROM products WHERE COALESCE(active, 1)=1") ?: 1246030000;
-        }
-
-        // Popular Products
         $popular = BaseRepository::rows(
-            "SELECT p.id, p.name, p.price, p.category, COALESCE(s.qty, 12) in_stock
-             FROM products p
-             LEFT JOIN stock s ON s.product_id=p.id " . ($branch ? "AND s.branch_id={$branch}" : "") . "
-             WHERE COALESCE(p.active, 1)=1
-             ORDER BY p.id ASC LIMIT 4"
+            "SELECT p.id,p.name,p.price,p.category,COALESCE(st.qty,0) in_stock
+             FROM products p LEFT JOIN (SELECT product_id,SUM(qty) qty FROM stock
+                 " . ($branch ? 'WHERE branch_id=?' : '') . " GROUP BY product_id) st ON st.product_id=p.id
+             WHERE COALESCE(p.active,1)=1 ORDER BY p.id LIMIT 4", $params
         );
 
         // Category breakdown for donut chart
         $categoryBreakdown = BaseRepository::rows(
-            "SELECT p.category, SUM(si.qty * si.price) total
+            "SELECT p.category, SUM(si.total) total
              FROM sale_items si
              JOIN products p ON p.id=si.product_id
              JOIN sales s ON s.id=si.sale_id
-             WHERE s.created_at>=? {$scope}
+             WHERE s.created_at>=? AND s.created_at<'{$end}' {$scope}
              GROUP BY p.category ORDER BY total DESC",
             [$start, ...$params]
         );
@@ -76,9 +71,9 @@ class DashboardController {
         // Combined recent feed (Sales, Repairs, Returns)
         $recentSales = SaleRepository::recentSales($branch, 6);
         $recentRepairs = BaseRepository::rows(
-            "SELECT s.id, s.device, s.estimate total, s.status, c.name customer, s.created_at 
-             FROM repairs s JOIN customers c ON c.id=s.customer_id 
-             WHERE 1=1 {$scope} ORDER BY s.id DESC LIMIT 4",
+            "SELECT s.id, s.device, s.estimate total, s.status, c.name customer, s.created_at
+             FROM repairs s JOIN customers c ON c.id=s.customer_id
+             WHERE s.created_at<'{$end}' {$scope} ORDER BY s.id DESC LIMIT 5",
             $params
         );
 
@@ -114,8 +109,8 @@ class DashboardController {
 
         $collections = BaseRepository::rows(
             "SELECT p.method, SUM(p.amount) total,
-            SUM(CASE WHEN p.created_at>=? THEN p.amount ELSE 0 END) today
-            FROM payments p JOIN drawers s ON s.id=p.drawer_id WHERE p.created_at>=? AND p.method<>'Exchange Credit' {$scope} GROUP BY p.method",
+            SUM(CASE WHEN p.created_at>=? AND p.created_at<'{$end}' THEN p.amount ELSE 0 END) today
+            FROM payments p JOIN drawers s ON s.id=p.drawer_id WHERE p.created_at>=? AND p.created_at<'{$end}' AND p.method<>'Exchange Credit' {$scope} GROUP BY p.method",
             [$today, $start, ...$params]
         );
 
@@ -123,7 +118,7 @@ class DashboardController {
             "SELECT u.id, u.name, u.role, COUNT(si.id) AS items_sold, COALESCE(SUM(si.qty), 0) AS total_qty,
                     COALESCE(SUM(si.total), 0) AS sales_total, COALESCE(SUM(si.commission_amount), 0) AS total_commission
              FROM users u
-             LEFT JOIN sales s ON COALESCE(s.commission_user_id, s.user_id)=u.id AND s.created_at>=? {$scope}
+             LEFT JOIN sales s ON COALESCE(s.commission_user_id, s.user_id)=u.id AND s.created_at>=? AND s.created_at<'{$end}' {$scope}
              LEFT JOIN sale_items si ON si.sale_id=s.id
              WHERE COALESCE(u.active,1)=1
              GROUP BY u.id, u.name, u.role
@@ -134,13 +129,74 @@ class DashboardController {
         $totalSalesToday = array_sum(array_column($branchStats, 'sales'));
         $totalBillsToday = array_sum(array_column($branchStats, 'bills'));
 
+        $previous = (new DateTimeImmutable($today))->modify('-1 day')->format('Y-m-d');
+        $prior = BaseRepository::one(
+            "SELECT COALESCE(SUM(total),0) total,COUNT(*) bills FROM sales s
+             WHERE s.created_at>=? AND s.created_at<? {$scope}", [$previous,$today,...$params]
+        );
+        $itemsSold = (int) BaseRepository::scalar(
+            "SELECT COALESCE(SUM(i.qty),0) FROM sale_items i JOIN sales s ON s.id=i.sale_id
+             WHERE s.created_at>=? AND s.created_at<? {$scope}", [$today,$end,...$params]
+        );
+        $returns = BaseRepository::rows(
+            "SELECT s.id,s.status,s.amount,s.created_at,x.quoted_total,x.replacement_sale_id,
+                i.sale_id,c.name customer
+             FROM returns_log s JOIN sale_items i ON i.id=s.sale_item_id
+             JOIN sales original ON original.id=i.sale_id LEFT JOIN customers c ON c.id=original.customer_id
+             LEFT JOIN exchanges x ON x.return_id=s.id WHERE s.created_at>=? AND s.created_at<? {$scope}
+             ORDER BY s.id DESC", [$today,$end,...$params]
+        );
+        $drawer = BaseRepository::one(
+            "SELECT COALESCE(SUM(s.opening),0) opening,COUNT(*) shifts,
+                COALESCE(SUM(CASE WHEN s.closed_at IS NULL THEN 1 ELSE 0 END),0) open_shifts
+             FROM drawers s JOIN cycles cy ON cy.id=s.cycle_id WHERE cy.business_date=? {$scope}", [$today,...$params]
+        );
+        $cash = BaseRepository::one(
+            "SELECT COALESCE(SUM(CASE WHEN cm.amount>0 AND cm.kind IN ('Cash Sale','Exchange Difference In') THEN cm.amount ELSE 0 END),0) sales,
+                COALESCE(SUM(CASE WHEN cm.amount>0 AND cm.kind NOT IN ('Cash Sale','Exchange Difference In') THEN cm.amount ELSE 0 END),0) other_in,
+                COALESCE(SUM(CASE WHEN cm.amount<0 THEN -cm.amount ELSE 0 END),0) cash_out
+             FROM cash_movements cm JOIN drawers s ON s.id=cm.drawer_id JOIN cycles cy ON cy.id=s.cycle_id
+             WHERE cy.business_date=? {$scope}", [$today,...$params]
+        );
+        $drawer = array_merge($drawer, $cash);
+        $drawer['balance'] = (int)$drawer['opening']+(int)$cash['sales']+(int)$cash['other_in']-(int)$cash['cash_out'];
+        $hourRows = BaseRepository::rows(
+            "SELECT s.created_at,s.total FROM sales s WHERE s.created_at>=? AND s.created_at<? {$scope} ORDER BY s.created_at",
+            [$today,$end,...$params]
+        );
+        $hourly = array_fill(0,24,0);
+        foreach ($hourRows as $sale) $hourly[(int)substr($sale['created_at'],11,2)] += (int)$sale['total'];
+        $hourlyTrend = [];
+        $cumulative = 0;
+        foreach ($hourly as $hour=>$total) {
+            $cumulative += $total;
+            $hourlyTrend[] = ['day'=>sprintf('%02d:00',$hour),'label'=>sprintf('%02d:00',$hour),'total'=>$cumulative];
+        }
+        $pendingScope = $branch ? ' AND branch_id=?' : '';
+        $pendingOffline = 0;
+        if (\Zeedat\Config\Database::isSqlite()) {
+            foreach (['sales','repairs','returns_log'] as $table) {
+                $pendingOffline += (int)BaseRepository::scalar("SELECT COUNT(*) FROM {$table} WHERE synced=0 {$pendingScope}",$params);
+            }
+        }
+
         return [
             'today' => $today,
-            'sales' => $totalSalesToday ?: 28475000,
-            'bills' => $totalBillsToday ?: 36,
+            'previous_sales' => (int)$prior['total'],
+            'previous_bills' => (int)$prior['bills'],
+            'items_sold' => $itemsSold,
+            'repair_orders' => $recentRepairs,
+            'returns_today' => $returns,
+            'cash_drawer' => $drawer,
+            'hourly_trend' => $hourlyTrend,
+            'pending_offline' => $pendingOffline,
+            'database_driver' => \Zeedat\Config\Database::getDriver(),
+            'last_synced_at' => BaseRepository::scalar('SELECT last_synced_at FROM settings WHERE id=1'),
+
+            'sales' => $totalSalesToday,
+            'bills' => $totalBillsToday,
             'stock_value' => $stockValue,
-            'sales_growth' => '+12.6%',
-            'bills_growth' => '+20.0%',
+
             'collected' => array_sum(array_column($collections, 'today')),
             'credit' => (int) BaseRepository::scalar("SELECT COALESCE(SUM(credit),0) FROM sales s WHERE credit>0 {$scope}", $params),
             'credit_accounts' => (int) BaseRepository::scalar("SELECT COUNT(DISTINCT customer_id) FROM sales s WHERE credit>0 {$scope}", $params),
