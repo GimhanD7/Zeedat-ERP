@@ -5,15 +5,16 @@ import { DataView } from '../../components/feedback';
 import { Panel } from '../../components/common';
 import { dateLabel, money, today } from '../../utils';
 import './dailyTarget.css';
+import { YearComparisonChart } from './YearComparisonChart';
 
-export function DailyTarget({ ctx, date }) {
+export function DailyTarget({ ctx, date, showMonthComparison = false }) {
   const state = useData(ctx, { target: ['daily.target', { date }] });
   useEffect(() => {
     const timer = setInterval(state.refresh, 60000);
     return () => clearInterval(timer);
   }, [state.refresh]);
   return <DataView state={state}>{({ target }) => (
-    <Panel title="Daily revenue target" icon={Target}>
+    <div className="daily-target-section"><Panel title="Daily revenue target" icon={Target}>
       <p className="daily-target-caption">Compared with {dateLabel(target.baseline_date)} · Net invoice revenue after completed returns</p>
       <div className="daily-target-grid">
         {target.branches.map(branch => (
@@ -37,6 +38,12 @@ export function DailyTarget({ ctx, date }) {
         ))}
       </div>
     </Panel>
+      {showMonthComparison && <Panel title="This month vs last year" icon={TrendingUp}>
+        <p className="daily-target-caption">{target.month_comparison.month} compared with {target.month_comparison.previous_month}. This year's line stops at the selected date.</p>
+        {target.month_comparison.branches.map(branch => <YearComparisonChart key={branch.id} branch={branch}
+          month={target.month_comparison.month} previousMonth={target.month_comparison.previous_month} date={date} />)}
+      </Panel>}
+    </div>
   )}</DataView>;
 }
 

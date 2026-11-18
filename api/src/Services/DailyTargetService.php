@@ -50,7 +50,59 @@ class DailyTargetService
                 'source' => $source,
             ];
         }
-        return ['date' => $date, 'baseline_date' => $baselineDate, 'branches' => $rows];
+        return [
+            'date' => $date, 'baseline_date' => $baselineDate, 'branches' => $rows,
+            'month_comparison' => self::monthComparison($branches, $date, $history),
+        ];
+    }
+
+    private static function monthComparison(array $branches, string $date, ?array $history): array
+    {
+        $start = new DateTimeImmutable(substr($date, 0, 7) . '-01');
+        $priorStart = $start->modify('-1 year');
+        $end = $start->modify('+1 month')->format('Y-m-d');
+        $priorEnd = $priorStart->modify('+1 month')->format('Y-m-d');
+        $rows = [];
+        foreach ($branches as $branch) {
+            $current = self::monthRevenue((int) $branch['id'], $start->format('Y-m-d'), $end);
+            $prior = self::monthRevenue((int) $branch['id'], $priorStart->format('Y-m-d'), $priorEnd);
+            $useBackup = $history && in_array(strtolower(trim($branch['name'])), ['battaramulla mobile', 'baththaramulla mobile'], true);
+            $backupDays = $useBackup ? array_column($history['days'], null, 'day') : [];
+            $points = [];
+            for ($day = 1; $day <= (int) $start->format('t'); $day++) {
+                $currentDate = $start->format('Y-m-') . sprintf('%02d', $day);
+                $priorDate = $priorStart->format('Y-m-') . sprintf('%02d', $day);
+                $baseline = $day <= (int) $priorStart->format('t') && $prior
+                    ? (int) ($prior[$priorDate] ?? 0) : null;
+                if ($useBackup && $day <= (int) $priorStart->format('t')
+                    && $priorDate >= $history['days'][0]['day']
+                    && $priorDate <= $history['days'][array_key_last($history['days'])]['day']) {
+                    $baseline = isset($backupDays[$priorDate])
+                        ? (int) $backupDays[$priorDate]['revenue'] - (int) $backupDays[$priorDate]['refunds'] : 0;
+                }
+                $points[] = [
+                    'day' => $day, 'date' => $currentDate,
+                    'current' => $currentDate <= $date ? (int) ($current[$currentDate] ?? 0) : null,
+                    'previous' => $baseline,
+                ];
+            }
+            $rows[] = ['id' => (int) $branch['id'], 'name' => $branch['name'], 'points' => $points];
+        }
+        return ['month' => $start->format('Y-m'), 'previous_month' => $priorStart->format('Y-m'), 'branches' => $rows];
+    }
+
+    private static function monthRevenue(int $branch, string $start, string $end): array
+    {
+        $rows = BaseRepository::rows(
+            "SELECT day,SUM(amount) total FROM (
+                SELECT DATE(created_at) day,total amount FROM sales WHERE branch_id=? AND created_at>=? AND created_at<?
+                UNION ALL
+                SELECT DATE(created_at) day,-CAST(amount AS SIGNED) amount FROM returns_log
+                WHERE branch_id=? AND status='Completed' AND created_at>=? AND created_at<?
+             ) revenue GROUP BY day",
+            [$branch, $start, $end, $branch, $start, $end]
+        );
+        return array_column($rows, 'total', 'day');
     }
 
     private static function revenue(int $branch, string $date): array
