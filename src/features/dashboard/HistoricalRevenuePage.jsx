@@ -10,6 +10,15 @@ import './historicalRevenue.css';
 const metrics = ['revenue', 'subtotal', 'discount', 'card_fees', 'invoices', 'units', 'refunds', 'returns'];
 export function aggregateHistory(days, from, to, group) {
   const groups = new Map();
+  const cursor = new Date(from + 'T00:00:00Z');
+  const end = new Date(to + 'T00:00:00Z');
+  for (; cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const day = cursor.toISOString().slice(0, 10);
+    const key = group === 'month' ? day.slice(0, 7) : group === 'year' ? day.slice(0, 4) : day;
+    if (!groups.has(key)) {
+      groups.set(key, Object.fromEntries([['day', key], ...metrics.map(key => [key, 0])]));
+    }
+  }
   for (const row of days) {
     if (row.day < from || row.day > to) continue;
     const key = group === 'month' ? row.day.slice(0, 7) : group === 'year' ? row.day.slice(0, 4) : row.day;

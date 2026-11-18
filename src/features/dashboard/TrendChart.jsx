@@ -30,9 +30,10 @@ export function TrendChart({ trend }) {
   const maxValue = Math.max(100, ...values);
   const step = Math.pow(10, Math.floor(Math.log10(maxValue / 5)));
   const max = Math.ceil(maxValue / step) * step;
+  const min = Math.min(0, Math.floor(Math.min(0, ...values) / step) * step);
 
   const x = i => pad + (width - pad - right) * (i / Math.max(1, trend.length - 1));
-  const y = v => top + plotHeight * (1 - v / max);
+  const y = v => top + plotHeight * (1 - (v - min) / (max - min));
   const points = values.map((v, i) => [x(i), y(v)]);
   const polyline = points.map(p => p.join(',')).join(' ');
   const sample = Math.ceil(trend.length / (compact ? 5 : 7));
@@ -57,7 +58,7 @@ export function TrendChart({ trend }) {
           </linearGradient>
         </defs>
         {[0, 1, 2, 3, 4, 5].map(i => {
-          const tick = (max * i) / 5;
+          const tick = min + ((max - min) * i) / 5;
           return (
             <g key={i}>
               <line

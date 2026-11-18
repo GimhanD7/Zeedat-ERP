@@ -7,7 +7,7 @@ dist/
 *.db.setup.lock
 api/backups/*.sql
 backups/*.sql
- 
+backups/*.sqlite*
 api/config.php
 database/*.db*
 release/*.zip
