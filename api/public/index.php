@@ -23,6 +23,7 @@ use Zeedat\Support\ApiError;
 use Zeedat\Support\Helpers;
 use Zeedat\Support\Idempotency;
 use Zeedat\Support\Response;
+use Zeedat\Support\Validator;
 
 AuthMiddleware::startSession();
 
