@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { money } from '../../utils';
 
 export function YearComparisonChart({ branch, month, previousMonth, date }) {
   const [mode, setMode] = useState('cumulative');
   const [hover, setHover] = useState(null);
+  const chart = useRef(null);
+  const [width, setWidth] = useState(760);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(320, entry.contentRect.width)));
+    if (chart.current) observer.observe(chart.current);
+    return () => observer.disconnect();
+  }, []);
   let currentSum = 0;
   let previousSum = 0;
   const points = branch.points.map(point => {
@@ -20,8 +27,8 @@ export function YearComparisonChart({ branch, month, previousMonth, date }) {
   const max = Math.max(10000, ...values);
   const low = min < 0 ? min - (max - min) * .05 : 0;
   const high = max + (max - low) * .08;
-  const x = index => 95 + index / Math.max(1, points.length - 1) * 675;
-  const y = value => 18 + (1 - (value - low) / (high - low)) * 205;
+  const x = index => 68 + index / Math.max(1, points.length - 1) * (width - 86);
+  const y = value => 12 + (1 - (value - low) / (high - low)) * 168;
   const path = key => {
     let connected = false;
     return points.map((point, index) => {
@@ -60,22 +67,24 @@ export function YearComparisonChart({ branch, month, previousMonth, date }) {
         <span><i style={{ background: '#7178dc' }} />{lastYear}</span>
         <small>{mode === 'cumulative' ? 'Cumulative net revenue' : 'Daily net revenue'} · LKR</small>
       </div>
-      <svg viewBox="0 0 800 258" role="img" aria-label={branch.name + ' revenue comparison for ' + month + ' and ' + previousMonth} onMouseLeave={() => setHover(null)}>
+      <div ref={chart} className="year-comparison-plot"><svg viewBox={'0 0 ' + width + ' 210'} role="img" aria-label={branch.name + ' revenue comparison for ' + month + ' and ' + previousMonth} onMouseLeave={() => setHover(null)}>
         {[0, 1, 2, 3, 4].map(index => {
           const amount = low + (high - low) * index / 4;
-          return <g key={index}><line x1="95" x2="770" y1={y(amount)} y2={y(amount)} stroke="var(--line)" />
-            <text x="85" y={y(amount) + 4} textAnchor="end">{Math.round(amount / 100).toLocaleString()}</text></g>;
+          const rupees = amount / 100;
+          const label = Math.abs(rupees) >= 1000 ? (rupees / 1000).toFixed(rupees % 1000 === 0 ? 0 : 1) + 'k' : Math.round(rupees).toLocaleString();
+          return <g key={index}><line x1="68" x2={width - 18} y1={y(amount)} y2={y(amount)} stroke="var(--line)" />
+            <text x="58" y={y(amount) + 4} textAnchor="end">{label}</text></g>;
         })}
         <path d={path('previous')} fill="none" stroke="#7178dc" strokeWidth="3" strokeDasharray="7 4" />
         <path d={path('current')} fill="none" stroke="#009b86" strokeWidth="3.5" />
         {points.map((point, index) => <g key={point.day}>
-          {(index % 5 === 0 || index === points.length - 1) && <text x={x(index)} y="246" textAnchor="middle">{point.day}</text>}
-          <rect x={x(index) - 11} y="12" width="22" height="215" fill="transparent" onMouseEnter={() => setHover(index)} />
+          {(index % 5 === 0 || index === points.length - 1) && <text x={x(index)} y="202" textAnchor="middle">{point.day}</text>}
+          <rect x={x(index) - (width - 86) / points.length / 2} y="8" width={(width - 86) / points.length} height="180" fill="transparent" onMouseEnter={() => setHover(index)} />
           {['current', 'previous'].map(key => point[key] != null
             ? <circle key={key} cx={x(index)} cy={y(point[key])} r={index === hover ? 5 : 2} fill={key === 'current' ? '#009b86' : '#7178dc'} />
             : null)}
         </g>)}
-      </svg>
+      </svg></div>
       {focus && <div className="year-comparison-detail" aria-live="polite">
         <span>Day {focus.day}</span><span>{thisYear}: {focus.current == null ? 'Future day' : money(focus.current)}</span>
         <span>{lastYear}: {focus.previous == null ? 'No historical data' : money(focus.previous)}</span>

@@ -40,8 +40,8 @@ export function DailyTarget({ ctx, date, showMonthComparison = false }) {
     </Panel>
       {showMonthComparison && <Panel title="This month vs last year" icon={TrendingUp}>
         <p className="daily-target-caption">{target.month_comparison.month} compared with {target.month_comparison.previous_month}. This year's line stops at the selected date.</p>
-        {target.month_comparison.branches.map(branch => <YearComparisonChart key={branch.id} branch={branch}
-          month={target.month_comparison.month} previousMonth={target.month_comparison.previous_month} date={date} />)}
+        <div className="year-comparison-grid">{target.month_comparison.branches.map(branch => <YearComparisonChart key={branch.id} branch={branch}
+          month={target.month_comparison.month} previousMonth={target.month_comparison.previous_month} date={date} />)}</div>
       </Panel>}
     </div>
   )}</DataView>;
