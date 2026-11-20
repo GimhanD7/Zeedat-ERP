@@ -20,10 +20,17 @@ class BackupService {
     public static function resolveEffectiveCloudUrl(?array $settings = null): string {
         $row = $settings ?? (BaseRepository::one('SELECT cloud_backup_url FROM settings WHERE id=1') ?? []);
         $url = trim((string) ($row['cloud_backup_url'] ?? ''));
+        if (in_array(strtolower((string) parse_url($url, PHP_URL_HOST)), ['zeedat.vortexdigitallabs.org', 'zeedat.lk'], true)) {
+            return 'https://app.zeedat.lk' . (parse_url($url, PHP_URL_PATH) ?: '');
+        }
         if ($url !== '') {
             return $url;
         }
-        return trim((string) Database::env('ZEEDAT_CLOUD_URL', ''));
+        $fallback = trim((string) Database::env('ZEEDAT_CLOUD_URL', ''));
+        if (in_array(strtolower((string) parse_url($fallback, PHP_URL_HOST)), ['zeedat.vortexdigitallabs.org', 'zeedat.lk'], true)) {
+            return 'https://app.zeedat.lk' . (parse_url($fallback, PHP_URL_PATH) ?: '');
+        }
+        return $fallback;
     }
 
     /**
@@ -217,7 +224,7 @@ class BackupService {
 
         $status = 'local_saved';
         $errorMsg = null;
-        $remoteUrl = trim($settings['cloud_backup_url'] ?? '');
+        $remoteUrl = self::resolveEffectiveCloudUrl($settings);
         $apiKey = trim($settings['cloud_api_key'] ?? '');
         $isOnline = self::isInternetAvailable();
 

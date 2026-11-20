@@ -101,7 +101,7 @@ function publishUpdateStatus(partial) {
 }
 
 function resolveUpdateServerUrl() {
-  if (app.isPackaged) return 'https://zeedat.vortexdigitallabs.org';
+  if (app.isPackaged) return 'https://app.zeedat.lk';
   const envUrl = process.env.ZEEDAT_UPDATE_URL;
   if (envUrl) return envUrl;
   const dbUrl = phpHandle ? phpHandle.readCloudUrl() : '';

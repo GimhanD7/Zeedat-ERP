@@ -192,7 +192,7 @@ function testMysqlConnection(candidate) {
 
 function buildPhpEnv(iniDir, dataDir, dbCfg) {
   const useMysql = dbCfg?.mode === 'mysql' && dbCfg.db_host && dbCfg.db_name && dbCfg.db_user;
-  const cloudUrl = String(process.env.ZEEDAT_CLOUD_URL || (app.isPackaged ? 'https://zeedat.vortexdigitallabs.org' : '')).trim();
+  const cloudUrl = String(process.env.ZEEDAT_CLOUD_URL || (app.isPackaged ? 'https://app.zeedat.lk' : '')).trim();
   const env = {
     ...process.env,
     PHPRC: iniDir,

@@ -97,11 +97,11 @@ jobs:
       - name: Deploy over SSH
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.NAMECHEAP_DEPLOY_ENABLED == 'true'
         env:
-          HOST: ${{ vars.NAMECHEAP_HOST }}
-          PORT: ${{ vars.NAMECHEAP_PORT || '21098' }}
-          SSH_USER: ${{ vars.NAMECHEAP_USER }}
-          WEB_ROOT: ${{ vars.NAMECHEAP_WEB_ROOT }}
-          SITE_URL: ${{ vars.NAMECHEAP_SITE_URL }}
+          HOST: ${{ secrets.NAMECHEAP_HOST || vars.NAMECHEAP_HOST }}
+          PORT: ${{ secrets.NAMECHEAP_PORT || vars.NAMECHEAP_PORT || '21098' }}
+          SSH_USER: ${{ secrets.NAMECHEAP_USER || vars.NAMECHEAP_USER }}
+          WEB_ROOT: ${{ secrets.NAMECHEAP_WEB_ROOT || vars.NAMECHEAP_WEB_ROOT }}
+          SITE_URL: ${{ secrets.NAMECHEAP_SITE_URL || vars.NAMECHEAP_SITE_URL || 'https://app.zeedat.lk' }}
           SSH_KEY: ${{ secrets.NAMECHEAP_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.NAMECHEAP_KNOWN_HOSTS }}
         run: |

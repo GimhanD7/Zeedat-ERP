@@ -35,7 +35,7 @@ try {
         $statement = $db->prepare("INSERT INTO users(name,email,password_hash,role) VALUES ('Owner','owner@zeedat.local',?,'owner')");
         $statement->execute([password_hash($password, PASSWORD_DEFAULT)]);
         $statement = null;
-        $db->exec("UPDATE settings SET cloud_backup_url='https://zeedat.vortexdigitallabs.org', auto_sync_enabled=1 WHERE id=1");
+        $db->exec("UPDATE settings SET cloud_backup_url='https://app.zeedat.lk', auto_sync_enabled=1 WHERE id=1");
         $db->exec('PRAGMA journal_mode=DELETE');
     }
     $db = null;
