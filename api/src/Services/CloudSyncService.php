@@ -272,13 +272,14 @@ class CloudSyncService {
             'sales',
             'SL',
             self::safeRows(
-                'SELECT s.*, COALESCE(b.name, "") AS branch_name, COALESCE(u.email, "") AS user_email,
+                'SELECT s.*, COALESCE(b.name, "") AS branch_name, COALESCE(u.email, "") AS user_email, seller.email AS seller_email,
                         COALESCE(d.sync_uuid, "") AS drawer_sync_uuid,
                         COALESCE(c.sync_uuid, c.uuid, "") AS customer_sync_uuid, COALESCE(c.phone, "") AS customer_phone
                  FROM sales s
                  LEFT JOIN branches b ON b.id=s.branch_id
                  LEFT JOIN drawers d ON d.id=s.drawer_id
                  LEFT JOIN users u ON u.id=s.user_id
+                 LEFT JOIN users seller ON seller.id=COALESCE(s.commission_user_id,s.user_id)
                  LEFT JOIN customers c ON c.id=s.customer_id
                  WHERE ' . $pendingWhere('s') . ' ORDER BY s.id ASC LIMIT 100'
             ),
@@ -960,8 +961,8 @@ class CloudSyncService {
                     if ($pid <= 0) continue;
                     $unId = !empty($it['unit_code']) ? (BaseRepository::scalar('SELECT id FROM units WHERE code=? LIMIT 1', [$it['unit_code']]) ?: null) : null;
                     BaseRepository::run(
-                        'INSERT INTO sale_items (sale_id, product_id, unit_id, name, qty, price, total, refunded_qty, commission_amount) VALUES (?,?,?,?,?,?,?,?,?)',
-                        [$newSaleId, $pid, $unId, $it['name'], (int) $it['qty'], (int) $it['price'], (int) $it['total'], (int) ($it['refunded_qty'] ?? 0), (int) ($it['commission_amount'] ?? 0)]
+                        'INSERT INTO sale_items (sale_id, product_id, unit_id, name, qty, price, total, refunded_qty, commission_amount, brand_snapshot) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                        [$newSaleId, $pid, $unId, $it['name'], (int) $it['qty'], (int) $it['price'], (int) $it['total'], (int) ($it['refunded_qty'] ?? 0), (int) ($it['commission_amount'] ?? 0), $it['brand_snapshot'] ?? null]
                     );
                 }
 
@@ -1247,9 +1248,9 @@ class CloudSyncService {
     }
 
     private static function insertSyncedSale(int $bid, int $uid, int $drawerId, ?int $cid, string $syncUuid, array $s, bool $isSqlite): int {
-        $commonCols = 'branch_id, user_id, drawer_id, customer_id, invoice_no, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, sync_uuid, synced, created_at';
+        $commonCols = 'branch_id, user_id, commission_user_id, drawer_id, customer_id, invoice_no, subtotal, discount, discount_bps, tax, tax_bps, total, paid_amount, cash_tendered, change_amount, payment_methods, credit, due_date, notes, sync_uuid, synced, created_at';
         $commonVals = [
-            $bid, $uid, $drawerId, $cid,
+            $bid, $uid, self::syncedSeller($s) ?? $uid, $drawerId, $cid,
             (string) ($s['invoice_no'] ?? ''),
             (int) ($s['subtotal'] ?? 0),
             (int) ($s['discount'] ?? 0),
@@ -1269,19 +1270,25 @@ class CloudSyncService {
         ];
         if ($isSqlite) {
             return BaseRepository::insert(
-                "INSERT INTO sales (uuid, {$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                "INSERT INTO sales (uuid, {$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
                 array_merge([$syncUuid], $commonVals)
             );
         }
         return BaseRepository::insert(
-            "INSERT INTO sales ({$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO sales ({$commonCols}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
             $commonVals
         );
     }
 
+    private static function syncedSeller(array $sale): ?int {
+        if (empty($sale['seller_email'])) return null;
+        $id = BaseRepository::scalar('SELECT id FROM users WHERE email=?', [$sale['seller_email']]);
+        return $id ? (int) $id : null;
+    }
+
     private static function updateSyncedSale(int $saleId, int $drawerId, int $uid, array $s, array $payments, bool $isSqlite): void {
         BaseRepository::run(
-            'UPDATE sales SET credit=?, paid_amount=COALESCE(?, paid_amount), cash_tendered=COALESCE(?, cash_tendered), change_amount=COALESCE(?, change_amount), payment_methods=CASE WHEN ? <> "" THEN ? ELSE payment_methods END, synced=1 WHERE id=?',
+            'UPDATE sales SET credit=?, paid_amount=COALESCE(?, paid_amount), cash_tendered=COALESCE(?, cash_tendered), change_amount=COALESCE(?, change_amount), payment_methods=CASE WHEN ? <> "" THEN ? ELSE payment_methods END, commission_user_id=COALESCE(?,commission_user_id), synced=1 WHERE id=?',
             [
                 (int) ($s['credit'] ?? 0),
                 isset($s['paid_amount']) ? (int) $s['paid_amount'] : null,
@@ -1289,6 +1296,7 @@ class CloudSyncService {
                 isset($s['change_amount']) ? (int) $s['change_amount'] : null,
                 (string) ($s['payment_methods'] ?? ''),
                 (string) ($s['payment_methods'] ?? ''),
+                self::syncedSeller($s),
                 $saleId,
             ]
         );
@@ -2019,8 +2027,8 @@ class CloudSyncService {
                             throw new \Zeedat\Support\ApiError('A synced sale includes a reserved device. The sale is still pending.', 409);
                         }
                         BaseRepository::run(
-                            'INSERT INTO sale_items (sale_id, product_id, unit_id, name, qty, price, total, refunded_qty, commission_amount) VALUES (?,?,?,?,?,?,?,?,?)',
-                            [$newSaleId, $pid, $unId, $it['name'], (int) $it['qty'], (int) $it['price'], (int) $it['total'], (int) ($it['refunded_qty'] ?? 0), (int) ($it['commission_amount'] ?? 0)]
+                            'INSERT INTO sale_items (sale_id, product_id, unit_id, name, qty, price, total, refunded_qty, commission_amount, brand_snapshot) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                            [$newSaleId, $pid, $unId, $it['name'], (int) $it['qty'], (int) $it['price'], (int) $it['total'], (int) ($it['refunded_qty'] ?? 0), (int) ($it['commission_amount'] ?? 0), $it['brand_snapshot'] ?? null]
                         );
                         if ($unId) {
                             BaseRepository::run("UPDATE units SET state='Sold', synced=1 WHERE id=?", [$unId]);
@@ -2155,13 +2163,14 @@ class CloudSyncService {
             'sales',
             'SL',
             BaseRepository::rows(
-                "SELECT s.*, b.name AS branch_name, COALESCE(u.email, '') AS user_email,
+                "SELECT s.*, b.name AS branch_name, COALESCE(u.email, '') AS user_email, seller.email AS seller_email,
                         COALESCE(d.sync_uuid, '') AS drawer_sync_uuid,
                         COALESCE(c.sync_uuid, '') AS customer_sync_uuid, COALESCE(c.phone, '') AS customer_phone
                  FROM sales s
                  JOIN branches b ON b.id=s.branch_id
                  LEFT JOIN drawers d ON d.id=s.drawer_id
                  LEFT JOIN users u ON u.id=s.user_id
+                 LEFT JOIN users seller ON seller.id=COALESCE(s.commission_user_id,s.user_id)
                  LEFT JOIN customers c ON c.id=s.customer_id
                  ORDER BY s.id DESC"
             ),

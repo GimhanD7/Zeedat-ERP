@@ -425,6 +425,7 @@ try {
             RoleGuard::allowPermission($user, 'reports');
             return \Zeedat\Controllers\HistoricalRevenueController::get($branch);
         })(),
+        'profile.sales' => \Zeedat\Controllers\PersonalSalesController::get($user, $branch, $_GET),
         'daily.target' => (function () use ($user, $branch) {
             if ($user['role'] !== 'owner' && !$branch) {
                 throw new ApiError('Your account needs an assigned branch to view daily targets.', 403);

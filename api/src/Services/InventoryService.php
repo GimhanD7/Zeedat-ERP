@@ -120,6 +120,11 @@ class InventoryService {
 
         $name = Validator::str($body, 'name', 120);
         $brand = Validator::str($body, 'brand', 60, false);
+        if (isset($body['brand_type'])) {
+            if (!in_array($body['brand_type'], ['branded', 'non-branded'], true)) throw new ApiError('Invalid product branding.');
+            if ($body['brand_type'] === 'branded' && $brand === '') throw new ApiError('Enter the product brand name.');
+            if ($body['brand_type'] === 'non-branded') $brand = '';
+        }
         $category = Validator::str($body, 'category', 40);
         $cost = Validator::money($body, 'cost');
         $price = Validator::money($body, 'price');

@@ -156,6 +156,7 @@ export function Inventory({ ctx }) {
       wide: true,
       values: {
         ...item,
+        brand_type: item?.brand?.trim() ? 'branded' : 'non-branded',
         branch: activeBranchId,
         category: defaults?.category || item?.category || 'Accessories',
         cost: rupees(item?.cost),
@@ -207,7 +208,8 @@ export function Inventory({ ctx }) {
                 : []),
             ]
           : []),
-        { name: 'brand', label: 'Brand', optional: true },
+        { name: 'brand_type', label: 'Product branding', choices: [['branded', 'Branded'], ['non-branded', 'Non-branded']] },
+        ...(values.brand_type === 'branded' ? [{ name: 'brand', label: 'Brand name' }] : []),
         {
           name: 'cost',
           label: values.category === 'Services' ? 'Cost (LKR, Optional)' : 'Cost (LKR)',
@@ -289,6 +291,7 @@ export function Inventory({ ctx }) {
         }
         return {
           ...v,
+          brand: v.brand_type === 'branded' ? String(v.brand || '').trim() : '',
           cost: cents(v.cost || 0),
           price: cents(v.price),
           commission_type: commType,

@@ -281,8 +281,8 @@ class CheckoutService {
                 ProductRepository::adjustStock($branch, $p['id'], -$qty, 'Sale', Helpers::ref('INV', $id), (int) $user['id']);
             }
             BaseRepository::run(
-                'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total, commission_amount) VALUES (?,?,?,?,?,?,?,?)',
-                [$id, $p['id'], $unit, $p['name'], $qty, $p['price'], $lineTotal, $lineCommission]
+                'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total, commission_amount, brand_snapshot) VALUES (?,?,?,?,?,?,?,?,?)',
+                [$id, $p['id'], $unit, $p['name'], $qty, $p['price'], $lineTotal, $lineCommission, $p['brand'] ?? '']
             );
         }
 

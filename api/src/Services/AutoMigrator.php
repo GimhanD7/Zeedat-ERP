@@ -197,6 +197,7 @@ class AutoMigrator
     {
         $profileAndCommissionColumns = [
             'users' => ['appearance_json' => 'TEXT NULL'],
+            'sale_items' => ['brand_snapshot' => 'VARCHAR(60) NULL'],
             'settings' => [
                 'accessory_commission_bps' => 'INT NOT NULL DEFAULT 250',
                 'repair_referral_bps' => 'INT NOT NULL DEFAULT 300',

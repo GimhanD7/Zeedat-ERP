@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Building2, Check, KeyRound, Mail, Palette, Save, UserRound } from 'lucide-react';
+import { Building2, Check, KeyRound, Mail, Palette, Save, ShoppingBag, UserRound } from 'lucide-react';
 import { Badge, Button, Field, Modal, Select } from '../../components/common';
 import { initials, roles } from '../../utils';
 import { appearanceDefaults, themeCatalog, themeVars } from './appearance';
+import { PersonalSales } from './PersonalSales';
 
 const emptyPassword = { current_password: '', new_password: '', confirmation: '' };
 
 export function ProfileModal({ ctx, onClose }) {
   const { user, appearance, updateAppearance } = ctx;
-  const [tab, setTab] = useState('appearance');
+  const [tab, setTab] = useState('sales');
   const [password, setPassword] = useState(emptyPassword);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -76,6 +77,10 @@ export function ProfileModal({ ctx, onClose }) {
         </section>
 
         <div className="profile-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'sales'}
+            className={tab === 'sales' ? 'selected' : ''} onClick={() => setTab('sales')}>
+            <ShoppingBag size={15} /> My sales
+          </button>
           <button type="button" role="tab" aria-selected={tab === 'appearance'}
             className={tab === 'appearance' ? 'selected' : ''} onClick={() => setTab('appearance')}>
             <Palette size={15} /> Themes
@@ -86,6 +91,7 @@ export function ProfileModal({ ctx, onClose }) {
           </button>
         </div>
 
+        {tab === 'sales' && <PersonalSales ctx={ctx} />}
         {tab === 'appearance' && (
           <section className="theme-studio">
             <div className="theme-presets" aria-label="Theme presets">

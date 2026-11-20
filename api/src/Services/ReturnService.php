@@ -170,6 +170,7 @@ class ReturnService
             $items[] = [
                 'product_id' => $productId, 'unit_id' => $unit, 'qty' => $qty,
                 'name' => $product['name'], 'price' => (int) $product['price'],
+                'brand' => $product['brand'] ?? '',
                 'subtotal' => $subtotal, 'total' => $subtotal + Helpers::rate($subtotal, $taxRate),
             ];
         }
@@ -341,8 +342,8 @@ class ReturnService
                 }
                 ProductRepository::adjustStock($branch, $item['product_id'], -$item['qty'], 'Exchange replacement', $invoiceNo, (int) $user['id']);
                 BaseRepository::run(
-                    'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total) VALUES (?,?,?,?,?,?,?)',
-                    [$replacementSaleId, $item['product_id'], $item['unit_id'], $item['name'], $item['qty'], $item['price'], $item['total']]
+                    'INSERT INTO sale_items(sale_id, product_id, unit_id, name, qty, price, total, brand_snapshot) VALUES (?,?,?,?,?,?,?,?)',
+                    [$replacementSaleId, $item['product_id'], $item['unit_id'], $item['name'], $item['qty'], $item['price'], $item['total'], $item['brand']]
                 );
             }
 
