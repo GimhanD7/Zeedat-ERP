@@ -169,6 +169,12 @@ export function SmsCenterPage({ ctx }) {
   const [rejectReasonInput, setRejectReasonInput] = useState('Rejected by manager / Invalid number');
   const [actionBusyId, setActionBusyId] = useState(null);
   const [pageError, setPageError] = useState('');
+  const [smsBranch, setSmsBranch] = useState(() => String(ctx.branch || ctx.branches?.[0]?.id || ''));
+  const sendingBranch = Number(ctx.branch || smsBranch);
+  const requireSendingBranch = () => {
+    if (!sendingBranch) throw new Error('Select the branch to send SMS from.');
+    return sendingBranch;
+  };
 
   // Single SMS composer state
   const [singleCustomerId, setSingleCustomerId] = useState('');
@@ -373,6 +379,7 @@ export function SmsCenterPage({ ctx }) {
           setPageError('');
           try {
             const res = await ctx.mutate('sms.send', {
+              branch: requireSendingBranch(),
               customer_id: singleCustomerId ? Number(singleCustomerId) : undefined,
               customer_name: singleName.trim() || selectedSingleCustomer?.name || 'Direct Recipient',
               phone: singlePhone.trim(),
@@ -416,6 +423,7 @@ export function SmsCenterPage({ ctx }) {
           setPageError('');
           try {
             const res = await ctx.mutate('sms.bulk', {
+              branch: requireSendingBranch(),
               kind: bulkKind,
               message: bulkMessage.trim(),
               recipients: selectedBulkCustomers.map(c => ({
@@ -495,6 +503,7 @@ export function SmsCenterPage({ ctx }) {
           setPageError('');
           try {
             const res = await ctx.mutate('sms.send', {
+              branch: requireSendingBranch(),
               phone: testPhone.trim(),
               customer_name: 'Gateway Test',
               kind: 'test',
@@ -521,6 +530,17 @@ export function SmsCenterPage({ ctx }) {
             />
 
             <Alert>{pageError}</Alert>
+            {!ctx.branch && (
+              <label style={{ display: 'grid', gap: 6, maxWidth: 300, marginBottom: 16 }}>
+                Send SMS from branch
+                <select value={smsBranch} onChange={e => setSmsBranch(e.target.value)} required>
+                  <option value="">Select a branch</option>
+                  {(ctx.branches || []).map(branch => (
+                    <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             {/* TOP 5 KPI CARDS */}
             <div className="sms-kpi-grid">
