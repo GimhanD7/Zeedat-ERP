@@ -5,19 +5,33 @@
 .zk-quo-page {
   display: grid;
   gap: 16px;
+  padding-bottom: 24px;
+}
+
+/* Offscreen 1:1 unscaled A4 sheet used for crystal-clear html2canvas PDF & Print capture */
+.zk-quo-offscreen-capture {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 794px;
+  height: 1123px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+  background: #ffffff;
 }
 
 .zk-quo-kpis {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .zk-quo-kpi-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 14px 18px;
   border-radius: 12px;
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
@@ -49,7 +63,7 @@
 
 .zk-quo-kpi-card small {
   display: block;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: #64748b;
   text-transform: uppercase;
@@ -58,14 +72,14 @@
 
 .zk-quo-kpi-card strong {
   display: block;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.25;
 }
 
 .zk-quo-kpi-card span {
-  font-size: 11.5px;
+  font-size: 11px;
   color: #64748b;
 }
 
@@ -80,28 +94,34 @@
 .zk-quo-top-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
-/* Builder + Live A4 Preview Two-Column Layout */
+/* Builder (Left) + Compact Full-Page Live A4 Preview (Right) */
 .zk-quo-workspace {
   display: grid;
-  grid-template-columns: minmax(420px, 1.05fr) minmax(480px, 0.95fr);
+  grid-template-columns: minmax(480px, 1.25fr) minmax(380px, 470px);
   gap: 18px;
   align-items: start;
+}
+
+.zk-quo-form-col,
+.zk-quo-preview-col {
+  min-width: 0;
 }
 
 .zk-quo-form-stack {
   display: grid;
   gap: 16px;
+  padding: 4px 2px;
 }
 
 .zk-quo-doctype-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -117,12 +137,12 @@
 .zk-quo-type-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
+  gap: 8px;
+  padding: 8px 16px;
   border-radius: 7px;
   border: none;
   background: transparent;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #475569;
   cursor: pointer;
@@ -135,23 +155,23 @@
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
 }
 
-.zk-quo-grid-4 {
+.zk-quo-grid-meta {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .zk-quo-grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 
 .zk-quo-client-box,
 .zk-quo-items-box {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 14px;
+  padding: 16px 18px;
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -161,48 +181,204 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .zk-quo-section-head strong {
   display: block;
-  font-size: 13.5px;
+  font-size: 14px;
   color: #0f172a;
+  margin-bottom: 2px;
+}
+
+/* Quick Search & Click to Add Bar + Hybrid Autocomplete Input */
+.zk-quo-quick-add-bar,
+.zk-quo-hybrid-input-wrap {
+  position: relative;
+}
+
+.zk-quo-quick-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1.5px solid #0f766e;
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.08);
+}
+
+.zk-quo-qs-icon {
+  color: #0f766e;
+  flex-shrink: 0;
+}
+
+.zk-quo-quick-search-input input {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 4px 0 !important;
+  flex: 1;
+  font-size: 13px;
+}
+
+.zk-quo-quick-dropdown,
+.zk-quo-hybrid-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 60;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  max-height: 270px;
+  overflow-y: auto;
+}
+
+.zk-quo-hybrid-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  position: sticky;
+  top: 0;
+}
+
+.zk-quo-hybrid-head button {
+  border: none;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.zk-quo-hybrid-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.zk-quo-hybrid-item:hover {
+  background: #f0fdf4;
+}
+
+.zk-quo-hybrid-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.zk-quo-hybrid-item-main strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.zk-quo-sku-pill {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  font-family: monospace;
+  font-size: 10.5px;
+  color: #475569;
+}
+
+.zk-quo-hybrid-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.zk-quo-hybrid-item-meta .price {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-quo-hybrid-item-meta .stock {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.zk-quo-hybrid-item-meta .stock.in {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.zk-quo-hybrid-item-meta .stock.zero {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.zk-quo-quick-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  font-size: 12.5px;
+  color: #475569;
 }
 
 .zk-quo-lines-list {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
 .zk-quo-line-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px 16px;
   border-radius: 10px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
 }
 
 .zk-quo-line-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .zk-quo-line-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  min-width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: #0f172a;
   color: #facc15;
   font-size: 12px;
   font-weight: 800;
+  flex-shrink: 0;
 }
 
 .zk-quo-line-catalog {
@@ -210,10 +386,16 @@
   min-width: 0;
 }
 
-.zk-quo-line-fields {
+.zk-quo-line-desc-grid {
   display: grid;
-  grid-template-columns: 1.6fr 1.3fr 78px 125px 110px;
-  gap: 8px;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 12px;
+}
+
+.zk-quo-line-numbers-grid {
+  display: grid;
+  grid-template-columns: 110px 1fr 160px;
+  gap: 12px;
   align-items: end;
 }
 
@@ -221,7 +403,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 7px 10px;
+  padding: 8px 12px;
+  min-height: 40px;
   border-radius: 8px;
   background: #fef9c3;
   border: 1px solid #fde047;
@@ -230,32 +413,35 @@
 
 .zk-quo-line-total-cell span {
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 700;
   color: #854d0e;
   text-transform: uppercase;
+  line-height: 1.2;
 }
 
 .zk-quo-line-total-cell strong {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
+  line-height: 1.3;
 }
 
 .zk-quo-warranty-chips {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex-wrap: wrap;
+  padding-top: 2px;
 }
 
 .zk-quo-warranty-chips > span {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   color: #64748b;
 }
 
 .zk-quo-chip {
-  padding: 3px 9px;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -279,9 +465,9 @@
 
 .zk-quo-totals-bar {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 14px;
-  padding: 14px;
+  grid-template-columns: 1fr 270px;
+  gap: 16px;
+  padding: 16px 18px;
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -290,14 +476,14 @@
 
 .zk-quo-discount-inputs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 
 .zk-quo-summary-numbers {
   display: grid;
-  gap: 6px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 12px 14px;
   border-radius: 10px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -307,11 +493,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 .zk-quo-summary-numbers > div.grand {
-  padding: 8px 10px;
+  padding: 9px 12px;
   margin-top: 4px;
   border-radius: 7px;
   background: #e2af0d;
@@ -323,14 +509,14 @@
 .zk-quo-template-config {
   border: 1px dashed #cbd5e1;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: #ffffff;
 }
 
 .zk-quo-config-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   border: none;
   background: transparent;
   color: #0f766e;
@@ -342,9 +528,9 @@
 
 .zk-quo-config-body {
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
   border-top: 1px solid #e2e8f0;
 }
 
@@ -354,36 +540,37 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding-top: 8px;
+  padding-top: 12px;
   border-top: 1px solid #e2e8f0;
 }
 
 /* =====================================================================
-   RIGHT COLUMN: LIVE A4 PDF TEMPLATE PREVIEW
+   RIGHT COLUMN: COMPACT LIVE A4 PDF PREVIEW (FITS FULL PAGE VERTICALLY)
 ===================================================================== */
 .zk-quo-preview-col {
   position: sticky;
-  top: 12px;
+  top: 10px;
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .zk-quo-preview-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: 10px;
   background: #0f172a;
   color: #ffffff;
+  flex-wrap: wrap;
 }
 
 .zk-quo-preview-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 6px;
+  font-size: 12px;
   font-weight: 700;
   color: #facc15;
 }
@@ -391,97 +578,144 @@
 .zk-quo-preview-btns {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+
+.zk-quo-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.zk-quo-zoom-controls button {
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zk-quo-zoom-controls button:hover {
+  background: #334155;
+  color: #facc15;
+}
+
+.zk-quo-zoom-controls button.zoom-pct {
+  min-width: 42px;
+  border-left: 1px solid #334155;
+  border-right: 1px solid #334155;
 }
 
 .zk-quo-a4-stage {
   background: #cbd5e1;
-  padding: 16px;
+  padding: 10px;
   border-radius: 12px;
-  overflow-x: auto;
   display: flex;
   justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.zk-quo-a4-scale-box {
+  position: relative;
+  margin: 0 auto;
+}
+
+.zk-quo-a4-scale-inner {
+  width: 794px;
+  height: 1123px;
 }
 
 .zk-quo-a4-sheet {
   width: 794px;
-  min-height: 1122px;
+  height: 1123px;
   background: #ffffff;
   color: #000000;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   font-family: 'Times New Roman', Times, Georgia, serif;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.zk-quo-a4-top {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Rasterized Canvas PNG Header Banner inside Live A4 Preview & PDF Capture */
+.zk-quo-hdr {
+  position: relative;
+  width: 794px;
+  height: 148px;
+  background: #ffffff;
   flex-shrink: 0;
 }
 
-/* Header Banner inside Live A4 Preview */
-.zk-quo-hdr {
-  position: relative;
-  width: 100%;
-  height: 145px;
-  overflow: hidden;
-  background: #ffffff;
-}
-
-.zk-quo-hdr-gold-strip {
+.zk-quo-hdr-bg-img {
   position: absolute;
-  left: 0;
-  bottom: 18px;
-  width: 48%;
-  height: 14px;
-  background: linear-gradient(90deg, #caa018 0%, #e4b61a 100%);
-  z-index: 1;
+  inset: 0;
+  width: 794px;
+  height: 148px;
+  display: block;
+  pointer-events: none;
 }
 
-.zk-quo-hdr-black {
+.zk-quo-hdr-left-content {
   position: absolute;
   top: 0;
   left: 0;
-  width: 63%;
-  height: 142px;
-  background: #050505;
-  clip-path: polygon(0 0, 100% 0, 82% 100%, 69% 79%, 0 79%);
-  z-index: 3;
+  width: 55%;
+  height: 114px;
   display: flex;
-  align-items: flex-start;
-  padding: 16px 20px 0 22px;
+  align-items: center;
+  padding: 10px 16px 6px 26px;
   color: #ffffff;
+  z-index: 2;
 }
 
-.zk-quo-hdr-gold {
+.zk-quo-hdr-right-content {
   position: absolute;
-  top: 16px;
+  top: 22px;
   right: 0;
-  width: 48%;
-  height: 126px;
-  background: linear-gradient(135deg, #f5cd2f 0%, #c8960c 58%, #9b7004 100%);
-  clip-path: polygon(19% 0, 100% 0, 100% 100%, 0 100%);
-  z-index: 2;
+  width: 46%;
+  height: 120px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 12px 18px 8px 46px;
+  padding: 8px 24px 6px 48px;
+  z-index: 2;
 }
 
 .zk-quo-logo-box {
-  width: 62px;
-  height: 76px;
+  width: 60px;
+  height: 78px;
   border: 1.5px solid #3a2e0b;
   background: #070707;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  margin-right: 18px;
+  margin-right: 16px;
   flex-shrink: 0;
 }
 
 .zk-quo-logo-phone {
   width: 24px;
-  height: 38px;
+  height: 36px;
   border: 2px solid #e2af0d;
   border-radius: 4px;
   display: flex;
@@ -490,30 +724,39 @@
   color: #e2af0d;
   font-family: Arial, sans-serif;
   font-weight: 900;
-  font-size: 16px;
+  font-size: 15px;
   margin-bottom: 4px;
 }
 
 .zk-quo-logo-word {
   font-family: Arial, sans-serif;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
   letter-spacing: 0.8px;
   color: #ffffff;
+  line-height: 1.1;
+}
+
+.zk-quo-logo-tiny {
+  font-family: Arial, sans-serif;
+  font-size: 5.5px;
+  letter-spacing: 0.6px;
+  color: #e2af0d;
+  margin-top: 2px;
 }
 
 .zk-quo-brand-center {
   text-align: center;
   flex: 1;
-  padding-right: 45px;
+  padding-right: 16px;
 }
 
 .zk-quo-brand-title {
   font-family: 'Segoe UI', Arial, sans-serif;
-  font-size: 31px;
+  font-size: 32px;
   font-weight: 700;
   letter-spacing: 3px;
-  color: #e2e8f0;
+  color: #e5e7eb;
   margin: 0 0 6px;
   line-height: 1;
 }
@@ -521,9 +764,9 @@
 .zk-quo-brand-sub {
   font-family: 'Segoe UI', Arial, sans-serif;
   font-size: 11.5px;
-  color: #f1f5f9;
+  color: #f8fafc;
   line-height: 1.45;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.25px;
 }
 
 .zk-quo-doc-heading {
@@ -534,6 +777,7 @@
   color: #ffffff;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
   margin: 0 0 12px;
+  line-height: 1;
 }
 
 .zk-quo-phone-row {
@@ -541,49 +785,57 @@
   align-items: center;
   gap: 8px;
   font-family: 'Segoe UI', Arial, sans-serif;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #050505;
 }
 
 .zk-quo-phone-icon {
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
   border-radius: 5px;
   background: #050505;
   color: #f3c623;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-size: 12px;
+  line-height: 1;
 }
 
+/* A4 Body Container */
 .zk-quo-sheet-body {
-  padding: 12px 42px 18px;
+  padding: 20px 48px 14px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .zk-quo-meta-grid {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 16px;
-  font-size: 15.5px;
-  line-height: 1.55;
+  align-items: flex-start;
+  gap: 28px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  line-height: 1.42;
   color: #000000;
 }
 
 .zk-quo-meta-left {
-  width: 56%;
+  width: 58%;
 }
 
 .zk-quo-meta-right {
-  width: 40%;
+  width: 37%;
 }
 
 .zk-quo-meta-line {
-  margin-bottom: 6px;
+  margin-bottom: 7px;
   word-break: break-word;
 }
 
+/* 12-Row Lined Items Table */
 .zk-quo-sheet-table {
   width: 100%;
   border-collapse: collapse;
@@ -597,29 +849,35 @@
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 15.5px;
   font-weight: 700;
-  padding: 9px 10px;
+  padding: 8px 12px;
   border-bottom: 1.5px solid #222222;
 }
 
-.zk-quo-sheet-table thead th.col-desc { width: 52%; text-align: center; }
-.zk-quo-sheet-table thead th.col-qty { width: 14%; text-align: center; }
+.zk-quo-sheet-table thead th.col-desc { width: 53%; text-align: center; }
+.zk-quo-sheet-table thead th.col-qty { width: 13%; text-align: center; }
 .zk-quo-sheet-table thead th.col-price { width: 17%; text-align: center; }
 .zk-quo-sheet-table thead th.col-total { width: 17%; text-align: center; }
 
 .zk-quo-sheet-table tbody tr {
-  height: 36px;
+  height: 32px;
   border-bottom: 1px solid #222222;
 }
 
+.zk-quo-sheet-table tbody tr.filled {
+  height: auto;
+  min-height: 35px;
+}
+
 .zk-quo-sheet-table td {
-  padding: 5px 10px;
-  vertical-align: middle;
+  padding: 4px 10px;
+  vertical-align: bottom;
   color: #000000;
 }
 
 .zk-quo-sheet-table td.c-desc {
   background: #ffffff;
   text-align: left;
+  padding-left: 6px;
 }
 
 .zk-quo-sheet-table td.c-qty {
@@ -640,16 +898,17 @@
 .zk-quo-sheet-table .d-main {
   font-weight: 500;
   color: #000000;
-  line-height: 1.25;
+  line-height: 1.28;
 }
 
 .zk-quo-sheet-table .d-sub {
   font-size: 12.5px;
   color: #111111;
-  line-height: 1.25;
-  margin-top: 1px;
+  line-height: 1.28;
+  margin-top: 2px;
 }
 
+/* Totals Block */
 .zk-quo-sheet-totals {
   display: flex;
   justify-content: flex-end;
@@ -657,7 +916,7 @@
 }
 
 .zk-quo-sheet-totals-box {
-  width: 265px;
+  width: 266px;
   font-size: 15.5px;
   color: #000000;
 }
@@ -666,7 +925,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 10px;
+  padding: 4px 12px;
   margin-bottom: 4px;
 }
 
@@ -682,30 +941,31 @@
 
 .zk-quo-tot-row.grand {
   background: #e2af0d;
-  padding: 8px 12px;
-  margin-top: 6px;
+  padding: 8px 14px;
+  margin-top: 5px;
   font-weight: 700;
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 16px;
   color: #000000;
 }
 
+/* Signatures & Acceptance Block */
 .zk-quo-sheet-sigs {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-top: 28px;
-  padding-top: 10px;
+  margin-top: auto;
+  padding: 14px 4px 8px;
   color: #000000;
 }
 
 .zk-quo-sig-left {
-  width: 52%;
+  width: 53%;
   text-align: center;
 }
 
 .zk-quo-sig-right {
-  width: 44%;
+  width: 43%;
   text-align: center;
 }
 
@@ -719,7 +979,7 @@
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 15px;
   font-weight: 700;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .zk-quo-sig-note {
@@ -730,19 +990,25 @@
   line-height: 1.6;
 }
 
+.zk-quo-sig-note .thank-you {
+  font-weight: 700;
+  margin-top: 2px;
+}
+
 .zk-quo-accept-text {
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 15px;
   line-height: 1.38;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
 }
 
+/* Bottom Black & Gold Address Bar */
 .zk-quo-sheet-footer {
   width: 100%;
   background: #050505;
   border-top: 4px solid #e2af0d;
   color: #ffffff;
-  padding: 10px 20px;
+  padding: 11px 24px;
   text-align: center;
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 13.5px;
@@ -750,12 +1016,13 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .zk-quo-pin {
   color: #e2af0d;
-  display: inline-flex;
-  align-items: center;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .zk-quo-foot-sep {
@@ -768,9 +1035,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .zk-quo-history-search {
@@ -796,13 +1063,11 @@
 
 @media (max-width: 768px) {
   .zk-quo-kpis,
-  .zk-quo-grid-4,
+  .zk-quo-grid-meta,
   .zk-quo-grid-2,
-  .zk-quo-totals-bar,
-  .zk-quo-discount-inputs {
+  .zk-quo-line-desc-grid,
+  .zk-quo-line-numbers-grid,
+  .zk-quo-totals-bar {
     grid-template-columns: 1fr;
-  }
-  .zk-quo-line-fields {
-    grid-template-columns: 1fr 1fr;
   }
 }

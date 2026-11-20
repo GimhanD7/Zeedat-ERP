@@ -9,13 +9,15 @@ import {
   FileText,
   History,
   MapPin,
+  Minus,
   Pencil,
   PhoneCall,
   Plus,
   Printer,
   RefreshCw,
+  RotateCcw,
   Save,
-  Smartphone,
+  Search,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -34,7 +36,7 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { cents, money, printHtmlDocument, ref, timeLabel, today } from '../../utils';
+import { cents, money, ref, timeLabel, today } from '../../utils';
 import './quotations.css';
 
 const DEFAULT_HEADER_PHONES = '077 089 4099 | 074 192 8979';
@@ -51,7 +53,7 @@ const WARRANTY_PRESETS = [
   'No Warranty',
 ];
 
-const MIN_TABLE_ROWS = 12;
+const TOTAL_TABLE_ROWS = 12;
 
 const fmtNum = centsVal => {
   const num = Number(centsVal || 0) / 100;
@@ -95,15 +97,173 @@ const statusTone = status => {
 };
 
 /**
- * Builds standalone printable A4 HTML that exactly matches the ZEEDAT gold & black PDF template.
+ * Generates a high-DPI PNG Data URL of the geometric Black & Gold ZEEDAT header banner using HTML5 Canvas.
+ * Because it is a real rasterized PNG data URL, the Live Preview, html2canvas PDF download, and Printer
+ * render the exact same pixel-for-pixel header with zero SVG/clip-path differences.
  */
-function buildQuotationA4Html(doc) {
-  const esc = v =>
-    String(v ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+let cachedHeaderBannerUrl = null;
+function getHeaderBannerDataUrl() {
+  if (cachedHeaderBannerUrl) return cachedHeaderBannerUrl;
+  try {
+    const W = 1588; // 2x of 794px
+    const H = 296; // 2x of 148px
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
 
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    // 1. Bottom-left gold accent bar
+    const stripGrad = ctx.createLinearGradient(0, 0, 770, 0);
+    stripGrad.addColorStop(0, '#c5970d');
+    stripGrad.addColorStop(1, '#e5b81b');
+    ctx.fillStyle = stripGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, 224);
+    ctx.lineTo(730, 224);
+    ctx.lineTo(770, 254);
+    ctx.lineTo(0, 254);
+    ctx.closePath();
+    ctx.fill();
+
+    // 2. Right angled gold gradient polygon with soft shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 5;
+    const goldGrad = ctx.createLinearGradient(832, 44, W, 284);
+    goldGrad.addColorStop(0, '#f5cf38');
+    goldGrad.addColorStop(0.52, '#cfa012');
+    goldGrad.addColorStop(1, '#9c7105');
+    ctx.fillStyle = goldGrad;
+    ctx.beginPath();
+    ctx.moveTo(968, 44);
+    ctx.lineTo(W, 44);
+    ctx.lineTo(W, 284);
+    ctx.lineTo(832, 284);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 3. Left/Center angled black polygon with drop shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 3;
+    ctx.shadowOffsetY = 5;
+    ctx.fillStyle = '#060606';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(956, 0);
+    ctx.lineTo(832, 284);
+    ctx.lineTo(710, 228);
+    ctx.lineTo(0, 228);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    cachedHeaderBannerUrl = canvas.toDataURL('image/png');
+    return cachedHeaderBannerUrl;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Type-and-Click hybrid product input for each row:
+ * Allows typing any custom product/service name freely OR clicking any matching catalog product (including 0-stock items).
+ */
+function HybridProductInput({ value, products, onType, onPickProduct }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleOutside = e => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  const matches = useMemo(() => {
+    const q = String(value || '').trim().toLowerCase();
+    const list = !q
+      ? products
+      : products.filter(p =>
+          `${p.name || ''} ${p.sku || ''} ${p.barcode || ''} ${p.brand || ''}`
+            .toLowerCase()
+            .includes(q)
+        );
+    return list.slice(0, 25);
+  }, [products, value]);
+
+  return (
+    <div ref={wrapRef} className="zk-quo-hybrid-input-wrap">
+      <input
+        type="text"
+        placeholder="Type custom product/service OR click to pick from catalog…"
+        value={value}
+        onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
+        onChange={e => {
+          onType(e.target.value);
+          setOpen(true);
+        }}
+      />
+      {open && matches.length > 0 && (
+        <div className="zk-quo-hybrid-dropdown" role="listbox">
+          <div className="zk-quo-hybrid-head">
+            <span>Click a catalog product to fill (or keep typing custom text)</span>
+            <button type="button" onMouseDown={e => { e.preventDefault(); setOpen(false); }}>
+              Close
+            </button>
+          </div>
+          {matches.map(p => {
+            const stockQty = Number(p.qty ?? 0);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className="zk-quo-hybrid-item"
+                onMouseDown={e => {
+                  e.preventDefault();
+                  onPickProduct(p);
+                  setOpen(false);
+                }}
+              >
+                <div className="zk-quo-hybrid-item-main">
+                  <strong>{p.name}</strong>
+                  {p.sku && <span className="zk-quo-sku-pill">{p.sku}</span>}
+                </div>
+                <div className="zk-quo-hybrid-item-meta">
+                  <span className="price">{money(p.price)}</span>
+                  <span className={`stock ${stockQty > 0 ? 'in' : 'zero'}`}>
+                    {stockQty > 0 ? `Stock: ${stockQty}` : '0 Stock · OK'}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Shared A4 Document Sheet component (`794px × 1123px` exact A4 dimensions).
+ * Both the Live Preview and the PDF Downloader capture this exact DOM element!
+ */
+function ZeedatA4Sheet({ doc, sheetRef }) {
+  const bannerUrl = useMemo(() => getHeaderBannerDataUrl(), []);
   const isInvoice = doc.doc_type === 'Invoice';
   const docTitle = isInvoice ? 'INVOICE' : 'QUOTATION';
   const toLabel = isInvoice ? 'INVOICE TO:' : 'QUOTATION TO:';
@@ -114,473 +274,202 @@ function buildQuotationA4Html(doc) {
   const taglineParts = String(doc.header_tagline || DEFAULT_HEADER_TAGLINE).split(/Hardware/i);
   const taglineLine1 = taglineParts[0]?.trim() || 'Mobile Phones|Laptops|Computers|Accessories|';
   const taglineLine2 =
-    taglineParts.length > 1 ? `Hardware${taglineParts.slice(1).join('Hardware')}`.trim() : 'Hardware & Software Repair';
+    taglineParts.length > 1
+      ? `Hardware${taglineParts.slice(1).join('Hardware')}`.trim()
+      : 'Hardware & Software Repair';
 
   const footerParts = String(doc.footer_addresses || DEFAULT_FOOTER_ADDRESSES).split('|');
   const footerLeft = footerParts[0]?.trim() || 'No. 148, Main Street, Battaramulla';
   const footerRight =
-    footerParts.slice(1).join(' | ').trim() || 'No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)';
+    footerParts.slice(1).join(' | ').trim() ||
+    'No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)';
 
   const items = Array.isArray(doc.items) ? doc.items : [];
-  const totalRows = Math.max(MIN_TABLE_ROWS, items.length);
-  let rowsHtml = '';
+  const filledItems = items.map(it => {
+    const qtyNum = Math.max(1, parseInt(it.qtyNum ?? it.qty, 10) || 1);
+    const unitCents = Number(it.unit_price_cents ?? it.unit_price ?? 0);
+    const totalCents = Number(it.line_total_cents ?? it.line_total ?? qtyNum * unitCents);
+    return {
+      ...it,
+      qtyNum,
+      unitCents,
+      totalCents,
+      hasText: String(it.description || '').trim() !== '',
+    };
+  });
 
-  for (let i = 0; i < totalRows; i++) {
-    const item = items[i];
-    if (item && String(item.description || '').trim()) {
-      const qtyNum = Math.max(1, parseInt(item.qty, 10) || 1);
-      const unitCents = Number(item.unit_price_cents ?? item.unit_price ?? 0);
-      const lineCents = qtyNum * unitCents;
-      rowsHtml += `
-        <tr class="q-row filled">
-          <td class="c-desc">
-            <div class="d-main">${esc(item.description)}</div>
-            ${item.warranty ? `<div class="d-sub">${esc(item.warranty)}</div>` : ''}
-          </td>
-          <td class="c-qty">${esc(fmtQty(qtyNum))}</td>
-          <td class="c-price">${esc(fmtNum(unitCents))}</td>
-          <td class="c-total">${esc(fmtNum(lineCents))}</td>
-        </tr>`;
-    } else {
-      rowsHtml += `
-        <tr class="q-row empty">
-          <td class="c-desc">&nbsp;</td>
-          <td class="c-qty">&nbsp;</td>
-          <td class="c-price">&nbsp;</td>
-          <td class="c-total">&nbsp;</td>
-        </tr>`;
-    }
-  }
-
+  const rowsCount = Math.max(TOTAL_TABLE_ROWS, filledItems.length);
   const subtotalCents = Number(doc.subtotal_cents ?? doc.subtotal ?? 0);
   const discountCents = Number(doc.discount_cents ?? doc.discount ?? 0);
-  const grandCents = Math.max(0, subtotalCents - discountCents);
+  const grandTotalCents = Math.max(0, subtotalCents - discountCents);
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${esc(docTitle)} ${esc(doc.quote_no)}</title>
-  <style>
-    @page { size: A4 portrait; margin: 0; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 210mm;
-      min-height: 297mm;
-      background: #ffffff;
-      color: #000000;
-      font-family: 'Times New Roman', Times, Georgia, serif;
-    }
-    .sheet {
-      width: 210mm;
-      min-height: 297mm;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      background: #ffffff;
-      position: relative;
-    }
-    .header-wrap {
-      position: relative;
-      width: 100%;
-      height: 145px;
-      overflow: hidden;
-      background: #ffffff;
-    }
-    .header-gold-strip {
-      position: absolute;
-      left: 0;
-      bottom: 18px;
-      width: 48%;
-      height: 14px;
-      background: linear-gradient(90deg, #caa018 0%, #e4b61a 100%);
-      z-index: 1;
-    }
-    .header-black-poly {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 63%;
-      height: 142px;
-      background: #050505;
-      clip-path: polygon(0 0, 100% 0, 82% 100%, 69% 79%, 0 79%);
-      z-index: 3;
-      display: flex;
-      align-items: flex-start;
-      padding: 16px 20px 0 22px;
-      color: #ffffff;
-    }
-    .header-gold-poly {
-      position: absolute;
-      top: 16px;
-      right: 0;
-      width: 48%;
-      height: 126px;
-      background: linear-gradient(135deg, #f5cd2f 0%, #c8960c 58%, #9b7004 100%);
-      clip-path: polygon(19% 0, 100% 0, 100% 100%, 0 100%);
-      z-index: 2;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 12px 18px 8px 46px;
-    }
-    .logo-box {
-      width: 62px;
-      height: 76px;
-      border: 1.5px solid #3a2e0b;
-      background: #070707;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      margin-right: 18px;
-      flex-shrink: 0;
-    }
-    .logo-phone {
-      width: 24px;
-      height: 38px;
-      border: 2px solid #e2af0d;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #e2af0d;
-      font-family: Arial, sans-serif;
-      font-weight: 900;
-      font-size: 16px;
-      margin-bottom: 4px;
-    }
-    .logo-word {
-      font-family: Arial, sans-serif;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.8px;
-      color: #ffffff;
-    }
-    .brand-center {
-      text-align: center;
-      flex: 1;
-      padding-right: 45px;
-    }
-    .brand-title {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 31px;
-      font-weight: 700;
-      letter-spacing: 3px;
-      color: #e2e8f0;
-      margin: 0 0 6px;
-      line-height: 1;
-    }
-    .brand-sub {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 11.5px;
-      color: #f1f5f9;
-      line-height: 1.45;
-      letter-spacing: 0.3px;
-    }
-    .doc-heading {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 31px;
-      font-weight: 600;
-      letter-spacing: 1.5px;
-      color: #ffffff;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
-      margin: 0 0 12px;
-    }
-    .phone-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: 'Segoe UI', Arial, sans-serif;
-      font-size: 14px;
-      font-weight: 800;
-      color: #050505;
-    }
-    .phone-badge {
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
-      background: #050505;
-      color: #f3c623;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-    }
-    .body-pad {
-      padding: 10px 42px 16px;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
-    .meta-grid {
-      display: flex;
-      justify-content: space-between;
-      gap: 24px;
-      margin-bottom: 16px;
-      font-size: 15.5px;
-      line-height: 1.55;
-    }
-    .meta-left {
-      width: 56%;
-    }
-    .meta-right {
-      width: 40%;
-    }
-    .meta-line {
-      margin-bottom: 6px;
-      word-break: break-word;
-    }
-    .q-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
-      font-size: 13.5px;
-    }
-    .q-table thead th {
-      background: #e2af0d;
-      color: #ffffff;
-      font-family: 'Times New Roman', Georgia, serif;
-      font-size: 15.5px;
-      font-weight: 700;
-      padding: 9px 10px;
-      border-bottom: 1.5px solid #222222;
-    }
-    .q-table thead th.h-desc { width: 52%; text-align: center; }
-    .q-table thead th.h-qty { width: 14%; text-align: center; }
-    .q-table thead th.h-price { width: 17%; text-align: center; }
-    .q-table thead th.h-total { width: 17%; text-align: center; }
-    .q-table tbody tr {
-      height: 36px;
-      border-bottom: 1px solid #222222;
-    }
-    .q-table td {
-      padding: 5px 10px;
-      vertical-align: middle;
-    }
-    .q-table td.c-desc {
-      background: #ffffff;
-      text-align: left;
-    }
-    .q-table td.c-qty {
-      background: #efefef;
-      text-align: center;
-    }
-    .q-table td.c-price {
-      background: #ffffff;
-      text-align: center;
-    }
-    .q-table td.c-total {
-      background: #efefef;
-      text-align: center;
-    }
-    .d-main {
-      font-weight: 500;
-      color: #000000;
-      line-height: 1.25;
-    }
-    .d-sub {
-      font-size: 12.5px;
-      color: #111111;
-      line-height: 1.25;
-      margin-top: 1px;
-    }
-    .totals-wrap {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 18px;
-    }
-    .totals-box {
-      width: 265px;
-      font-size: 15.5px;
-    }
-    .tot-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 4px 10px;
-      margin-bottom: 4px;
-    }
-    .tot-row strong {
-      font-family: 'Times New Roman', Georgia, serif;
-      font-weight: 700;
-    }
-    .tot-val {
-      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
-      font-size: 13.5px;
-    }
-    .tot-grand {
-      background: #e2af0d;
-      padding: 8px 12px;
-      margin-top: 6px;
-      font-weight: 700;
-      font-family: 'Times New Roman', Georgia, serif;
-      font-size: 16px;
-    }
-    .signatures-grid {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-top: 28px;
-      padding-top: 10px;
-    }
-    .sig-left {
-      width: 52%;
-      text-align: center;
-    }
-    .sig-right {
-      width: 44%;
-      text-align: center;
-    }
-    .sig-dots {
-      letter-spacing: 2px;
-      font-size: 14px;
-      margin-bottom: 6px;
-      color: #111111;
-    }
-    .sig-title {
-      font-family: 'Times New Roman', Georgia, serif;
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 14px;
-    }
-    .sig-note {
-      font-family: 'Segoe UI', Calibri, Arial, sans-serif;
-      font-size: 12px;
-      font-style: italic;
-      font-weight: 600;
-      line-height: 1.6;
-    }
-    .accept-prompt {
-      font-family: 'Times New Roman', Georgia, serif;
-      font-size: 15px;
-      line-height: 1.38;
-      margin-bottom: 22px;
-    }
-    .bottom-bar {
-      width: 100%;
-      background: #050505;
-      border-top: 4px solid #e2af0d;
-      color: #ffffff;
-      padding: 10px 20px;
-      text-align: center;
-      font-family: 'Times New Roman', Georgia, serif;
-      font-size: 13.5px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-    }
-    .pin-gold {
-      color: #e2af0d;
-      font-weight: 900;
-    }
-  </style>
-</head>
-<body>
-  <div class="sheet">
-    <div>
-      <div class="header-wrap">
-        <div class="header-gold-strip"></div>
-        <div class="header-black-poly">
-          <div class="logo-box">
-            <div class="logo-phone">Z</div>
-            <div class="logo-word">ZEEDAT</div>
+  return (
+    <div ref={sheetRef} className="zk-quo-a4-sheet">
+      <div className="zk-quo-a4-top">
+        {/* TOP GEOMETRIC BLACK & GOLD HEADER BANNER */}
+        <div className="zk-quo-hdr">
+          {bannerUrl && (
+            <img
+              src={bannerUrl}
+              alt=""
+              className="zk-quo-hdr-bg-img"
+              aria-hidden="true"
+            />
+          )}
+
+          <div className="zk-quo-hdr-left-content">
+            <div className="zk-quo-logo-box">
+              <div className="zk-quo-logo-phone">
+                <span>Z</span>
+              </div>
+              <div className="zk-quo-logo-word">ZEEDAT</div>
+              <div className="zk-quo-logo-tiny">MOBILE &amp; PC</div>
+            </div>
+
+            <div className="zk-quo-brand-center">
+              <div className="zk-quo-brand-title">ZEEDAT</div>
+              <div className="zk-quo-brand-sub">
+                <div>{taglineLine1}</div>
+                <div>{taglineLine2}</div>
+              </div>
+            </div>
           </div>
-          <div class="brand-center">
-            <div class="brand-title">ZEEDAT</div>
-            <div class="brand-sub">
-              <div>${esc(taglineLine1)}</div>
-              <div>${esc(taglineLine2)}</div>
+
+          <div className="zk-quo-hdr-right-content">
+            <div className="zk-quo-doc-heading">{docTitle}</div>
+            <div className="zk-quo-phone-row">
+              <span className="zk-quo-phone-icon">&#9742;</span>
+              <span>{doc.header_phones || DEFAULT_HEADER_PHONES}</span>
             </div>
           </div>
         </div>
-        <div class="header-gold-poly">
-          <div class="doc-heading">${esc(docTitle)}</div>
-          <div class="phone-row">
-            <span class="phone-badge">&#9742;</span>
-            <span>${esc(doc.header_phones || DEFAULT_HEADER_PHONES)}</span>
+
+        {/* BODY PADDING CONTAINER */}
+        <div className="zk-quo-sheet-body">
+          {/* CLIENT & QUOTATION INFO BLOCK */}
+          <div className="zk-quo-meta-grid">
+            <div className="zk-quo-meta-left">
+              <div className="zk-quo-meta-line">
+                <span>{toLabel} </span>
+                <span>{doc.client_name || ''}</span>
+              </div>
+              <div className="zk-quo-meta-line">
+                <span>CONTACT: </span>
+                <span>{doc.client_contact || ''}</span>
+              </div>
+              <div className="zk-quo-meta-line">
+                <span>ADDRESS: </span>
+                <span>{doc.client_address || ''}</span>
+              </div>
+            </div>
+
+            <div className="zk-quo-meta-right">
+              <div className="zk-quo-meta-line">
+                <span>{noLabel}</span>
+                <span>{doc.quote_no}</span>
+              </div>
+              <div className="zk-quo-meta-line">
+                <span>{dateLabelTxt}</span>
+                <span>{fmtShortDate(doc.quote_date)}</span>
+              </div>
+              <div className="zk-quo-meta-line">
+                <span>{validLabel}</span>
+                <span>{doc.valid_until}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 12-ROW LINED ITEMS TABLE */}
+          <table className="zk-quo-sheet-table">
+            <thead>
+              <tr>
+                <th className="col-desc">Description of Service / Product</th>
+                <th className="col-qty">Qty</th>
+                <th className="col-price">Unit Price</th>
+                <th className="col-total">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: rowsCount }).map((_, idx) => {
+                const line = filledItems[idx];
+                const hasText = Boolean(line?.hasText);
+                return (
+                  <tr key={idx} className={hasText ? 'filled' : 'empty'}>
+                    <td className="c-desc">
+                      {hasText ? (
+                        <div className="c-desc-inner">
+                          <div className="d-main">{line.description}</div>
+                          {line.warranty && <div className="d-sub">{line.warranty}</div>}
+                        </div>
+                      ) : (
+                        '\u00A0'
+                      )}
+                    </td>
+                    <td className="c-qty">{hasText ? fmtQty(line.qtyNum) : '\u00A0'}</td>
+                    <td className="c-price">{hasText ? fmtNum(line.unitCents) : '\u00A0'}</td>
+                    <td className="c-total">{hasText ? fmtNum(line.totalCents) : '\u00A0'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {/* SUB TOTAL / DISCOUNT / GRAND TOTAL */}
+          <div className="zk-quo-sheet-totals">
+            <div className="zk-quo-sheet-totals-box">
+              <div className="zk-quo-tot-row">
+                <strong>Sub Total:</strong>
+                <span className="zk-quo-tot-val">{fmtNum(subtotalCents)}</span>
+              </div>
+              <div className="zk-quo-tot-row">
+                <strong>Discount:</strong>
+                <span className="zk-quo-tot-val">
+                  {discountCents > 0 ? fmtNum(discountCents) : ''}
+                </span>
+              </div>
+              <div className="zk-quo-tot-row grand">
+                <span>Grand Total:</span>
+                <span>{fmtNum(grandTotalCents)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* SIGNATURES & ACCEPTANCE */}
+          <div className="zk-quo-sheet-sigs">
+            <div className="zk-quo-sig-left">
+              <div className="zk-quo-sig-dots">..............................................</div>
+              <div className="zk-quo-sig-title">Business Signature</div>
+              <div className="zk-quo-sig-note">
+                <div>
+                  If you have any questions concerning this{' '}
+                  {isInvoice ? 'Invoice' : 'Quotation'}, please contact Us.
+                </div>
+                <div className="thank-you">Thank You for Your Business.</div>
+              </div>
+            </div>
+
+            <div className="zk-quo-sig-right">
+              <div className="zk-quo-accept-text">
+                Please Confirm Your Acceptance
+                <br />
+                of This {isInvoice ? 'Invoice' : 'Quote'}:
+              </div>
+              <div className="zk-quo-sig-dots">............................................</div>
+              <div className="zk-quo-sig-title">Client Signature &amp; Date</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="body-pad">
-        <div class="meta-grid">
-          <div class="meta-left">
-            <div class="meta-line">${esc(toLabel)} ${esc(doc.client_name)}</div>
-            <div class="meta-line">CONTACT: ${esc(doc.client_contact || '')}</div>
-            <div class="meta-line">ADDRESS: ${esc(doc.client_address || '')}</div>
-          </div>
-          <div class="meta-right">
-            <div class="meta-line">${esc(noLabel)}${esc(doc.quote_no)}</div>
-            <div class="meta-line">${esc(dateLabelTxt)}${esc(fmtShortDate(doc.quote_date))}</div>
-            <div class="meta-line">${esc(validLabel)}${esc(doc.valid_until || '')}</div>
-          </div>
-        </div>
-
-        <table class="q-table">
-          <thead>
-            <tr>
-              <th class="h-desc">Description of Service / Product</th>
-              <th class="h-qty">Qty</th>
-              <th class="h-price">Unit Price</th>
-              <th class="h-total">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-
-        <div class="totals-wrap">
-          <div class="totals-box">
-            <div class="tot-row">
-              <strong>Sub Total:</strong>
-              <span class="tot-val">${esc(fmtNum(subtotalCents))}</span>
-            </div>
-            <div class="tot-row">
-              <strong>Discount:</strong>
-              <span class="tot-val">${discountCents > 0 ? esc(fmtNum(discountCents)) : ''}</span>
-            </div>
-            <div class="tot-row tot-grand">
-              <span>Grand Total:</span>
-              <span>${esc(fmtNum(grandCents))}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="signatures-grid">
-          <div class="sig-left">
-            <div class="sig-dots">..............................................</div>
-            <div class="sig-title">Business Signature</div>
-            <div class="sig-note">
-              <div>If you have any questions concerning this ${isInvoice ? 'Invoice' : 'Quotation'}, please contact Us.</div>
-              <div><strong>Thank You for Your Business.</strong></div>
-            </div>
-          </div>
-          <div class="sig-right">
-            <div class="accept-prompt">
-              Please Confirm Your Acceptance<br/>of This ${isInvoice ? 'Invoice' : 'Quote'}:
-            </div>
-            <div class="sig-dots">............................................</div>
-            <div class="sig-title">Client Signature &amp; Date</div>
-          </div>
-        </div>
+      {/* BOTTOM BLACK & GOLD ADDRESS BAR */}
+      <div className="zk-quo-sheet-footer">
+        <span className="zk-quo-pin">&#9906;</span>
+        <span>{footerLeft}</span>
+        <span className="zk-quo-foot-sep">|</span>
+        <span>{footerRight}</span>
       </div>
     </div>
-
-    <div class="bottom-bar">
-      <span class="pin-gold">&#9906;</span>
-      <span>${esc(footerLeft)}</span>
-      <span><strong>|</strong></span>
-      <span>${esc(footerRight)}</span>
-    </div>
-  </div>
-</body>
-</html>`;
+  );
 }
 
 export function QuotationsPage({ ctx }) {
@@ -600,6 +489,13 @@ export function QuotationsPage({ ctx }) {
 function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const { quotations = [], products = [], customers = [] } = data;
   const previewRef = useRef(null);
+  const hiddenCaptureRef = useRef(null);
+  const stageRef = useRef(null);
+  const quickSearchRef = useRef(null);
+
+  const [previewScale, setPreviewScale] = useState(0.54);
+  const [manualScale, setManualScale] = useState(null);
+  const [captureDoc, setCaptureDoc] = useState(null);
 
   const [activeTab, setActiveTab] = useState('builder');
   const [editingId, setEditingId] = useState(null);
@@ -623,9 +519,49 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Quick Search & Click to Add Product state
+  const [quickQuery, setQuickQuery] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
+
   // History tab filters
   const [historyFilter, setHistoryFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
+
+  // Close quick product dropdown when clicking outside
+  useEffect(() => {
+    if (!quickOpen) return undefined;
+    const onOutside = e => {
+      if (quickSearchRef.current && !quickSearchRef.current.contains(e.target)) {
+        setQuickOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [quickOpen]);
+
+  // Fit the entire 794x1123 A4 preview vertically AND horizontally inside the viewport so NO scrolling is needed
+  useEffect(() => {
+    if (activeTab !== 'builder') return undefined;
+    const updateScale = () => {
+      const stageEl = stageRef.current;
+      const availW = stageEl ? Math.max(300, stageEl.clientWidth - 20) : 440;
+      const availH = Math.max(460, window.innerHeight - 175);
+      const scaleW = availW / 794;
+      const scaleH = availH / 1123;
+      const fit = Math.min(scaleW, scaleH, 0.58);
+      setPreviewScale(Math.max(0.42, Number(fit.toFixed(3))));
+    };
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateScale) : null;
+    if (ro && stageRef.current) ro.observe(stageRef.current);
+    return () => {
+      window.removeEventListener('resize', updateScale);
+      ro?.disconnect();
+    };
+  }, [activeTab]);
+
+  const effectiveScale = manualScale ?? previewScale;
 
   // Compute next 4-digit quotation number automatically
   const nextAutoNumber = useMemo(() => {
@@ -658,6 +594,19 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       }),
     [products]
   );
+
+  // Filtered products for Quick Search & Click to Add bar
+  const quickMatchedProducts = useMemo(() => {
+    const q = quickQuery.trim().toLowerCase();
+    const list = !q
+      ? products
+      : products.filter(p =>
+          `${p.name || ''} ${p.sku || ''} ${p.barcode || ''} ${p.brand || ''} ${p.category || ''}`
+            .toLowerCase()
+            .includes(q)
+        );
+    return list.slice(0, 30);
+  }, [products, quickQuery]);
 
   const customerOptions = useMemo(
     () =>
@@ -704,7 +653,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       quote_no: quoteNo || nextAutoNumber,
       quote_date: quoteDate,
       valid_until: validUntil,
-      client_name: clientName || 'Customer / Company Name',
+      client_name: clientName,
       client_contact: clientContact,
       client_address: clientAddress,
       header_phones: headerPhones,
@@ -769,16 +718,17 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setHeaderTagline(row.header_tagline || DEFAULT_HEADER_TAGLINE);
     setFooterAddresses(row.footer_addresses || DEFAULT_FOOTER_ADDRESSES);
 
-    const rowItems = Array.isArray(row.items) && row.items.length > 0
-      ? row.items.map(it => ({
-          key: `${it.id || Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          product_id: it.product_id ? String(it.product_id) : '',
-          description: it.description || '',
-          warranty: it.warranty ?? '',
-          qty: String(it.qty || 1),
-          unit_price: (Number(it.unit_price || 0) / 100).toFixed(2),
-        }))
-      : [createEmptyItem()];
+    const rowItems =
+      Array.isArray(row.items) && row.items.length > 0
+        ? row.items.map(it => ({
+            key: `${it.id || Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            product_id: it.product_id ? String(it.product_id) : '',
+            description: it.description || '',
+            warranty: it.warranty ?? '',
+            qty: String(it.qty || 1),
+            unit_price: (Number(it.unit_price || 0) / 100).toFixed(2),
+          }))
+        : [createEmptyItem()];
 
     setItems(rowItems);
     setError('');
@@ -801,8 +751,11 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setItems(prev => prev.map((it, idx) => (idx === index ? { ...it, ...patch } : it)));
   };
 
-  const handlePickCatalogProduct = (index, prodId) => {
-    const found = products.find(p => String(p.id) === String(prodId));
+  const handlePickCatalogProduct = (index, prodIdOrObj) => {
+    const found =
+      typeof prodIdOrObj === 'object' && prodIdOrObj !== null
+        ? prodIdOrObj
+        : products.find(p => String(p.id) === String(prodIdOrObj));
     if (!found) {
       updateItemLine(index, { product_id: '' });
       return;
@@ -812,6 +765,71 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       description: found.name || '',
       unit_price: (Number(found.price || 0) / 100).toFixed(2),
     });
+  };
+
+  // Click any product in the Quick Search bar to add it immediately!
+  const handleQuickAddCatalogProduct = prod => {
+    if (!prod) return;
+    setItems(prev => {
+      // If the same product is already in the list, increment its qty
+      const existingIdx = prev.findIndex(
+        it =>
+          (it.product_id && String(it.product_id) === String(prod.id)) ||
+          String(it.description || '').trim().toLowerCase() ===
+            String(prod.name || '').trim().toLowerCase()
+      );
+      if (existingIdx !== -1) {
+        return prev.map((it, i) =>
+          i === existingIdx
+            ? { ...it, qty: String(Math.max(1, (parseInt(it.qty, 10) || 1) + 1)) }
+            : it
+        );
+      }
+      // If there is an empty row, fill that row first
+      const emptyIdx = prev.findIndex(it => !String(it.description || '').trim());
+      const newLine = {
+        key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        product_id: String(prod.id),
+        description: prod.name || '',
+        warranty: '1 year Company warranty',
+        qty: '1',
+        unit_price: (Number(prod.price || 0) / 100).toFixed(2),
+      };
+      if (emptyIdx !== -1) {
+        return prev.map((it, i) => (i === emptyIdx ? newLine : it));
+      }
+      return [...prev, newLine];
+    });
+    setQuickQuery('');
+    setQuickOpen(false);
+    ctx.setNotice(`Added "${prod.name}" to ${docType.toLowerCase()}.`);
+  };
+
+  // Also allow pressing Enter in Quick Search to add whatever custom item name was typed!
+  const handleQuickAddCustomText = () => {
+    const clean = quickQuery.trim();
+    if (!clean) return;
+    if (quickMatchedProducts.length === 1) {
+      handleQuickAddCatalogProduct(quickMatchedProducts[0]);
+      return;
+    }
+    setItems(prev => {
+      const emptyIdx = prev.findIndex(it => !String(it.description || '').trim());
+      const newLine = {
+        key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        product_id: '',
+        description: clean,
+        warranty: '1 year Company warranty',
+        qty: '1',
+        unit_price: '',
+      };
+      if (emptyIdx !== -1) {
+        return prev.map((it, i) => (i === emptyIdx ? newLine : it));
+      }
+      return [...prev, newLine];
+    });
+    setQuickQuery('');
+    setQuickOpen(false);
   };
 
   const addItemLine = () => {
@@ -867,9 +885,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       setEditingId(saved.id);
       setQuoteNo(saved.quote_no || quoteNo);
       onRefresh?.();
-      ctx.setNotice(
-        `${saved.doc_type || docType} #${saved.quote_no} saved to database.`
-      );
+      ctx.setNotice(`${saved.doc_type || docType} #${saved.quote_no} saved to database.`);
       return saved;
     } catch (err) {
       setError(err.message);
@@ -879,57 +895,49 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
-  const handlePrintA4 = docToPrint => {
-    const html = buildQuotationA4Html(docToPrint);
-    printHtmlDocument(html);
+  /**
+   * Captures the exact ZeedatA4Sheet React DOM node into a high-resolution Canvas so that
+   * both PDF Download and Print A4 are 100% identical to the Live A4 PDF Template Preview!
+   */
+  const captureSheetToCanvas = async docData => {
+    setCaptureDoc(docData);
+    // Wait one animation frame for React to render `captureDoc` into the unscaled `hiddenCaptureRef`
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const targetEl = hiddenCaptureRef.current || previewRef.current;
+    if (!targetEl) {
+      throw new Error('Preview sheet element not ready.');
+    }
+
+    const canvas = await html2canvas(targetEl, {
+      scale: 2.5,
+      width: 794,
+      height: 1123,
+      windowWidth: 1600,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      onclone: (_clonedDoc, clonedEl) => {
+        clonedEl.style.transform = 'none';
+        clonedEl.style.width = '794px';
+        clonedEl.style.height = '1123px';
+      },
+    });
+    return canvas;
   };
 
-  const handleDownloadPdf = async (docData, useLiveDom = false) => {
+  const handleDownloadPdf = async docData => {
     setPdfBusy(true);
     setError('');
     try {
-      let targetEl = useLiveDom ? previewRef.current : null;
-      let tempContainer = null;
-
-      if (!targetEl) {
-        tempContainer = document.createElement('div');
-        tempContainer.style.position = 'fixed';
-        tempContainer.style.left = '-10000px';
-        tempContainer.style.top = '0';
-        tempContainer.style.width = '794px';
-        tempContainer.style.background = '#ffffff';
-        tempContainer.style.zIndex = '-1';
-        const html = buildQuotationA4Html(docData);
-        const bodyMatch = html.match(/<style>([\s\S]*?)<\/style>[\s\S]*?<body>([\s\S]*?)<\/body>/i);
-        if (bodyMatch) {
-          tempContainer.innerHTML = `<style>${bodyMatch[1]}</style>${bodyMatch[2]}`;
-        } else {
-          tempContainer.innerHTML = html;
-        }
-        document.body.appendChild(tempContainer);
-        targetEl = tempContainer.querySelector('.sheet') || tempContainer;
-      }
-
-      const canvas = await html2canvas(targetEl, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
-
-      if (tempContainer && tempContainer.parentNode) {
-        tempContainer.parentNode.removeChild(tempContainer);
-      }
-
+      const canvas = await captureSheetToCanvas(docData);
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
       });
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       const prefix = docData.doc_type === 'Invoice' ? 'Invoice' : 'Quotation';
       const cleanNo = String(docData.quote_no || '0001').replace(/[^a-zA-Z0-9_-]/g, '_');
       const cleanClient = String(docData.client_name || 'Client')
@@ -945,17 +953,62 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
+  const handlePrintA4 = async docToPrint => {
+    setPdfBusy(true);
+    setError('');
+    try {
+      const canvas = await captureSheetToCanvas(docToPrint);
+      const imgData = canvas.toDataURL('image/png');
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${docToPrint.doc_type || 'Quotation'} #${docToPrint.quote_no || ''}</title>
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; background: #fff; }
+    img { width: 210mm; height: 297mm; display: block; }
+  </style>
+</head>
+<body>
+  <img src="${imgData}" onload="setTimeout(function(){ window.focus(); window.print(); }, 80);" />
+</body>
+</html>`);
+        doc.close();
+      }
+      setTimeout(() => {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      }, 60000);
+    } catch (err) {
+      setError('Could not print document: ' + (err.message || 'Unknown error'));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const handleSaveAndDownloadPdf = async () => {
     const saved = await saveToDatabase();
     if (saved) {
-      await handleDownloadPdf(saved, true);
+      await handleDownloadPdf(saved);
     }
   };
 
   const handleSaveAndPrint = async () => {
     const saved = await saveToDatabase();
     if (saved) {
-      handlePrintA4(saved);
+      await handlePrintA4(saved);
     }
   };
 
@@ -1033,23 +1086,13 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     });
   }, [quotations, historyFilter, historySearch]);
 
-  const taglineParts = String(headerTagline || DEFAULT_HEADER_TAGLINE).split(/Hardware/i);
-  const taglineLine1 = taglineParts[0]?.trim() || 'Mobile Phones|Laptops|Computers|Accessories|';
-  const taglineLine2 =
-    taglineParts.length > 1
-      ? `Hardware${taglineParts.slice(1).join('Hardware')}`.trim()
-      : 'Hardware & Software Repair';
-
-  const footerParts = String(footerAddresses || DEFAULT_FOOTER_ADDRESSES).split('|');
-  const footerLeft = footerParts[0]?.trim() || 'No. 148, Main Street, Battaramulla';
-  const footerRight =
-    footerParts.slice(1).join(' | ').trim() ||
-    'No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)';
-
-  const previewRowsCount = Math.max(MIN_TABLE_ROWS, computedLines.length);
-
   return (
     <div className="zk-quo-page">
+      {/* Offscreen unscaled 1:1 A4 capture target so downloaded PDF is 100% identical to Live Preview */}
+      <div className="zk-quo-offscreen-capture" aria-hidden="true">
+        <ZeedatA4Sheet doc={captureDoc || currentDocPreview} sheetRef={hiddenCaptureRef} />
+      </div>
+
       <Heading
         title="Quotations & Corporate Invoices"
         description="Generate official ZEEDAT A4 PDF quotations & invoices, save to database, and quote any item (even with 0 stock)"
@@ -1153,7 +1196,12 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
           value={activeTab}
           onChange={setActiveTab}
           choices={[
-            ['builder', editingId ? `Editing ${docType} #${quoteNo}` : `Create ${docType} & Live PDF Preview`],
+            [
+              'builder',
+              editingId
+                ? `Editing ${docType} #${quoteNo}`
+                : `Create ${docType} & Live PDF Preview`,
+            ],
             ['history', `All Saved Quotations & Invoices (${quotations.length})`],
           ]}
         />
@@ -1191,18 +1239,14 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       </div>
 
       {/* =========================================================
-          VIEW 1: QUOTATION & INVOICE BUILDER + LIVE A4 PDF PREVIEW
+          VIEW 1: QUOTATION & INVOICE BUILDER + COMPACT LIVE A4 PREVIEW
       ========================================================= */}
       {activeTab === 'builder' && (
         <div className="zk-quo-workspace">
           {/* LEFT: FORM BUILDER */}
           <div className="zk-quo-form-col">
             <Panel
-              title={
-                editingId
-                  ? `Edit ${docType} #${quoteNo}`
-                  : `New ${docType} Details`
-              }
+              title={editingId ? `Edit ${docType} #${quoteNo}` : `New ${docType} Details`}
               icon={FileSpreadsheet}
             >
               <div className="zk-quo-form-stack">
@@ -1226,13 +1270,11 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       <span>INVOICE Template</span>
                     </button>
                   </div>
-                  {editingId && (
-                    <Badge tone="amber">Editing Saved ID #{editingId}</Badge>
-                  )}
+                  {editingId && <Badge tone="amber">Editing Saved ID #{editingId}</Badge>}
                 </div>
 
-                {/* Document Number, Date, Valid Until, Status */}
-                <div className="zk-quo-grid-4">
+                {/* Document Number, Date, Valid Until, Status (2x2 spacious grid) */}
+                <div className="zk-quo-grid-meta">
                   <Field label={`${docType === 'Invoice' ? 'Invoice' : 'Quotation'} No *`}>
                     <input
                       type="text"
@@ -1275,8 +1317,15 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 {/* Customer / Company Info */}
                 <div className="zk-quo-client-box">
                   <div className="zk-quo-section-head">
-                    <strong>1. Client / Company Information ({docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'})</strong>
-                    <small className="muted">Pick an existing customer or type any company/client name</small>
+                    <div>
+                      <strong>
+                        1. Client / Company Information (
+                        {docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'})
+                      </strong>
+                      <small className="muted">
+                        Pick an existing customer or type any company/client name
+                      </small>
+                    </div>
                   </div>
 
                   <Field label="Quick Fill from Saved Customers (Optional)">
@@ -1290,7 +1339,11 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </Field>
 
                   <div className="zk-quo-grid-2">
-                    <Field label={`${docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'} (Company / Client Name) *`}>
+                    <Field
+                      label={`${
+                        docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'
+                      } (Company / Client) *`}
+                    >
                       <input
                         type="text"
                         required
@@ -1319,18 +1372,116 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </Field>
                 </div>
 
-                {/* Line Items Section (0-stock items and custom items allowed) */}
+                {/* Line Items Section (Search & Click to Add + Type Custom Items + 0-Stock Allowed) */}
                 <div className="zk-quo-items-box">
                   <div className="zk-quo-section-head">
                     <div>
                       <strong>2. Products &amp; Services ({items.length})</strong>
                       <small className="muted">
-                        All catalog products can be selected even if stock is 0, or type any custom product/service directly.
+                        Search &amp; click to add from catalog (0-stock items included) OR type any custom item directly.
                       </small>
                     </div>
                     <Button type="button" size="sm" variant="primary" icon={Plus} onClick={addItemLine}>
-                      Add Item Row
+                      + Add Empty Row
                     </Button>
+                  </div>
+
+                  {/* QUICK SEARCH & CLICK TO ADD PRODUCT BAR */}
+                  <div ref={quickSearchRef} className="zk-quo-quick-add-bar">
+                    <div className="zk-quo-quick-search-input">
+                      <Search size={16} className="zk-quo-qs-icon" />
+                      <input
+                        type="text"
+                        placeholder="Quick Search & Click to Add Product (or type custom item name & click Add)…"
+                        value={quickQuery}
+                        onFocus={() => setQuickOpen(true)}
+                        onClick={() => setQuickOpen(true)}
+                        onChange={e => {
+                          setQuickQuery(e.target.value);
+                          setQuickOpen(true);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleQuickAddCustomText();
+                          }
+                        }}
+                      />
+                      {quickQuery.trim() && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="primary"
+                          icon={Plus}
+                          onClick={handleQuickAddCustomText}
+                        >
+                          Add “{quickQuery.trim().slice(0, 22)}”
+                        </Button>
+                      )}
+                    </div>
+
+                    {quickOpen && (
+                      <div className="zk-quo-quick-dropdown">
+                        <div className="zk-quo-hybrid-head">
+                          <span>
+                            Click any product below to add to {docType} (0-stock items allowed)
+                          </span>
+                          <button
+                            type="button"
+                            onMouseDown={e => {
+                              e.preventDefault();
+                              setQuickOpen(false);
+                            }}
+                          >
+                            Close
+                          </button>
+                        </div>
+                        <div className="zk-quo-quick-list">
+                          {quickMatchedProducts.map(p => {
+                            const stockQty = Number(p.qty ?? 0);
+                            return (
+                              <button
+                                key={p.id}
+                                type="button"
+                                className="zk-quo-hybrid-item"
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  handleQuickAddCatalogProduct(p);
+                                }}
+                              >
+                                <div className="zk-quo-hybrid-item-main">
+                                  <strong>+ {p.name}</strong>
+                                  {p.sku && <span className="zk-quo-sku-pill">{p.sku}</span>}
+                                </div>
+                                <div className="zk-quo-hybrid-item-meta">
+                                  <span className="price">{money(p.price)}</span>
+                                  <span className={`stock ${stockQty > 0 ? 'in' : 'zero'}`}>
+                                    {stockQty > 0 ? `Stock: ${stockQty}` : '0 Stock · Allowed'}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                          {quickMatchedProducts.length === 0 && (
+                            <div className="zk-quo-quick-empty">
+                              <span>No catalog match for “{quickQuery}”.</span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="soft"
+                                icon={Plus}
+                                onMouseDown={e => {
+                                  e.preventDefault();
+                                  handleQuickAddCustomText();
+                                }}
+                              >
+                                Add “{quickQuery}” as Custom Item
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="zk-quo-lines-list">
@@ -1342,7 +1493,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                             <Select
                               searchable
                               value={line.product_id}
-                              blank="Select from product catalog (0-stock items included) or type custom description below…"
+                              blank="Pick from catalog dropdown (0-stock included) OR type directly in Description below…"
                               options={allCatalogOptions}
                               onChange={e => handlePickCatalogProduct(index, e.target.value)}
                             />
@@ -1358,13 +1509,13 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                           />
                         </div>
 
-                        <div className="zk-quo-line-fields">
-                          <Field label="Description of Service / Product *">
-                            <input
-                              type="text"
-                              placeholder="e.g. Nokia 105 original mobile"
+                        <div className="zk-quo-line-desc-grid">
+                          <Field label="Description of Service / Product (Type freely or click suggestion) *">
+                            <HybridProductInput
                               value={line.description}
-                              onChange={e => updateItemLine(index, { description: e.target.value })}
+                              products={products}
+                              onType={val => updateItemLine(index, { description: val })}
+                              onPickProduct={prod => handlePickCatalogProduct(index, prod)}
                             />
                           </Field>
 
@@ -1376,7 +1527,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                               onChange={e => updateItemLine(index, { warranty: e.target.value })}
                             />
                           </Field>
+                        </div>
 
+                        <div className="zk-quo-line-numbers-grid">
                           <Field label="Qty">
                             <input
                               type="number"
@@ -1399,7 +1552,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                           </Field>
 
                           <div className="zk-quo-line-total-cell">
-                            <span>Line Total</span>
+                            <span>Line Total (LKR)</span>
                             <strong>{fmtNum(line.line_total_cents)}</strong>
                           </div>
                         </div>
@@ -1410,7 +1563,12 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                             <button
                               key={preset}
                               type="button"
-                              className={`zk-quo-chip ${line.warranty === preset ? 'active' : ''}`}
+                              className={`zk-quo-chip ${
+                                (preset === 'No Warranty' && !line.warranty) ||
+                                line.warranty === preset
+                                  ? 'active'
+                                  : ''
+                              }`}
                               onClick={() =>
                                 updateItemLine(index, {
                                   warranty: preset === 'No Warranty' ? '' : preset,
@@ -1552,22 +1710,68 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             </Panel>
           </div>
 
-          {/* RIGHT: EXACT ZEEDAT GOLD & BLACK A4 PDF TEMPLATE PREVIEW */}
+          {/* RIGHT: COMPACT FULL-VIEW LIVE A4 PDF TEMPLATE PREVIEW (NO VERTICAL SCROLL NEEDED) */}
           <div className="zk-quo-preview-col">
             <div className="zk-quo-preview-toolbar">
               <div className="zk-quo-preview-title">
-                <Eye size={16} />
-                <span>Live A4 PDF Template Preview ({docType.toUpperCase()} #{quoteNo || nextAutoNumber})</span>
+                <Eye size={15} />
+                <span>
+                  Live A4 PDF Preview ({docType.toUpperCase()} #{quoteNo || nextAutoNumber})
+                </span>
               </div>
+
               <div className="zk-quo-preview-btns">
+                <div className="zk-quo-zoom-controls" title="Adjust preview zoom">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setManualScale(s =>
+                        Math.max(0.38, Number(((s ?? previewScale) - 0.05).toFixed(2)))
+                      )
+                    }
+                    aria-label="Zoom out"
+                  >
+                    <Minus size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="zoom-pct"
+                    onClick={() => setManualScale(null)}
+                    title="Reset to Fit Full Page"
+                  >
+                    {Math.round(effectiveScale * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setManualScale(s =>
+                        Math.min(0.95, Number(((s ?? previewScale) + 0.05).toFixed(2)))
+                      )
+                    }
+                    aria-label="Zoom in"
+                  >
+                    <Plus size={12} />
+                  </button>
+                  {manualScale !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setManualScale(null)}
+                      title="Fit entire A4 page on screen"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                  )}
+                </div>
+
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   icon={Printer}
+                  disabled={pdfBusy}
                   onClick={() => handlePrintA4(currentDocPreview)}
                 >
-                  Print Preview
+                  Print
                 </Button>
                 <Button
                   type="button"
@@ -1575,175 +1779,29 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   variant="primary"
                   icon={Download}
                   disabled={pdfBusy}
-                  onClick={() => handleDownloadPdf(currentDocPreview, true)}
+                  onClick={() => handleDownloadPdf(currentDocPreview)}
                 >
-                  {pdfBusy ? 'Exporting…' : 'Download PDF'}
+                  {pdfBusy ? 'PDF…' : 'Download PDF'}
                 </Button>
               </div>
             </div>
 
-            <div className="zk-quo-a4-stage">
-              <div ref={previewRef} className="zk-quo-a4-sheet">
-                <div>
-                  {/* TOP BLACK & GOLD ANGLED BANNER */}
-                  <div className="zk-quo-hdr">
-                    <div className="zk-quo-hdr-gold-strip" />
-                    <div className="zk-quo-hdr-black">
-                      <div className="zk-quo-logo-box">
-                        <div className="zk-quo-logo-phone">
-                          <span>Z</span>
-                        </div>
-                        <div className="zk-quo-logo-word">ZEEDAT</div>
-                      </div>
-                      <div className="zk-quo-brand-center">
-                        <div className="zk-quo-brand-title">ZEEDAT</div>
-                        <div className="zk-quo-brand-sub">
-                          <div>{taglineLine1}</div>
-                          <div>{taglineLine2}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="zk-quo-hdr-gold">
-                      <div className="zk-quo-doc-heading">
-                        {docType === 'Invoice' ? 'INVOICE' : 'QUOTATION'}
-                      </div>
-                      <div className="zk-quo-phone-row">
-                        <span className="zk-quo-phone-icon">
-                          <PhoneCall size={13} strokeWidth={2.5} />
-                        </span>
-                        <span>{headerPhones || DEFAULT_HEADER_PHONES}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* CLIENT & DOCUMENT METADATA */}
-                  <div className="zk-quo-sheet-body">
-                    <div className="zk-quo-meta-grid">
-                      <div className="zk-quo-meta-left">
-                        <div className="zk-quo-meta-line">
-                          {docType === 'Invoice' ? 'INVOICE TO: ' : 'QUOTATION TO: '}
-                          {clientName || '—'}
-                        </div>
-                        <div className="zk-quo-meta-line">CONTACT: {clientContact}</div>
-                        <div className="zk-quo-meta-line">ADDRESS: {clientAddress}</div>
-                      </div>
-                      <div className="zk-quo-meta-right">
-                        <div className="zk-quo-meta-line">
-                          {docType === 'Invoice' ? 'INVOICE NO:' : 'QUOTATION NO:'}
-                          {quoteNo || nextAutoNumber}
-                        </div>
-                        <div className="zk-quo-meta-line">
-                          {docType === 'Invoice' ? 'INVOICE DATE:' : 'QUOTATION DATE:'}
-                          {fmtShortDate(quoteDate)}
-                        </div>
-                        <div className="zk-quo-meta-line">
-                          {docType === 'Invoice' ? 'PAYMENT TERMS:' : 'VALID UNTIL:'}
-                          {validUntil}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 12-ROW GOLD & GREY LINED ITEMS TABLE */}
-                    <table className="zk-quo-sheet-table">
-                      <thead>
-                        <tr>
-                          <th className="col-desc">Description of Service / Product</th>
-                          <th className="col-qty">Qty</th>
-                          <th className="col-price">Unit Price</th>
-                          <th className="col-total">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.from({ length: previewRowsCount }).map((_, idx) => {
-                          const line = computedLines[idx];
-                          const hasText = line && String(line.description || '').trim() !== '';
-                          return (
-                            <tr key={idx} className={hasText ? 'filled' : 'empty'}>
-                              <td className="c-desc">
-                                {hasText ? (
-                                  <>
-                                    <div className="d-main">{line.description}</div>
-                                    {line.warranty && <div className="d-sub">{line.warranty}</div>}
-                                  </>
-                                ) : (
-                                  '\u00A0'
-                                )}
-                              </td>
-                              <td className="c-qty">{hasText ? fmtQty(line.qtyNum) : '\u00A0'}</td>
-                              <td className="c-price">
-                                {hasText ? fmtNum(line.unit_price_cents) : '\u00A0'}
-                              </td>
-                              <td className="c-total">
-                                {hasText ? fmtNum(line.line_total_cents) : '\u00A0'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-
-                    {/* SUBTOTAL / DISCOUNT / GOLD GRAND TOTAL */}
-                    <div className="zk-quo-sheet-totals">
-                      <div className="zk-quo-sheet-totals-box">
-                        <div className="zk-quo-tot-row">
-                          <strong>Sub Total:</strong>
-                          <span className="zk-quo-tot-val">{fmtNum(subtotalCents)}</span>
-                        </div>
-                        <div className="zk-quo-tot-row">
-                          <strong>Discount:</strong>
-                          <span className="zk-quo-tot-val">
-                            {discountCents > 0 ? fmtNum(discountCents) : ''}
-                          </span>
-                        </div>
-                        <div className="zk-quo-tot-row grand">
-                          <span>Grand Total:</span>
-                          <span>{fmtNum(grandTotalCents)}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* SIGNATURES & ACCEPTANCE BLOCK */}
-                    <div className="zk-quo-sheet-sigs">
-                      <div className="zk-quo-sig-left">
-                        <div className="zk-quo-sig-dots">
-                          ..............................................
-                        </div>
-                        <div className="zk-quo-sig-title">Business Signature</div>
-                        <div className="zk-quo-sig-note">
-                          <div>
-                            If you have any questions concerning this{' '}
-                            {docType === 'Invoice' ? 'Invoice' : 'Quotation'}, please contact Us.
-                          </div>
-                          <div>
-                            <strong>Thank You for Your Business.</strong>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="zk-quo-sig-right">
-                        <div className="zk-quo-accept-text">
-                          Please Confirm Your Acceptance
-                          <br />
-                          of This {docType === 'Invoice' ? 'Invoice' : 'Quote'}:
-                        </div>
-                        <div className="zk-quo-sig-dots">
-                          ............................................
-                        </div>
-                        <div className="zk-quo-sig-title">Client Signature &amp; Date</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* BOTTOM BLACK & GOLD ADDRESS BAR */}
-                <div className="zk-quo-sheet-footer">
-                  <span className="zk-quo-pin">
-                    <MapPin size={14} />
-                  </span>
-                  <span>{footerLeft}</span>
-                  <span className="zk-quo-foot-sep">|</span>
-                  <span>{footerRight}</span>
+            <div ref={stageRef} className="zk-quo-a4-stage">
+              <div
+                className="zk-quo-a4-scale-box"
+                style={{
+                  width: `${Math.round(794 * effectiveScale)}px`,
+                  height: `${Math.round(1123 * effectiveScale)}px`,
+                }}
+              >
+                <div
+                  className="zk-quo-a4-scale-inner"
+                  style={{
+                    transform: `scale(${effectiveScale})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <ZeedatA4Sheet doc={currentDocPreview} sheetRef={previewRef} />
                 </div>
               </div>
             </div>
@@ -1755,10 +1813,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
           VIEW 2: ALL SAVED QUOTATIONS & INVOICES DATABASE TABLE
       ========================================================= */}
       {activeTab === 'history' && (
-        <Panel
-          title={`Saved Quotations & Invoices (${filteredQuotations.length})`}
-          icon={History}
-        >
+        <Panel title={`Saved Quotations & Invoices (${filteredQuotations.length})`} icon={History}>
           <div className="zk-quo-history-toolbar">
             <div className="zk-quo-history-search">
               <SearchBox
@@ -1847,10 +1902,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </div>
                 ),
               ],
-              [
-                'Status',
-                r => <Badge tone={statusTone(r.status)}>{r.status || 'Saved'}</Badge>,
-              ],
+              ['Status', r => <Badge tone={statusTone(r.status)}>{r.status || 'Saved'}</Badge>],
               [
                 'Created',
                 r => (
@@ -1871,7 +1923,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       variant="primary"
                       icon={Download}
                       disabled={pdfBusy}
-                      onClick={() => handleDownloadPdf(r, false)}
+                      onClick={() => handleDownloadPdf(r)}
                     >
                       PDF
                     </Button>
@@ -1879,6 +1931,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       size="sm"
                       variant="outline"
                       icon={Printer}
+                      disabled={pdfBusy}
                       onClick={() => handlePrintA4(r)}
                     >
                       Print
