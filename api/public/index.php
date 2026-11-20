@@ -120,7 +120,7 @@ try {
             }
         }
 
-        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'sms.settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'profile.appearance', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto'], true);
+        $global = in_array($action, ['staff.save', 'staff.assign_branches', 'staff.delete', 'staff.toggle', 'permissions.save', 'permissions.reset', 'user.permissions.save', 'product.barcode', 'product.delete', 'barcode.bulk', 'barcode.log_print', 'barcode.save_setup', 'unit.update', 'settings.save', 'sms.settings.save', 'settings.pin.save', 'branch.save', 'profile.password', 'profile.appearance', 'supplier.create', 'backup.create', 'backup.save_settings', 'sync.push', 'sync.pull', 'sync.auto', 'quotation.save', 'quotation.status', 'quotation.delete'], true);
         $branch = $global ? 0 : RoleGuard::branchFor($user, $body['branch'] ?? null);
         $result = Idempotency::execute($user, $action, function () use ($action, $user, $branch, $body) {
             return match ($action) {
@@ -269,6 +269,19 @@ try {
                 'sms.settings.save' => (function () use ($user, $body) {
                         RoleGuard::allowAnyPermission($user, 'settings', 'customers', 'repairs');
                         return AdminController::saveSmsSettings($body);
+                    })(),
+                'quotation.save' => (function () use ($user, $body) {
+                        RoleGuard::allowAnyPermission($user, 'pos', 'sales', 'customers', 'inventory');
+                        $qBranch = (int) ($body['branch_id'] ?? $body['branch'] ?? $user['branch_id'] ?? 1);
+                        return \Zeedat\Services\QuotationService::save($user, $qBranch, $body);
+                    })(),
+                'quotation.status' => (function () use ($user, $body) {
+                        RoleGuard::allowAnyPermission($user, 'pos', 'sales', 'customers', 'inventory');
+                        return \Zeedat\Services\QuotationService::updateStatus($user, $body);
+                    })(),
+                'quotation.delete' => (function () use ($user, $body) {
+                        RoleGuard::allowAnyPermission($user, 'pos', 'sales', 'customers', 'inventory');
+                        return \Zeedat\Services\QuotationService::delete((int) ($body['id'] ?? 0));
                     })(),
                 'supplier.create' => (function () use ($user, $body) {
                         RoleGuard::allowPermission($user, 'purchases');
@@ -510,6 +523,10 @@ try {
         'reservations' => (function () use ($user, $branch) {
                 RoleGuard::allowAnyPermission($user, 'pos', 'customers', 'inventory');
                 return \Zeedat\Services\ReservationService::forBranch($branch);
+            })(),
+        'quotations' => (function () use ($user, $branch) {
+                RoleGuard::allowAnyPermission($user, 'pos', 'sales', 'customers', 'inventory');
+                return \Zeedat\Services\QuotationService::listAll($branch);
             })(),
         'repairs' => (function () use ($user, $branch) {
                 RoleGuard::allowAnyPermission($user, 'repairs', 'pos');

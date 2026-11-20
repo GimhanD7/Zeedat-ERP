@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   ArrowRight,
   Barcode,
+  FileSpreadsheet,
   Truck,
   CircleHelp,
   ShoppingBag,
@@ -58,6 +59,7 @@ const ProfileModal = lazyPage(() => import('./features/profile/ProfilePage'), 'P
 const pages = [
   ['dashboard', 'Dashboard', LayoutDashboard, 'dashboard', DashboardPage],
   ['pos', 'POS / Sales', ShoppingCart, 'pos', lazyPage(pos, 'BillingTerminal')],
+  ['quotations', 'Quotations & Invoices', FileSpreadsheet, 'pos', lazyPage(pos, 'QuotationsPage')],
   ['repairs', 'Repairs', Wrench, 'repairs', lazyPage(operations, 'Repairs')],
   ['inventory', 'Inventory', Package, 'inventory', lazyPage(operations, 'Inventory')],
   ['barcodes', 'Barcode', Barcode, 'inventory', lazyPage(operations, 'BarcodesPage')],
@@ -204,8 +206,9 @@ function Workspace({ session, onLogout }) {
 
   const available = useMemo(
     () => pages.filter(page => (page[0] !== 'historical-revenue' || ['owner', 'manager'].includes(user.role)) && ( page[0] === 'dashboard' || page[0] === 'profile' || hasPermission(page[3]) ||
+      (page[0] === 'quotations' && (hasPermission('pos') || hasPermission('sales') || hasPermission('customers') || hasPermission('inventory'))) ||
       (page[0] === 'sms' && (hasPermission('settings') || hasPermission('customers') || hasPermission('repairs'))) ||
-      (user.role === 'cashier' && hasPermission('pos') && ['repairs', 'customers', 'sms'].includes(page[0])))),
+      (user.role === 'cashier' && hasPermission('pos') && ['quotations', 'repairs', 'customers', 'sms'].includes(page[0])))),
     [hasPermission, user.role]
   );
 

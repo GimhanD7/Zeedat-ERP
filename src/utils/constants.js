@@ -44,6 +44,7 @@ export const firstPage = {
 
 export const allBranchPages = [
   'dashboard',
+  'quotations',
   'repairs',
   'inventory',
   'barcodes',

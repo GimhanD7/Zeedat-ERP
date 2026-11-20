@@ -834,6 +834,7 @@ class AutoMigrator
                     INDEX(return_id)
                 ) ENGINE=InnoDB");
             }
+            \Zeedat\Services\QuotationService::ensureTables($db);
         } catch (Throwable) {
         }
     }
