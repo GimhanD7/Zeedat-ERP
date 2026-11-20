@@ -5,7 +5,6 @@ namespace Zeedat\Services;
 
 use PDO;
 use Throwable;
-use Zeedat\Config\Database;
 use Zeedat\Repositories\BaseRepository;
 use Zeedat\Support\ApiError;
 use Zeedat\Support\Validator;
@@ -37,6 +36,11 @@ final class QuotationService extends BaseRepository
                 client_name TEXT NOT NULL DEFAULT '',
                 client_contact TEXT NOT NULL DEFAULT '',
                 client_address TEXT NOT NULL DEFAULT '',
+                po_number TEXT NOT NULL DEFAULT '',
+                po_date TEXT NOT NULL DEFAULT '',
+                po_approved_by TEXT NOT NULL DEFAULT '',
+                po_notes TEXT NOT NULL DEFAULT '',
+                invoice_no TEXT NOT NULL DEFAULT '',
                 header_phones TEXT NOT NULL DEFAULT '077 089 4099 | 074 192 8979',
                 header_tagline TEXT NOT NULL DEFAULT 'Mobile Phones|Laptops|Computers|Accessories| Hardware & Software Repair',
                 footer_addresses TEXT NOT NULL DEFAULT 'No. 148, Main Street, Battaramulla | No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)',
@@ -63,6 +67,20 @@ final class QuotationService extends BaseRepository
             )");
             $db->exec('CREATE INDEX IF NOT EXISTS idx_quotations_branch ON quotations(branch_id, created_at)');
             $db->exec('CREATE INDEX IF NOT EXISTS idx_quotation_items_qid ON quotation_items(quotation_id, line_no)');
+
+            $existingCols = array_column($db->query('PRAGMA table_info(quotations)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+            $newCols = [
+                'po_number' => "TEXT NOT NULL DEFAULT ''",
+                'po_date' => "TEXT NOT NULL DEFAULT ''",
+                'po_approved_by' => "TEXT NOT NULL DEFAULT ''",
+                'po_notes' => "TEXT NOT NULL DEFAULT ''",
+                'invoice_no' => "TEXT NOT NULL DEFAULT ''",
+            ];
+            foreach ($newCols as $col => $def) {
+                if (!in_array($col, $existingCols, true)) {
+                    $db->exec("ALTER TABLE quotations ADD COLUMN {$col} {$def}");
+                }
+            }
         } else {
             $db->exec("CREATE TABLE IF NOT EXISTS quotations (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -78,6 +96,11 @@ final class QuotationService extends BaseRepository
                 client_name VARCHAR(180) NOT NULL DEFAULT '',
                 client_contact VARCHAR(120) NOT NULL DEFAULT '',
                 client_address TEXT NULL,
+                po_number VARCHAR(80) NOT NULL DEFAULT '',
+                po_date VARCHAR(32) NOT NULL DEFAULT '',
+                po_approved_by VARCHAR(120) NOT NULL DEFAULT '',
+                po_notes TEXT NULL,
+                invoice_no VARCHAR(40) NOT NULL DEFAULT '',
                 header_phones VARCHAR(160) NOT NULL DEFAULT '077 089 4099 | 074 192 8979',
                 header_tagline VARCHAR(255) NOT NULL DEFAULT 'Mobile Phones|Laptops|Computers|Accessories| Hardware & Software Repair',
                 footer_addresses VARCHAR(255) NOT NULL DEFAULT 'No. 148, Main Street, Battaramulla | No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)',
@@ -103,17 +126,118 @@ final class QuotationService extends BaseRepository
                 line_total BIGINT NOT NULL DEFAULT 0,
                 INDEX idx_quotation_items_qid (quotation_id, line_no)
             ) ENGINE=InnoDB");
+
+            $existingCols = array_column($db->query('SHOW COLUMNS FROM quotations')->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            $newCols = [
+                'po_number' => "VARCHAR(80) NOT NULL DEFAULT ''",
+                'po_date' => "VARCHAR(32) NOT NULL DEFAULT ''",
+                'po_approved_by' => "VARCHAR(120) NOT NULL DEFAULT ''",
+                'po_notes' => 'TEXT NULL',
+                'invoice_no' => "VARCHAR(40) NOT NULL DEFAULT ''",
+            ];
+            foreach ($newCols as $col => $def) {
+                if (!in_array($col, $existingCols, true)) {
+                    $db->exec("ALTER TABLE quotations ADD COLUMN {$col} {$def}");
+                }
+            }
         }
 
         self::$tablesVerified = true;
     }
 
-    public static function nextNumber(string $docType = 'Quotation'): string
+    /**
+     * Generates the next system-unique ZDxxxx number (e.g. ZD0001, ZD0002, ZD0003...).
+     */
+    public static function nextNumber(): string
     {
         self::ensureTables();
-        $maxId = (int) self::scalar('SELECT COALESCE(MAX(id), 0) FROM quotations');
-        $next = $maxId + 1;
-        return str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+        $rows = self::rows('SELECT id, quote_no FROM quotations');
+        $maxSeq = 0;
+        foreach ($rows as $r) {
+            $idNum = (int) ($r['id'] ?? 0);
+            if ($idNum > $maxSeq) {
+                $maxSeq = $idNum;
+            }
+            $qNo = strtoupper(trim((string) ($r['quote_no'] ?? '')));
+            if (preg_match('/^ZD0*(\d+)$/', $qNo, $m)) {
+                $seq = (int) $m[1];
+                if ($seq > $maxSeq) {
+                    $maxSeq = $seq;
+                }
+            }
+        }
+        return 'ZD' . str_pad((string) ($maxSeq + 1), 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Automatically finds or creates a customer in the `customers` table from quotation client details.
+     */
+    private static function resolveOrCreateCustomer(
+        int $branch,
+        ?int $customerId,
+        string $clientName,
+        string $clientContact,
+        string $clientAddress
+    ): array {
+        $cleanName = trim($clientName);
+        $cleanPhone = trim($clientContact);
+        $cleanAddress = trim($clientAddress);
+        $autoCreated = false;
+
+        if ($customerId && $customerId > 0) {
+            $existing = self::one('SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL', [$customerId]);
+            if ($existing) {
+                if ($cleanAddress !== '' && trim((string) ($existing['notes'] ?? '')) === '') {
+                    self::run('UPDATE customers SET notes = ?, synced = 0 WHERE id = ?', [$cleanAddress, $customerId]);
+                }
+                return ['customer_id' => (int) $existing['id'], 'customer_auto_created' => false];
+            }
+        }
+
+        // Try matching by exact phone or exact name
+        if ($cleanPhone !== '') {
+            $byPhone = self::one(
+                'SELECT * FROM customers WHERE phone = ? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+                [$cleanPhone]
+            );
+            if ($byPhone) {
+                $cid = (int) $byPhone['id'];
+                if ($cleanAddress !== '' && trim((string) ($byPhone['notes'] ?? '')) === '') {
+                    self::run('UPDATE customers SET notes = ?, synced = 0 WHERE id = ?', [$cleanAddress, $cid]);
+                }
+                return ['customer_id' => $cid, 'customer_auto_created' => false];
+            }
+        }
+
+        $byName = self::one(
+            'SELECT * FROM customers WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+            [$cleanName]
+        );
+        if ($byName) {
+            $cid = (int) $byName['id'];
+            if ($cleanAddress !== '' && trim((string) ($byName['notes'] ?? '')) === '') {
+                self::run('UPDATE customers SET notes = ?, synced = 0 WHERE id = ?', [$cleanAddress, $cid]);
+            }
+            if ($cleanPhone !== '' && trim((string) ($byName['phone'] ?? '')) === '') {
+                self::run('UPDATE customers SET phone = ?, synced = 0 WHERE id = ?', [$cleanPhone, $cid]);
+            }
+            return ['customer_id' => $cid, 'customer_auto_created' => false];
+        }
+
+        // Not found in customers table -> automatically insert into customers table!
+        $targetBranch = $branch > 0 ? $branch : ((int) self::scalar('SELECT id FROM branches ORDER BY id LIMIT 1') ?: 1);
+        $phoneToSave = $cleanPhone !== '' ? $cleanPhone : 'N/A';
+        $uuid = 'CUS-' . bin2hex(random_bytes(12));
+        $newCustomerId = self::insert(
+            'INSERT INTO customers (sync_uuid, branch_id, name, phone, email, notes, synced) VALUES (?, ?, ?, ?, ?, ?, 0)',
+            [$uuid, $targetBranch, $cleanName, $phoneToSave, '', $cleanAddress]
+        );
+        $autoCreated = true;
+
+        return [
+            'customer_id' => (int) $newCustomerId,
+            'customer_auto_created' => $autoCreated,
+        ];
     }
 
     public static function listAll(int $branch = 0): array
@@ -225,7 +349,9 @@ final class QuotationService extends BaseRepository
 
     /**
      * Creates or updates a Quotation or Generated Invoice.
-     * Does NOT require or deduct product stock — 0-stock items and custom items are fully allowed.
+     * - Automatically generates system-unique ZD0001+ quotation number for new records.
+     * - Automatically registers the client in the `customers` table if not already present.
+     * - Does NOT require or deduct product stock — 0-stock items and custom items are fully allowed.
      */
     public static function save(array $user, int $branch, array $body): array
     {
@@ -247,12 +373,7 @@ final class QuotationService extends BaseRepository
 
         $clientContact = trim((string) ($body['client_contact'] ?? ''));
         $clientAddress = trim((string) ($body['client_address'] ?? ''));
-        $customerId = !empty($body['customer_id']) ? (int) $body['customer_id'] : null;
-
-        $quoteNo = trim((string) ($body['quote_no'] ?? ''));
-        if ($quoteNo === '') {
-            $quoteNo = self::nextNumber($docType);
-        }
+        $inputCustomerId = !empty($body['customer_id']) ? (int) $body['customer_id'] : null;
 
         $quoteDate = trim((string) ($body['quote_date'] ?? ''));
         if ($quoteDate === '') {
@@ -260,6 +381,10 @@ final class QuotationService extends BaseRepository
         }
 
         $validUntil = trim((string) ($body['valid_until'] ?? '14'));
+        $poNumber = trim((string) ($body['po_number'] ?? ''));
+        $poDate = trim((string) ($body['po_date'] ?? ''));
+        $poApprovedBy = trim((string) ($body['po_approved_by'] ?? ''));
+        $poNotes = trim((string) ($body['po_notes'] ?? ''));
         $headerPhones = trim((string) ($body['header_phones'] ?? '077 089 4099 | 074 192 8979'));
         $headerTagline = trim((string) ($body['header_tagline'] ?? 'Mobile Phones|Laptops|Computers|Accessories| Hardware & Software Repair'));
         $footerAddresses = trim((string) ($body['footer_addresses'] ?? 'No. 148, Main Street, Battaramulla | No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)'));
@@ -317,18 +442,22 @@ final class QuotationService extends BaseRepository
         $discount = max(0, min($subtotal, (int) round((float) ($body['discount'] ?? 0))));
         $grandTotal = max(0, $subtotal - $discount);
 
+        $customerAutoCreated = false;
         $savedId = self::transaction(function () use (
             $id,
             $branch,
             $user,
-            $customerId,
+            $inputCustomerId,
             $docType,
-            $quoteNo,
             $quoteDate,
             $validUntil,
             $clientName,
             $clientContact,
             $clientAddress,
+            $poNumber,
+            $poDate,
+            $poApprovedBy,
+            $poNotes,
             $headerPhones,
             $headerTagline,
             $footerAddresses,
@@ -337,14 +466,35 @@ final class QuotationService extends BaseRepository
             $grandTotal,
             $status,
             $notes,
-            $cleanItems
+            $cleanItems,
+            &$customerAutoCreated
         ) {
+            $custResult = self::resolveOrCreateCustomer(
+                $branch,
+                $inputCustomerId,
+                $clientName,
+                $clientContact,
+                $clientAddress
+            );
+            $customerId = $custResult['customer_id'];
+            $customerAutoCreated = (bool) $custResult['customer_auto_created'];
+
             $targetId = $id;
-            if ($targetId > 0 && self::scalar('SELECT id FROM quotations WHERE id = ?', [$targetId])) {
+            $existingQuoteNo = $targetId > 0
+                ? (string) self::scalar('SELECT quote_no FROM quotations WHERE id = ?', [$targetId])
+                : '';
+
+            if ($targetId > 0 && $existingQuoteNo !== '') {
+                $quoteNo = preg_match('/^ZD\d+$/i', $existingQuoteNo)
+                    ? strtoupper($existingQuoteNo)
+                    : ('ZD' . str_pad((string) $targetId, 4, '0', STR_PAD_LEFT));
+                $invoiceNo = $docType === 'Invoice' ? $quoteNo : '';
+
                 self::run(
                     "UPDATE quotations
                      SET branch_id = ?, customer_id = ?, doc_type = ?, quote_no = ?, quote_date = ?,
                          valid_until = ?, client_name = ?, client_contact = ?, client_address = ?,
+                         po_number = ?, po_date = ?, po_approved_by = ?, po_notes = ?, invoice_no = ?,
                          header_phones = ?, header_tagline = ?, footer_addresses = ?,
                          subtotal = ?, discount = ?, grand_total = ?, status = ?, notes = ?,
                          synced = 0, updated_at = CURRENT_TIMESTAMP
@@ -359,6 +509,11 @@ final class QuotationService extends BaseRepository
                         $clientName,
                         $clientContact,
                         $clientAddress,
+                        $poNumber,
+                        $poDate,
+                        $poApprovedBy,
+                        $poNotes,
+                        $invoiceNo,
                         $headerPhones,
                         $headerTagline,
                         $footerAddresses,
@@ -372,14 +527,17 @@ final class QuotationService extends BaseRepository
                 );
                 self::run('DELETE FROM quotation_items WHERE quotation_id = ?', [$targetId]);
             } else {
+                $quoteNo = self::nextNumber();
+                $invoiceNo = $docType === 'Invoice' ? $quoteNo : '';
                 $uuid = 'QUO-' . bin2hex(random_bytes(12));
                 $targetId = self::insert(
                     "INSERT INTO quotations (
                         sync_uuid, synced, branch_id, user_id, customer_id, doc_type,
                         quote_no, quote_date, valid_until, client_name, client_contact, client_address,
+                        po_number, po_date, po_approved_by, po_notes, invoice_no,
                         header_phones, header_tagline, footer_addresses,
                         subtotal, discount, grand_total, status, notes
-                    ) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [
                         $uuid,
                         $branch,
@@ -392,6 +550,11 @@ final class QuotationService extends BaseRepository
                         $clientName,
                         $clientContact,
                         $clientAddress,
+                        $poNumber,
+                        $poDate,
+                        $poApprovedBy,
+                        $poNotes,
+                        $invoiceNo,
                         $headerPhones,
                         $headerTagline,
                         $footerAddresses,
@@ -402,6 +565,14 @@ final class QuotationService extends BaseRepository
                         $notes,
                     ]
                 );
+                // Ensure quote_no is strictly unique and aligned with ZD0001+
+                $expectedNo = 'ZD' . str_pad((string) $targetId, 4, '0', STR_PAD_LEFT);
+                if (
+                    (int) self::scalar('SELECT COUNT(*) FROM quotations WHERE quote_no = ? AND id != ?', [$quoteNo, $targetId]) > 0
+                ) {
+                    $quoteNo = $expectedNo;
+                    self::run('UPDATE quotations SET quote_no = ? WHERE id = ?', [$quoteNo, $targetId]);
+                }
             }
 
             foreach ($cleanItems as $ci) {
@@ -425,7 +596,9 @@ final class QuotationService extends BaseRepository
             return $targetId;
         });
 
-        return self::findOne((int) $savedId) ?? ['id' => (int) $savedId];
+        $out = self::findOne((int) $savedId) ?? ['id' => (int) $savedId];
+        $out['customer_auto_created'] = $customerAutoCreated;
+        return $out;
     }
 
     public static function updateStatus(array $user, array $body): array
@@ -438,10 +611,53 @@ final class QuotationService extends BaseRepository
         }
 
         $operation = (string) ($body['operation'] ?? 'status');
+
+        if ($operation === 'accept_po') {
+            $poNumber = trim((string) ($body['po_number'] ?? ''));
+            if ($poNumber === '') {
+                $poNumber = 'PO-' . ($existing['quote_no'] ?: ('ZD' . str_pad((string) $id, 4, '0', STR_PAD_LEFT)));
+            }
+            $poDate = trim((string) ($body['po_date'] ?? '')) ?: date('Y-m-d');
+            $poApprovedBy = trim((string) ($body['po_approved_by'] ?? ''));
+            $poNotes = trim((string) ($body['po_notes'] ?? ''));
+            $generateInvoiceNow = !empty($body['generate_invoice']);
+
+            if ($generateInvoiceNow) {
+                $invNo = $existing['quote_no'] ?: ('ZD' . str_pad((string) $id, 4, '0', STR_PAD_LEFT));
+                self::run(
+                    "UPDATE quotations
+                     SET po_number = ?, po_date = ?, po_approved_by = ?, po_notes = ?,
+                         doc_type = 'Invoice', invoice_no = ?, status = 'Invoiced',
+                         synced = 0, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?",
+                    [$poNumber, $poDate, $poApprovedBy, $poNotes, $invNo, $id]
+                );
+            } else {
+                self::run(
+                    "UPDATE quotations
+                     SET po_number = ?, po_date = ?, po_approved_by = ?, po_notes = ?,
+                         status = 'PO Accepted',
+                         synced = 0, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?",
+                    [$poNumber, $poDate, $poApprovedBy, $poNotes, $id]
+                );
+            }
+            return self::findOne($id) ?? $existing;
+        }
+
         if ($operation === 'convert_to_invoice') {
+            $poNumber = trim((string) ($body['po_number'] ?? $existing['po_number'] ?? ''));
+            $poDate = trim((string) ($body['po_date'] ?? $existing['po_date'] ?? '')) ?: ($poNumber !== '' ? date('Y-m-d') : '');
+            $poApprovedBy = trim((string) ($body['po_approved_by'] ?? $existing['po_approved_by'] ?? ''));
+            $poNotes = trim((string) ($body['po_notes'] ?? $existing['po_notes'] ?? ''));
+            $invNo = $existing['quote_no'] ?: ('ZD' . str_pad((string) $id, 4, '0', STR_PAD_LEFT));
             self::run(
-                "UPDATE quotations SET doc_type = 'Invoice', status = 'Invoiced', synced = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                [$id]
+                "UPDATE quotations
+                 SET doc_type = 'Invoice', invoice_no = ?, status = 'Invoiced',
+                     po_number = ?, po_date = ?, po_approved_by = ?, po_notes = ?,
+                     synced = 0, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?",
+                [$invNo, $poNumber, $poDate, $poApprovedBy, $poNotes, $id]
             );
             return self::findOne($id) ?? $existing;
         }

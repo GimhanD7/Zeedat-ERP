@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowRight,
   CheckCircle2,
+  ClipboardCheck,
   Copy,
   Download,
   Eye,
@@ -8,10 +10,9 @@ import {
   FileSpreadsheet,
   FileText,
   History,
-  MapPin,
+  Lock,
   Minus,
   Pencil,
-  PhoneCall,
   Plus,
   Printer,
   RefreshCw,
@@ -20,6 +21,8 @@ import {
   Search,
   Sparkles,
   Trash2,
+  UserCheck,
+  UserPlus,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -30,6 +33,7 @@ import {
   Field,
   FilterTabs,
   Heading,
+  Modal,
   Panel,
   SearchBox,
   Select,
@@ -89,24 +93,22 @@ const createEmptyItem = () => ({
 
 const statusTone = status => {
   const s = String(status || '').toLowerCase();
-  if (s === 'approved' || s === 'invoiced') return 'green';
-  if (s === 'sent') return 'blue';
+  if (s === 'invoiced') return 'green';
+  if (s === 'po accepted' || s === 'approved') return 'blue';
+  if (s === 'sent') return 'amber';
   if (s === 'rejected') return 'red';
-  if (s === 'draft') return 'amber';
   return 'slate';
 };
 
 /**
  * Generates a high-DPI PNG Data URL of the geometric Black & Gold ZEEDAT header banner using HTML5 Canvas.
- * Because it is a real rasterized PNG data URL, the Live Preview, html2canvas PDF download, and Printer
- * render the exact same pixel-for-pixel header with zero SVG/clip-path differences.
  */
 let cachedHeaderBannerUrl = null;
 function getHeaderBannerDataUrl() {
   if (cachedHeaderBannerUrl) return cachedHeaderBannerUrl;
   try {
     const W = 1588; // 2x of 794px
-    const H = 296; // 2x of 148px
+    const H = 280; // 2x of 140px
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
@@ -123,10 +125,10 @@ function getHeaderBannerDataUrl() {
     stripGrad.addColorStop(1, '#e5b81b');
     ctx.fillStyle = stripGrad;
     ctx.beginPath();
-    ctx.moveTo(0, 224);
-    ctx.lineTo(730, 224);
-    ctx.lineTo(770, 254);
-    ctx.lineTo(0, 254);
+    ctx.moveTo(0, 212);
+    ctx.lineTo(730, 212);
+    ctx.lineTo(770, 240);
+    ctx.lineTo(0, 240);
     ctx.closePath();
     ctx.fill();
 
@@ -136,16 +138,16 @@ function getHeaderBannerDataUrl() {
     ctx.shadowBlur = 12;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 5;
-    const goldGrad = ctx.createLinearGradient(832, 44, W, 284);
+    const goldGrad = ctx.createLinearGradient(832, 38, W, 270);
     goldGrad.addColorStop(0, '#f5cf38');
     goldGrad.addColorStop(0.52, '#cfa012');
     goldGrad.addColorStop(1, '#9c7105');
     ctx.fillStyle = goldGrad;
     ctx.beginPath();
-    ctx.moveTo(968, 44);
-    ctx.lineTo(W, 44);
-    ctx.lineTo(W, 284);
-    ctx.lineTo(832, 284);
+    ctx.moveTo(968, 38);
+    ctx.lineTo(W, 38);
+    ctx.lineTo(W, 270);
+    ctx.lineTo(832, 270);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -160,9 +162,9 @@ function getHeaderBannerDataUrl() {
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(956, 0);
-    ctx.lineTo(832, 284);
-    ctx.lineTo(710, 228);
-    ctx.lineTo(0, 228);
+    ctx.lineTo(832, 270);
+    ctx.lineTo(710, 216);
+    ctx.lineTo(0, 216);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -172,6 +174,108 @@ function getHeaderBannerDataUrl() {
   } catch {
     return '';
   }
+}
+
+/**
+ * Type-and-Click hybrid Customer / Client Name input:
+ * Lets the user type any new customer/company name (which auto-saves into `customers` table on save)
+ * OR click an existing customer from the live dropdown to auto-fill Name, Contact (Phone), and Address!
+ */
+function HybridClientInput({ value, customers, onType, onPickCustomer }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleOutside = e => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  const matches = useMemo(() => {
+    const q = String(value || '').trim().toLowerCase();
+    const list = !q
+      ? customers
+      : customers.filter(c =>
+          `${c.name || ''} ${c.phone || ''} ${c.notes || ''} ${ref('CUS', c.id)}`
+            .toLowerCase()
+            .includes(q)
+        );
+    return list.slice(0, 15);
+  }, [customers, value]);
+
+  const exactExists = useMemo(() => {
+    const q = String(value || '').trim().toLowerCase();
+    if (!q) return true;
+    return customers.some(c => String(c.name || '').trim().toLowerCase() === q);
+  }, [customers, value]);
+
+  return (
+    <div ref={wrapRef} className="zk-quo-hybrid-input-wrap">
+      <input
+        type="text"
+        required
+        placeholder="Type new company/client name OR click to pick saved customer…"
+        value={value}
+        onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
+        onChange={e => {
+          onType(e.target.value);
+          setOpen(true);
+        }}
+      />
+      {value.trim() && !exactExists && (
+        <small className="zk-quo-auto-cust-note">
+          <UserPlus size={12} /> New customer — will be automatically added to the Customers table when saved.
+        </small>
+      )}
+      {open && matches.length > 0 && (
+        <div className="zk-quo-hybrid-dropdown" role="listbox">
+          <div className="zk-quo-hybrid-head">
+            <span>Saved Customers (click to fill Name, Contact &amp; Address, or keep typing new client)</span>
+            <button
+              type="button"
+              onMouseDown={e => {
+                e.preventDefault();
+                setOpen(false);
+              }}
+            >
+              Close
+            </button>
+          </div>
+          {matches.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              className="zk-quo-hybrid-item"
+              onMouseDown={e => {
+                e.preventDefault();
+                onPickCustomer(c);
+                setOpen(false);
+              }}
+            >
+              <div className="zk-quo-hybrid-item-main">
+                <strong>{c.name}</strong>
+                <span className="zk-quo-sku-pill">{ref('CUS', c.id)}</span>
+              </div>
+              <div className="zk-quo-hybrid-item-meta">
+                <span className="price">{c.phone || 'No phone'}</span>
+                {c.notes && (
+                  <span className="stock in" style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.notes}
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -222,7 +326,13 @@ function HybridProductInput({ value, products, onType, onPickProduct }) {
         <div className="zk-quo-hybrid-dropdown" role="listbox">
           <div className="zk-quo-hybrid-head">
             <span>Click a catalog product to fill (or keep typing custom text)</span>
-            <button type="button" onMouseDown={e => { e.preventDefault(); setOpen(false); }}>
+            <button
+              type="button"
+              onMouseDown={e => {
+                e.preventDefault();
+                setOpen(false);
+              }}
+            >
               Close
             </button>
           </div>
@@ -260,7 +370,8 @@ function HybridProductInput({ value, products, onType, onPickProduct }) {
 
 /**
  * Shared A4 Document Sheet component (`794px × 1123px` exact A4 dimensions).
- * Both the Live Preview and the PDF Downloader capture this exact DOM element!
+ * Uses div-based CSS Grid rows (.zk-a4-table) so global table/th/tr/.empty styles NEVER distort the layout.
+ * Matches `nokia 105 original mobile 91.pdf` down to every margin, color, and signature line.
  */
 function ZeedatA4Sheet({ doc, sheetRef }) {
   const bannerUrl = useMemo(() => getHeaderBannerDataUrl(), []);
@@ -376,26 +487,37 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
                 <span>{validLabel}</span>
                 <span>{doc.valid_until}</span>
               </div>
+              {doc.po_number && (
+                <div className="zk-quo-meta-line">
+                  <span>PO NO:</span>
+                  <span>
+                    {doc.po_number}
+                    {doc.po_date ? ` (${fmtShortDate(doc.po_date)})` : ''}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* 12-ROW LINED ITEMS TABLE */}
-          <table className="zk-quo-sheet-table">
-            <thead>
-              <tr>
-                <th className="col-desc">Description of Service / Product</th>
-                <th className="col-qty">Qty</th>
-                <th className="col-price">Unit Price</th>
-                <th className="col-total">Total</th>
-              </tr>
-            </thead>
-            <tbody>
+          {/* 12-ROW GOLD & GREY LINED ITEMS GRID TABLE (IMMUNE TO GLOBAL TABLE CSS) */}
+          <div className="zk-a4-table">
+            <div className="zk-a4-thead">
+              <div className="zk-a4-th col-desc">Description of Service / Product</div>
+              <div className="zk-a4-th col-qty">Qty</div>
+              <div className="zk-a4-th col-price">Unit Price</div>
+              <div className="zk-a4-th col-total">Total</div>
+            </div>
+
+            <div className="zk-a4-tbody">
               {Array.from({ length: rowsCount }).map((_, idx) => {
                 const line = filledItems[idx];
                 const hasText = Boolean(line?.hasText);
                 return (
-                  <tr key={idx} className={hasText ? 'filled' : 'empty'}>
-                    <td className="c-desc">
+                  <div
+                    key={idx}
+                    className={`zk-a4-trow ${hasText ? 'is-filled' : 'is-blank'}`}
+                  >
+                    <div className="zk-a4-td c-desc">
                       {hasText ? (
                         <div className="c-desc-inner">
                           <div className="d-main">{line.description}</div>
@@ -404,15 +526,21 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
                       ) : (
                         '\u00A0'
                       )}
-                    </td>
-                    <td className="c-qty">{hasText ? fmtQty(line.qtyNum) : '\u00A0'}</td>
-                    <td className="c-price">{hasText ? fmtNum(line.unitCents) : '\u00A0'}</td>
-                    <td className="c-total">{hasText ? fmtNum(line.totalCents) : '\u00A0'}</td>
-                  </tr>
+                    </div>
+                    <div className="zk-a4-td c-qty">
+                      {hasText ? fmtQty(line.qtyNum) : '\u00A0'}
+                    </div>
+                    <div className="zk-a4-td c-price">
+                      {hasText ? fmtNum(line.unitCents) : '\u00A0'}
+                    </div>
+                    <div className="zk-a4-td c-total">
+                      {hasText ? fmtNum(line.totalCents) : '\u00A0'}
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          </div>
 
           {/* SUB TOTAL / DISCOUNT / GRAND TOTAL */}
           <div className="zk-quo-sheet-totals">
@@ -493,7 +621,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const stageRef = useRef(null);
   const quickSearchRef = useRef(null);
 
-  const [previewScale, setPreviewScale] = useState(0.54);
+  const [previewScale, setPreviewScale] = useState(0.52);
   const [manualScale, setManualScale] = useState(null);
   const [captureDoc, setCaptureDoc] = useState(null);
 
@@ -507,6 +635,10 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const [clientName, setClientName] = useState('');
   const [clientContact, setClientContact] = useState('');
   const [clientAddress, setClientAddress] = useState('');
+  const [poNumber, setPoNumber] = useState('');
+  const [poDate, setPoDate] = useState('');
+  const [poApprovedBy, setPoApprovedBy] = useState('');
+  const [poNotes, setPoNotes] = useState('');
   const [discountInput, setDiscountInput] = useState('');
   const [status, setStatus] = useState('Saved');
   const [notes, setNotes] = useState('');
@@ -519,6 +651,16 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Purchase Order (PO) Acceptance Modal state
+  const [poModalOpen, setPoModalOpen] = useState(false);
+  const [poModalTarget, setPoModalTarget] = useState(null);
+  const [poForm, setPoForm] = useState({
+    po_number: '',
+    po_date: today(),
+    po_approved_by: '',
+    po_notes: '',
+  });
+
   // Quick Search & Click to Add Product state
   const [quickQuery, setQuickQuery] = useState('');
   const [quickOpen, setQuickOpen] = useState(false);
@@ -527,7 +669,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const [historyFilter, setHistoryFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
 
-  // Close quick product dropdown when clicking outside
   useEffect(() => {
     if (!quickOpen) return undefined;
     const onOutside = e => {
@@ -544,12 +685,12 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     if (activeTab !== 'builder') return undefined;
     const updateScale = () => {
       const stageEl = stageRef.current;
-      const availW = stageEl ? Math.max(300, stageEl.clientWidth - 20) : 440;
-      const availH = Math.max(460, window.innerHeight - 175);
+      const availW = stageEl ? Math.max(300, stageEl.clientWidth - 20) : 430;
+      const availH = Math.max(440, window.innerHeight - 180);
       const scaleW = availW / 794;
       const scaleH = availH / 1123;
-      const fit = Math.min(scaleW, scaleH, 0.58);
-      setPreviewScale(Math.max(0.42, Number(fit.toFixed(3))));
+      const fit = Math.min(scaleW, scaleH, 0.56);
+      setPreviewScale(Math.max(0.4, Number(fit.toFixed(3))));
     };
     updateScale();
     window.addEventListener('resize', updateScale);
@@ -563,25 +704,28 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
 
   const effectiveScale = manualScale ?? previewScale;
 
-  // Compute next 4-digit quotation number automatically
+  // Compute next system-unique ZD0001+ quotation number automatically
   const nextAutoNumber = useMemo(() => {
-    let maxNum = 90;
+    let maxSeq = 0;
     for (const q of quotations) {
-      const parsed = parseInt(String(q.quote_no || '').replace(/\D/g, ''), 10);
-      if (!Number.isNaN(parsed) && parsed > maxNum) {
-        maxNum = parsed;
+      const idNum = Number(q.id || 0);
+      if (idNum > maxSeq) maxSeq = idNum;
+      const qNo = String(q.quote_no || '').trim().toUpperCase();
+      const match = qNo.match(/^ZD0*(\d+)$/);
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        if (!Number.isNaN(seq) && seq > maxSeq) maxSeq = seq;
       }
     }
-    return String(maxNum + 1).padStart(4, '0');
+    return `ZD${String(maxSeq + 1).padStart(4, '0')}`;
   }, [quotations]);
 
   useEffect(() => {
-    if (!editingId && !quoteNo) {
+    if (!editingId) {
       setQuoteNo(nextAutoNumber);
     }
   }, [nextAutoNumber, editingId]);
 
-  // All products in catalog — INCLUDING 0 stock items!
   const allCatalogOptions = useMemo(
     () =>
       products.map(p => {
@@ -595,7 +739,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     [products]
   );
 
-  // Filtered products for Quick Search & Click to Add bar
   const quickMatchedProducts = useMemo(() => {
     const q = quickQuery.trim().toLowerCase();
     const list = !q
@@ -612,7 +755,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     () =>
       customers.map(c => [
         c.id,
-        `${c.name} · ${c.phone || 'No phone'} (${ref('CUS', c.id)})`,
+        `${c.name} · ${c.phone || 'No phone'}${c.notes ? ` · ${c.notes}` : ''} (${ref('CUS', c.id)})`,
       ]),
     [customers]
   );
@@ -646,16 +789,22 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const discountCents = Math.min(subtotalCents, Math.max(0, cents(discountInput || 0)));
   const grandTotalCents = Math.max(0, subtotalCents - discountCents);
 
+  const displayQuoteNo = editingId ? quoteNo || nextAutoNumber : nextAutoNumber;
+
   const currentDocPreview = useMemo(
     () => ({
       id: editingId,
       doc_type: docType,
-      quote_no: quoteNo || nextAutoNumber,
+      quote_no: displayQuoteNo,
       quote_date: quoteDate,
       valid_until: validUntil,
       client_name: clientName,
       client_contact: clientContact,
       client_address: clientAddress,
+      po_number: poNumber,
+      po_date: poDate,
+      po_approved_by: poApprovedBy,
+      po_notes: poNotes,
       header_phones: headerPhones,
       header_tagline: headerTagline,
       footer_addresses: footerAddresses,
@@ -667,13 +816,16 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     [
       editingId,
       docType,
-      quoteNo,
-      nextAutoNumber,
+      displayQuoteNo,
       quoteDate,
       validUntil,
       clientName,
       clientContact,
       clientAddress,
+      poNumber,
+      poDate,
+      poApprovedBy,
+      poNotes,
       headerPhones,
       headerTagline,
       footerAddresses,
@@ -694,6 +846,10 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setClientName('');
     setClientContact('');
     setClientAddress('');
+    setPoNumber('');
+    setPoDate('');
+    setPoApprovedBy('');
+    setPoNotes('');
     setDiscountInput('');
     setStatus('Saved');
     setNotes('');
@@ -711,6 +867,10 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setClientName(row.client_name || '');
     setClientContact(row.client_contact || '');
     setClientAddress(row.client_address || '');
+    setPoNumber(asDuplicate ? '' : row.po_number || '');
+    setPoDate(asDuplicate ? '' : row.po_date || '');
+    setPoApprovedBy(asDuplicate ? '' : row.po_approved_by || '');
+    setPoNotes(asDuplicate ? '' : row.po_notes || '');
     setDiscountInput(row.discount > 0 ? (Number(row.discount) / 100).toFixed(2) : '');
     setStatus(overrideDocType === 'Invoice' ? 'Invoiced' : row.status || 'Saved');
     setNotes(row.notes || '');
@@ -735,15 +895,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setActiveTab('builder');
   };
 
+  const applyCustomerObject = found => {
+    if (!found) return;
+    setCustomerId(String(found.id));
+    setClientName(found.name || '');
+    setClientContact(found.phone && found.phone !== 'N/A' ? found.phone : '');
+    if (found.notes) {
+      setClientAddress(found.notes);
+    }
+  };
+
   const handleSelectCustomer = nextCustId => {
     setCustomerId(nextCustId);
     const found = customers.find(c => String(c.id) === String(nextCustId));
     if (found) {
-      setClientName(found.name || '');
-      setClientContact(found.phone || '');
-      if (found.notes && !clientAddress) {
-        setClientAddress(found.notes);
-      }
+      applyCustomerObject(found);
     }
   };
 
@@ -767,11 +933,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     });
   };
 
-  // Click any product in the Quick Search bar to add it immediately!
   const handleQuickAddCatalogProduct = prod => {
     if (!prod) return;
     setItems(prev => {
-      // If the same product is already in the list, increment its qty
       const existingIdx = prev.findIndex(
         it =>
           (it.product_id && String(it.product_id) === String(prod.id)) ||
@@ -785,7 +949,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             : it
         );
       }
-      // If there is an empty row, fill that row first
       const emptyIdx = prev.findIndex(it => !String(it.description || '').trim());
       const newLine = {
         key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -805,7 +968,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     ctx.setNotice(`Added "${prod.name}" to ${docType.toLowerCase()}.`);
   };
 
-  // Also allow pressing Enter in Quick Search to add whatever custom item name was typed!
   const handleQuickAddCustomText = () => {
     const clean = quickQuery.trim();
     if (!clean) return;
@@ -840,7 +1002,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     setItems(prev => (prev.length <= 1 ? [createEmptyItem()] : prev.filter((_, i) => i !== index)));
   };
 
-  const saveToDatabase = async () => {
+  const saveToDatabase = async (overridePayload = {}) => {
     setError('');
     if (!clientName.trim()) {
       setError(`Please enter the customer or company name (${docType} To).`);
@@ -860,18 +1022,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
         id: editingId || undefined,
         branch_id: activeBranch,
         customer_id: customerId ? Number(customerId) : null,
-        doc_type: docType,
-        quote_no: quoteNo.trim() || nextAutoNumber,
+        doc_type: overridePayload.doc_type || docType,
         quote_date: quoteDate || today(),
         valid_until: validUntil.trim(),
         client_name: clientName.trim(),
         client_contact: clientContact.trim(),
         client_address: clientAddress.trim(),
+        po_number: (overridePayload.po_number ?? poNumber).trim(),
+        po_date: (overridePayload.po_date ?? poDate).trim(),
+        po_approved_by: (overridePayload.po_approved_by ?? poApprovedBy).trim(),
+        po_notes: (overridePayload.po_notes ?? poNotes).trim(),
         header_phones: headerPhones.trim() || DEFAULT_HEADER_PHONES,
         header_tagline: headerTagline.trim() || DEFAULT_HEADER_TAGLINE,
         footer_addresses: footerAddresses.trim() || DEFAULT_FOOTER_ADDRESSES,
         discount: discountCents,
-        status,
+        status: overridePayload.status || status,
         notes: notes.trim(),
         items: validLines.map(l => ({
           product_id: l.product_id ? Number(l.product_id) : null,
@@ -883,9 +1048,18 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       });
 
       setEditingId(saved.id);
-      setQuoteNo(saved.quote_no || quoteNo);
+      setQuoteNo(saved.quote_no || displayQuoteNo);
+      if (saved.customer_id) {
+        setCustomerId(String(saved.customer_id));
+      }
+      if (saved.doc_type) setDocType(saved.doc_type);
+      if (saved.status) setStatus(saved.status);
       onRefresh?.();
-      ctx.setNotice(`${saved.doc_type || docType} #${saved.quote_no} saved to database.`);
+
+      const custMsg = saved.customer_auto_created
+        ? ` · New customer "${saved.client_name}" automatically added to Customers table!`
+        : '';
+      ctx.setNotice(`${saved.doc_type || docType} ${saved.quote_no} saved to database${custMsg}`);
       return saved;
     } catch (err) {
       setError(err.message);
@@ -901,7 +1075,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
    */
   const captureSheetToCanvas = async docData => {
     setCaptureDoc(docData);
-    // Wait one animation frame for React to render `captureDoc` into the unscaled `hiddenCaptureRef`
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
     const targetEl = hiddenCaptureRef.current || previewRef.current;
@@ -939,13 +1112,13 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       });
       pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       const prefix = docData.doc_type === 'Invoice' ? 'Invoice' : 'Quotation';
-      const cleanNo = String(docData.quote_no || '0001').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanNo = String(docData.quote_no || 'ZD0001').replace(/[^a-zA-Z0-9_-]/g, '_');
       const cleanClient = String(docData.client_name || 'Client')
         .trim()
         .replace(/[^a-zA-Z0-9_-]+/g, '_')
         .slice(0, 30);
       pdf.save(`ZEEDAT_${prefix}_${cleanNo}_${cleanClient}.pdf`);
-      ctx.setNotice(`${prefix} #${docData.quote_no} downloaded as PDF.`);
+      ctx.setNotice(`${prefix} ${docData.quote_no} downloaded as PDF.`);
     } catch (err) {
       setError('Could not generate PDF: ' + (err.message || 'Unknown error'));
     } finally {
@@ -975,7 +1148,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${docToPrint.doc_type || 'Quotation'} #${docToPrint.quote_no || ''}</title>
+  <title>${docToPrint.doc_type || 'Quotation'} ${docToPrint.quote_no || ''}</title>
   <style>
     @page { size: A4 portrait; margin: 0; }
     html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; background: #fff; }
@@ -1012,6 +1185,95 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
+  /**
+   * Opens the "Accept Quotation & Add Purchase Order (PO)" modal for either the active Builder quotation
+   * or any row from the Saved Quotations table.
+   */
+  const openAcceptPoModal = async (targetRow = null) => {
+    let row = targetRow;
+    if (!row) {
+      // Save current builder quotation first if not yet saved
+      const saved = await saveToDatabase();
+      if (!saved) return;
+      row = saved;
+    }
+    setPoModalTarget(row);
+    setPoForm({
+      po_number: row.po_number || `PO-${row.quote_no || displayQuoteNo}`,
+      po_date: row.po_date || today(),
+      po_approved_by: row.po_approved_by || row.client_contact || row.client_name || '',
+      po_notes: row.po_notes || '',
+    });
+    setPoModalOpen(true);
+  };
+
+  const submitPoAcceptance = async (generateInvoiceImmediate = false) => {
+    if (!poModalTarget) return;
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await ctx.mutate('quotation.status', {
+        id: poModalTarget.id,
+        operation: 'accept_po',
+        po_number: poForm.po_number.trim() || `PO-${poModalTarget.quote_no}`,
+        po_date: poForm.po_date || today(),
+        po_approved_by: poForm.po_approved_by.trim(),
+        po_notes: poForm.po_notes.trim(),
+        generate_invoice: generateInvoiceImmediate,
+      });
+      setPoModalOpen(false);
+      onRefresh?.();
+      loadQuotationToBuilder(updated, false, generateInvoiceImmediate ? 'Invoice' : updated.doc_type);
+      ctx.setNotice(
+        generateInvoiceImmediate
+          ? `PO #${updated.po_number} recorded & Official Invoice ${updated.quote_no} generated!`
+          : `Quotation ${updated.quote_no} accepted with Purchase Order #${updated.po_number}.`
+      );
+      if (generateInvoiceImmediate) {
+        await handleDownloadPdf(updated);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGenerateInvoiceFromCurrent = async () => {
+    if (!editingId) {
+      const saved = await saveToDatabase({
+        doc_type: 'Invoice',
+        status: 'Invoiced',
+        po_number: poNumber || `PO-${displayQuoteNo}`,
+        po_date: poDate || today(),
+      });
+      if (saved) {
+        await handleDownloadPdf(saved);
+      }
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await ctx.mutate('quotation.status', {
+        id: editingId,
+        operation: 'convert_to_invoice',
+        po_number: poNumber || `PO-${displayQuoteNo}`,
+        po_date: poDate || today(),
+        po_approved_by: poApprovedBy,
+        po_notes: poNotes,
+      });
+      onRefresh?.();
+      loadQuotationToBuilder(updated, false, 'Invoice');
+      ctx.setNotice(`Official Invoice ${updated.quote_no} generated from Quotation!`);
+      await handleDownloadPdf(updated);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleConvertToInvoice = async row => {
     setBusy(true);
     setError('');
@@ -1021,7 +1283,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
         operation: 'convert_to_invoice',
       });
       onRefresh?.();
-      ctx.setNotice(`Quotation #${row.quote_no} converted to Invoice.`);
+      ctx.setNotice(`Quotation ${row.quote_no} converted to Official Invoice.`);
       loadQuotationToBuilder(updated, false, 'Invoice');
     } catch (err) {
       setError(err.message);
@@ -1039,7 +1301,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
         resetForm(docType);
       }
       onRefresh?.();
-      ctx.setNotice(`${row.doc_type || 'Quotation'} #${row.quote_no} deleted.`);
+      ctx.setNotice(`${row.doc_type || 'Quotation'} ${row.quote_no} deleted.`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1047,13 +1309,16 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
-  // KPI metrics
   const kpis = useMemo(() => {
     let quoteCount = 0;
+    let poCount = 0;
     let invoiceCount = 0;
     let totalQuoteValue = 0;
     let totalInvoiceValue = 0;
     for (const q of quotations) {
+      if (q.po_number || q.status === 'PO Accepted') {
+        poCount++;
+      }
       if (q.doc_type === 'Invoice') {
         invoiceCount++;
         totalInvoiceValue += Number(q.grand_total || 0);
@@ -1065,6 +1330,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     return {
       totalCount: quotations.length,
       quoteCount,
+      poCount,
       invoiceCount,
       totalQuoteValue,
       totalInvoiceValue,
@@ -1075,16 +1341,22 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     const q = historySearch.trim().toLowerCase();
     return quotations.filter(row => {
       if (historyFilter === 'quotations' && row.doc_type === 'Invoice') return false;
+      if (historyFilter === 'po_accepted' && !row.po_number && row.status !== 'PO Accepted') return false;
       if (historyFilter === 'invoices' && row.doc_type !== 'Invoice') return false;
-      if (historyFilter === 'approved' && !['Approved', 'Invoiced'].includes(row.status)) return false;
       if (q) {
         const itemsText = (row.items || []).map(i => `${i.description} ${i.warranty}`).join(' ');
-        const hay = `${row.quote_no} ${row.client_name} ${row.client_contact} ${row.client_address} ${itemsText}`.toLowerCase();
+        const hay = `${row.quote_no} ${row.po_number || ''} ${row.client_name} ${row.client_contact} ${row.client_address} ${itemsText}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
   }, [quotations, historyFilter, historySearch]);
+
+  const workflowStep = docType === 'Invoice' || status === 'Invoiced'
+    ? 3
+    : poNumber || status === 'PO Accepted'
+      ? 2
+      : 1;
 
   return (
     <div className="zk-quo-page">
@@ -1094,8 +1366,8 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       </div>
 
       <Heading
-        title="Quotations & Corporate Invoices"
-        description="Generate official ZEEDAT A4 PDF quotations & invoices, save to database, and quote any item (even with 0 stock)"
+        title="Quotations, Purchase Orders & Corporate Invoices"
+        description="Auto-numbered ZD0001+ quotations, automatic customer saving, Purchase Order (PO) acceptance flow, and exact ZEEDAT A4 PDF invoices"
       >
         <Button
           icon={Plus}
@@ -1105,7 +1377,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             setActiveTab('builder');
           }}
         >
-          New Quotation
+          New Quotation ({nextAutoNumber})
         </Button>
         <Button
           icon={FileCheck2}
@@ -1115,7 +1387,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             setActiveTab('builder');
           }}
         >
-          New Invoice
+          New Direct Invoice
         </Button>
         <Button
           icon={History}
@@ -1135,25 +1407,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
         <div
           className="zk-quo-kpi-card gold"
           onClick={() => {
-            setHistoryFilter('all');
-            setActiveTab('history');
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          <div className="zk-quo-kpi-icon">
-            <FileSpreadsheet size={20} />
-          </div>
-          <div>
-            <small>Total Saved Documents</small>
-            <strong>{kpis.totalCount}</strong>
-            <span>All saved quotations &amp; invoices in DB</span>
-          </div>
-        </div>
-
-        <div
-          className="zk-quo-kpi-card"
-          onClick={() => {
             setHistoryFilter('quotations');
             setActiveTab('history');
           }}
@@ -1164,9 +1417,28 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             <FileText size={20} />
           </div>
           <div>
-            <small>Quotations ({kpis.quoteCount})</small>
+            <small>1. Quotations ({kpis.quoteCount})</small>
             <strong>{money(kpis.totalQuoteValue)}</strong>
-            <span>0-stock &amp; custom items supported</span>
+            <span>Next Auto ID: {nextAutoNumber}</span>
+          </div>
+        </div>
+
+        <div
+          className="zk-quo-kpi-card"
+          onClick={() => {
+            setHistoryFilter('po_accepted');
+            setActiveTab('history');
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="zk-quo-kpi-icon">
+            <ClipboardCheck size={20} />
+          </div>
+          <div>
+            <small>2. Accepted Purchase Orders</small>
+            <strong>{kpis.poCount}</strong>
+            <span>Quotations with PO attached</span>
           </div>
         </div>
 
@@ -1183,9 +1455,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             <FileCheck2 size={20} />
           </div>
           <div>
-            <small>Generated Invoices ({kpis.invoiceCount})</small>
+            <small>3. Generated Invoices ({kpis.invoiceCount})</small>
             <strong>{money(kpis.totalInvoiceValue)}</strong>
-            <span>Corporate A4 PDF invoices</span>
+            <span>Official ZEEDAT A4 PDF Invoices</span>
           </div>
         </div>
       </div>
@@ -1199,10 +1471,10 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             [
               'builder',
               editingId
-                ? `Editing ${docType} #${quoteNo}`
-                : `Create ${docType} & Live PDF Preview`,
+                ? `Editing ${docType} ${displayQuoteNo}`
+                : `Create ${docType} (${displayQuoteNo}) & Live PDF Preview`,
             ],
-            ['history', `All Saved Quotations & Invoices (${quotations.length})`],
+            ['history', `All Saved Quotations, POs & Invoices (${quotations.length})`],
           ]}
         />
         {activeTab === 'builder' && (
@@ -1212,10 +1484,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
               icon={Save}
               variant="soft"
               disabled={busy || pdfBusy}
-              onClick={saveToDatabase}
+              onClick={() => saveToDatabase()}
             >
-              {busy ? 'Saving…' : editingId ? `Update ${docType}` : `Save ${docType} to DB`}
+              {busy ? 'Saving…' : editingId ? `Update ${docType}` : `Save ${docType}`}
             </Button>
+            {docType === 'Quotation' && (
+              <Button
+                type="button"
+                icon={ClipboardCheck}
+                variant="soft"
+                disabled={busy || pdfBusy}
+                onClick={() => openAcceptPoModal(null)}
+              >
+                Accept Quote &amp; Add PO
+              </Button>
+            )}
             <Button
               type="button"
               icon={Printer}
@@ -1239,17 +1522,66 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       </div>
 
       {/* =========================================================
-          VIEW 1: QUOTATION & INVOICE BUILDER + COMPACT LIVE A4 PREVIEW
+          VIEW 1: QUOTATION -> PO -> INVOICE BUILDER + LIVE A4 PREVIEW
       ========================================================= */}
       {activeTab === 'builder' && (
         <div className="zk-quo-workspace">
           {/* LEFT: FORM BUILDER */}
           <div className="zk-quo-form-col">
             <Panel
-              title={editingId ? `Edit ${docType} #${quoteNo}` : `New ${docType} Details`}
+              title={
+                editingId
+                  ? `${docType} ${displayQuoteNo} · Workflow & Details`
+                  : `New ${docType} (${displayQuoteNo})`
+              }
               icon={FileSpreadsheet}
             >
               <div className="zk-quo-form-stack">
+                {/* 3-STAGE WORKFLOW PIPELINE: QUOTATION -> ACCEPT & PO -> GENERATE INVOICE */}
+                <div className="zk-quo-flow-stepper">
+                  <div className={`zk-quo-flow-step ${workflowStep >= 1 ? 'done' : ''} ${workflowStep === 1 ? 'current' : ''}`}>
+                    <span className="step-num">1</span>
+                    <div className="step-info">
+                      <strong>1. Create Quotation</strong>
+                      <small>Auto ID: {displayQuoteNo}</small>
+                    </div>
+                  </div>
+                  <ArrowRight size={15} className="flow-arrow" />
+                  <div className={`zk-quo-flow-step ${workflowStep >= 2 ? 'done' : ''} ${workflowStep === 2 ? 'current' : ''}`}>
+                    <span className="step-num">2</span>
+                    <div className="step-info">
+                      <strong>2. Accept &amp; Purchase Order</strong>
+                      <small>{poNumber ? `PO: ${poNumber}` : 'Record client PO #'}</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="flow-action-btn"
+                      disabled={busy}
+                      onClick={() => openAcceptPoModal(null)}
+                    >
+                      {poNumber ? 'Edit PO' : 'Accept & Add PO'}
+                    </button>
+                  </div>
+                  <ArrowRight size={15} className="flow-arrow" />
+                  <div className={`zk-quo-flow-step ${workflowStep === 3 ? 'done current' : ''}`}>
+                    <span className="step-num">3</span>
+                    <div className="step-info">
+                      <strong>3. Generate Invoice</strong>
+                      <small>{docType === 'Invoice' ? `Invoice ${displayQuoteNo}` : 'Create A4 Invoice'}</small>
+                    </div>
+                    {docType !== 'Invoice' && (
+                      <button
+                        type="button"
+                        className="flow-action-btn gold"
+                        disabled={busy || pdfBusy}
+                        onClick={handleGenerateInvoiceFromCurrent}
+                      >
+                        Generate Invoice
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 {/* Document Type Switcher */}
                 <div className="zk-quo-doctype-bar">
                   <div className="zk-quo-doctype-pills">
@@ -1270,18 +1602,24 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       <span>INVOICE Template</span>
                     </button>
                   </div>
-                  {editingId && <Badge tone="amber">Editing Saved ID #{editingId}</Badge>}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {poNumber && <Badge tone="blue">PO: {poNumber}</Badge>}
+                    <Badge tone="amber">System No: {displayQuoteNo}</Badge>
+                  </div>
                 </div>
 
-                {/* Document Number, Date, Valid Until, Status (2x2 spacious grid) */}
+                {/* Auto-Generated System Unique Number (Read-Only) + Date + Valid Until + Status */}
                 <div className="zk-quo-grid-meta">
-                  <Field label={`${docType === 'Invoice' ? 'Invoice' : 'Quotation'} No *`}>
-                    <input
-                      type="text"
-                      value={quoteNo}
-                      placeholder="0091"
-                      onChange={e => setQuoteNo(e.target.value)}
-                    />
+                  <Field
+                    label={`${
+                      docType === 'Invoice' ? 'Invoice' : 'Quotation'
+                    } No (System Auto-Generated)`}
+                  >
+                    <div className="zk-quo-readonly-no">
+                      <Lock size={14} />
+                      <strong>{displayQuoteNo}</strong>
+                      <span>Auto-Increase Unique ID</span>
+                    </div>
                   </Field>
                   <Field label={`${docType === 'Invoice' ? 'Invoice' : 'Quotation'} Date *`}>
                     <input
@@ -1290,7 +1628,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       onChange={e => setQuoteDate(e.target.value)}
                     />
                   </Field>
-                  <Field label={docType === 'Invoice' ? 'Payment Terms / Days' : 'Valid Until (Days)'}>
+                  <Field
+                    label={docType === 'Invoice' ? 'Payment Terms / Days' : 'Valid Until (Days)'}
+                  >
                     <input
                       type="text"
                       value={validUntil}
@@ -1306,6 +1646,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         ['Saved', 'Saved'],
                         ['Draft', 'Draft'],
                         ['Sent', 'Sent to Client'],
+                        ['PO Accepted', 'PO Accepted'],
                         ['Approved', 'Approved'],
                         ['Invoiced', 'Invoiced'],
                         ['Rejected', 'Rejected'],
@@ -1314,7 +1655,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </Field>
                 </div>
 
-                {/* Customer / Company Info */}
+                {/* Customer / Company Info (Auto-Saves New Customers to `customers` Table!) */}
                 <div className="zk-quo-client-box">
                   <div className="zk-quo-section-head">
                     <div>
@@ -1323,16 +1664,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         {docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'})
                       </strong>
                       <small className="muted">
-                        Pick an existing customer or type any company/client name
+                        Pick a saved customer OR type a new customer below (new customers are automatically saved to the Customers table!)
                       </small>
                     </div>
+                    {customerId && (
+                      <Badge tone="green">
+                        <UserCheck size={12} /> Linked to {ref('CUS', customerId)}
+                      </Badge>
+                    )}
                   </div>
 
                   <Field label="Quick Fill from Saved Customers (Optional)">
                     <Select
                       searchable
                       value={customerId}
-                      blank="Search & pick an existing customer or type below…"
+                      blank="Search & pick an existing customer or type a new client below…"
                       options={customerOptions}
                       onChange={e => handleSelectCustomer(e.target.value)}
                     />
@@ -1344,12 +1690,17 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         docType === 'Invoice' ? 'INVOICE TO' : 'QUOTATION TO'
                       } (Company / Client) *`}
                     >
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. JF & I Packaging (Pvt) Ltd"
+                      <HybridClientInput
                         value={clientName}
-                        onChange={e => setClientName(e.target.value)}
+                        customers={customers}
+                        onType={val => {
+                          setClientName(val);
+                          const matched = customers.find(
+                            c => String(c.name || '').trim().toLowerCase() === val.trim().toLowerCase()
+                          );
+                          setCustomerId(matched ? String(matched.id) : '');
+                        }}
+                        onPickCustomer={applyCustomerObject}
                       />
                     </Field>
                     <Field label="CONTACT (Phone / Contact Person)">
@@ -1370,6 +1721,49 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       onChange={e => setClientAddress(e.target.value)}
                     />
                   </Field>
+
+                  {/* Purchase Order (PO) Details Box (Shown when PO is entered or in Invoice mode) */}
+                  {(poNumber || docType === 'Invoice' || status === 'PO Accepted') && (
+                    <div className="zk-quo-po-inline-box">
+                      <div className="zk-quo-section-head">
+                        <strong>Purchase Order (PO) Details</strong>
+                        <Badge tone="blue">Attached to {displayQuoteNo}</Badge>
+                      </div>
+                      <div className="zk-quo-grid-meta">
+                        <Field label="Purchase Order (PO) Number">
+                          <input
+                            type="text"
+                            placeholder={`e.g. PO-${displayQuoteNo}`}
+                            value={poNumber}
+                            onChange={e => setPoNumber(e.target.value)}
+                          />
+                        </Field>
+                        <Field label="PO Date">
+                          <input
+                            type="date"
+                            value={poDate || today()}
+                            onChange={e => setPoDate(e.target.value)}
+                          />
+                        </Field>
+                        <Field label="Approved / Ordered By">
+                          <input
+                            type="text"
+                            placeholder="Client Purchasing Officer"
+                            value={poApprovedBy}
+                            onChange={e => setPoApprovedBy(e.target.value)}
+                          />
+                        </Field>
+                        <Field label="PO Notes / Delivery Terms">
+                          <input
+                            type="text"
+                            placeholder="e.g. 14 Days Credit / Immediate Delivery"
+                            value={poNotes}
+                            onChange={e => setPoNotes(e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Line Items Section (Search & Click to Add + Type Custom Items + 0-Stock Allowed) */}
@@ -1682,10 +2076,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       icon={Save}
                       variant="soft"
                       disabled={busy || pdfBusy}
-                      onClick={saveToDatabase}
+                      onClick={() => saveToDatabase()}
                     >
                       {busy ? 'Saving…' : editingId ? `Update ${docType}` : `Save ${docType}`}
                     </Button>
+                    {docType === 'Quotation' && (
+                      <Button
+                        type="button"
+                        icon={ClipboardCheck}
+                        variant="soft"
+                        disabled={busy || pdfBusy}
+                        onClick={() => openAcceptPoModal(null)}
+                      >
+                        Accept Quote &amp; Add PO
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       icon={Printer}
@@ -1716,7 +2121,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
               <div className="zk-quo-preview-title">
                 <Eye size={15} />
                 <span>
-                  Live A4 PDF Preview ({docType.toUpperCase()} #{quoteNo || nextAutoNumber})
+                  Live A4 PDF Preview ({docType.toUpperCase()} {displayQuoteNo})
                 </span>
               </div>
 
@@ -1810,16 +2215,16 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       )}
 
       {/* =========================================================
-          VIEW 2: ALL SAVED QUOTATIONS & INVOICES DATABASE TABLE
+          VIEW 2: ALL SAVED QUOTATIONS, POs & INVOICES DATABASE TABLE
       ========================================================= */}
       {activeTab === 'history' && (
-        <Panel title={`Saved Quotations & Invoices (${filteredQuotations.length})`} icon={History}>
+        <Panel title={`Saved Quotations, Purchase Orders & Invoices (${filteredQuotations.length})`} icon={History}>
           <div className="zk-quo-history-toolbar">
             <div className="zk-quo-history-search">
               <SearchBox
                 value={historySearch}
                 onChange={setHistorySearch}
-                placeholder="Search by Quotation/Invoice No, Client Name, Contact, Address, or Item…"
+                placeholder="Search by ZD0001 No, PO Number, Client Name, Contact, Address, or Item…"
               />
             </div>
             <div className="zk-quo-history-filters">
@@ -1829,8 +2234,8 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 choices={[
                   ['all', `All (${quotations.length})`],
                   ['quotations', `Quotations (${kpis.quoteCount})`],
+                  ['po_accepted', `PO Accepted (${kpis.poCount})`],
                   ['invoices', `Invoices (${kpis.invoiceCount})`],
-                  ['approved', 'Approved / Invoiced'],
                 ]}
               />
               <Button icon={RefreshCw} variant="ghost" onClick={onRefresh}>
@@ -1844,11 +2249,11 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             empty="No quotations or corporate invoices found. Click 'New Quotation' to create and save your first quotation."
             columns={[
               [
-                'Doc # & Type',
+                'System No & Type',
                 r => (
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <strong>#{r.quote_no}</strong>
+                      <strong>{r.quote_no}</strong>
                       <Badge tone={r.doc_type === 'Invoice' ? 'green' : 'amber'}>
                         {r.doc_type || 'Quotation'}
                       </Badge>
@@ -1872,13 +2277,28 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 ),
               ],
               [
+                'Purchase Order (PO)',
+                r =>
+                  r.po_number ? (
+                    <div>
+                      <Badge tone="blue">PO: {r.po_number}</Badge>
+                      <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                        {r.po_date ? fmtShortDate(r.po_date) : ''}
+                        {r.po_approved_by ? ` · ${r.po_approved_by}` : ''}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="muted">No PO attached yet</span>
+                  ),
+              ],
+              [
                 'Items',
                 r => {
                   const list = r.items || [];
                   return (
                     <div>
                       <strong>{list.length} item(s)</strong>
-                      <div className="muted" style={{ fontSize: '11.5px', maxWidth: '280px' }}>
+                      <div className="muted" style={{ fontSize: '11.5px', maxWidth: '240px' }}>
                         {list
                           .slice(0, 2)
                           .map(i => `${i.description} (x${fmtQty(i.qty)})`)
@@ -1904,17 +2324,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
               ],
               ['Status', r => <Badge tone={statusTone(r.status)}>{r.status || 'Saved'}</Badge>],
               [
-                'Created',
-                r => (
-                  <div>
-                    <small>{timeLabel(r.created_at)}</small>
-                    <div className="muted" style={{ fontSize: '11px' }}>
-                      {r.created_by_name} · {r.branch_name}
-                    </div>
-                  </div>
-                ),
-              ],
-              [
                 'Actions',
                 r => (
                   <div className="row-actions">
@@ -1936,14 +2345,17 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     >
                       Print
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="soft"
-                      icon={Pencil}
-                      onClick={() => loadQuotationToBuilder(r, false)}
-                    >
-                      Edit
-                    </Button>
+                    {r.doc_type !== 'Invoice' && (
+                      <Button
+                        size="sm"
+                        variant="soft"
+                        icon={ClipboardCheck}
+                        disabled={busy}
+                        onClick={() => openAcceptPoModal(r)}
+                      >
+                        {r.po_number ? 'PO / Invoice' : 'Accept & PO'}
+                      </Button>
+                    )}
                     {r.doc_type !== 'Invoice' && (
                       <Button
                         size="sm"
@@ -1952,9 +2364,17 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         disabled={busy}
                         onClick={() => handleConvertToInvoice(r)}
                       >
-                        To Invoice
+                        Generate Invoice
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={Pencil}
+                      onClick={() => loadQuotationToBuilder(r, false)}
+                    >
+                      Edit
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1978,6 +2398,91 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             ]}
           />
         </Panel>
+      )}
+
+      {/* =========================================================
+          MODAL: ACCEPT QUOTATION & RECORD PURCHASE ORDER (PO) FLOW
+      ========================================================= */}
+      {poModalOpen && poModalTarget && (
+        <Modal
+          title={`Accept Quotation ${poModalTarget.quote_no} & Record Purchase Order (PO)`}
+          description={`Client: ${poModalTarget.client_name} · Grand Total: LKR ${fmtNum(poModalTarget.grand_total)}`}
+          busy={busy}
+          onClose={() => setPoModalOpen(false)}
+        >
+          <div className="modal-body" style={{ display: 'grid', gap: '14px' }}>
+            <div className="zk-quo-po-modal-banner">
+              <strong>Quotation → Purchase Order (PO) → Official Invoice Flow</strong>
+              <p>
+                Enter the client’s Purchase Order (PO) reference details below. You can either save the PO acceptance
+                now or immediately generate &amp; download the official ZEEDAT A4 <strong>INVOICE</strong> PDF.
+              </p>
+            </div>
+
+            <div className="zk-quo-grid-2">
+              <Field label="Purchase Order (PO) Number *">
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  placeholder={`e.g. PO-${poModalTarget.quote_no}`}
+                  value={poForm.po_number}
+                  onChange={e => setPoForm({ ...poForm, po_number: e.target.value })}
+                />
+              </Field>
+              <Field label="Purchase Order Date *">
+                <input
+                  type="date"
+                  required
+                  value={poForm.po_date}
+                  onChange={e => setPoForm({ ...poForm, po_date: e.target.value })}
+                />
+              </Field>
+            </div>
+
+            <Field label="Approved / Ordered By (Client Signatory / Contact)">
+              <input
+                type="text"
+                placeholder="e.g. Purchasing Manager / Client Representative"
+                value={poForm.po_approved_by}
+                onChange={e => setPoForm({ ...poForm, po_approved_by: e.target.value })}
+              />
+            </Field>
+
+            <Field label="PO Remarks / Delivery & Payment Terms (Optional)">
+              <input
+                type="text"
+                placeholder="e.g. 14 Days Credit · Deliver to Head Office"
+                value={poForm.po_notes}
+                onChange={e => setPoForm({ ...poForm, po_notes: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="modal-footer">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setPoModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="soft"
+              icon={ClipboardCheck}
+              disabled={busy || !poForm.po_number.trim()}
+              onClick={() => submitPoAcceptance(false)}
+            >
+              {busy ? 'Saving…' : 'Save PO & Mark Accepted'}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              icon={FileCheck2}
+              disabled={busy || !poForm.po_number.trim()}
+              onClick={() => submitPoAcceptance(true)}
+            >
+              {busy ? 'Generating…' : 'Save PO & Generate Official Invoice PDF'}
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );

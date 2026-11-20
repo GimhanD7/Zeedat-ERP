@@ -1,5 +1,5 @@
 /* =====================================================================
-   ZEEDAT POS - QUOTATIONS & CORPORATE INVOICES BUILDER & A4 PDF PREVIEW
+   ZEEDAT POS - QUOTATIONS, PURCHASE ORDERS & CORPORATE INVOICES
 ===================================================================== */
 
 .zk-quo-page {
@@ -101,7 +101,7 @@
 /* Builder (Left) + Compact Full-Page Live A4 Preview (Right) */
 .zk-quo-workspace {
   display: grid;
-  grid-template-columns: minmax(480px, 1.25fr) minmax(380px, 470px);
+  grid-template-columns: minmax(480px, 1.28fr) minmax(360px, 460px);
   gap: 18px;
   align-items: start;
 }
@@ -115,6 +115,174 @@
   display: grid;
   gap: 16px;
   padding: 4px 2px;
+}
+
+/* 3-Stage Workflow Stepper (Quotation -> Accept & PO -> Generate Invoice) */
+.zk-quo-flow-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  flex-wrap: wrap;
+}
+
+.zk-quo-flow-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex: 1;
+  min-width: 165px;
+}
+
+.zk-quo-flow-step.current {
+  border-color: #facc15;
+  background: rgba(250, 204, 21, 0.12);
+}
+
+.zk-quo-flow-step .step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #334155;
+  color: #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.zk-quo-flow-step.done .step-num {
+  background: #facc15;
+  color: #0f172a;
+}
+
+.zk-quo-flow-step .step-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.zk-quo-flow-step .step-info strong {
+  display: block;
+  font-size: 12px;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.zk-quo-flow-step .step-info small {
+  display: block;
+  font-size: 10.5px;
+  color: #cbd5e1;
+  margin-top: 2px;
+}
+
+.zk-quo-flow-stepper .flow-arrow {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.flow-action-btn {
+  border: 1px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.16);
+  color: #e0f2fe;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.flow-action-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.flow-action-btn.gold {
+  border-color: #facc15;
+  background: #e2af0d;
+  color: #050505;
+}
+
+.flow-action-btn.gold:hover {
+  background: #facc15;
+}
+
+.zk-quo-readonly-no {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #fef9c3;
+  border: 1.5px solid #eab308;
+  color: #0f172a;
+}
+
+.zk-quo-readonly-no strong {
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #0f172a;
+}
+
+.zk-quo-readonly-no span {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #854d0e;
+  text-transform: uppercase;
+}
+
+.zk-quo-auto-cust-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.zk-quo-po-inline-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.zk-quo-po-modal-banner {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #78350f;
+  font-size: 12.5px;
+}
+
+.zk-quo-po-modal-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13.5px;
+  color: #0f172a;
+}
+
+.zk-quo-po-modal-banner p {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .zk-quo-doctype-bar {
@@ -634,19 +802,22 @@
   height: 1123px;
 }
 
+/* =====================================================================
+   EXACT A4 SHEET (794px × 1123px) — MATCHES nokia 105 original mobile 91.pdf
+===================================================================== */
 .zk-quo-a4-sheet {
-  width: 794px;
-  height: 1123px;
-  background: #ffffff;
-  color: #000000;
+  width: 794px !important;
+  height: 1123px !important;
+  background: #ffffff !important;
+  color: #000000 !important;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-family: 'Times New Roman', Times, Georgia, serif;
-  position: relative;
-  overflow: hidden;
-  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  font-family: 'Times New Roman', Times, Georgia, serif !important;
+  position: relative !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
 }
 
 .zk-quo-a4-top {
@@ -655,11 +826,11 @@
   flex: 1;
 }
 
-/* Rasterized Canvas PNG Header Banner inside Live A4 Preview & PDF Capture */
+/* Rasterized Canvas PNG Header Banner */
 .zk-quo-hdr {
   position: relative;
   width: 794px;
-  height: 148px;
+  height: 140px;
   background: #ffffff;
   flex-shrink: 0;
 }
@@ -668,7 +839,7 @@
   position: absolute;
   inset: 0;
   width: 794px;
-  height: 148px;
+  height: 140px;
   display: block;
   pointer-events: none;
 }
@@ -678,31 +849,31 @@
   top: 0;
   left: 0;
   width: 55%;
-  height: 114px;
+  height: 108px;
   display: flex;
   align-items: center;
-  padding: 10px 16px 6px 26px;
+  padding: 10px 16px 4px 26px;
   color: #ffffff;
   z-index: 2;
 }
 
 .zk-quo-hdr-right-content {
   position: absolute;
-  top: 22px;
+  top: 20px;
   right: 0;
   width: 46%;
-  height: 120px;
+  height: 115px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px 24px 6px 48px;
+  padding: 6px 24px 6px 48px;
   z-index: 2;
 }
 
 .zk-quo-logo-box {
-  width: 60px;
-  height: 78px;
+  width: 58px;
+  height: 74px;
   border: 1.5px solid #3a2e0b;
   background: #070707;
   display: flex;
@@ -714,8 +885,8 @@
 }
 
 .zk-quo-logo-phone {
-  width: 24px;
-  height: 36px;
+  width: 23px;
+  height: 34px;
   border: 2px solid #e2af0d;
   border-radius: 4px;
   display: flex;
@@ -724,13 +895,13 @@
   color: #e2af0d;
   font-family: Arial, sans-serif;
   font-weight: 900;
-  font-size: 15px;
+  font-size: 14px;
   margin-bottom: 4px;
 }
 
 .zk-quo-logo-word {
   font-family: Arial, sans-serif;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.8px;
   color: #ffffff;
@@ -739,7 +910,7 @@
 
 .zk-quo-logo-tiny {
   font-family: Arial, sans-serif;
-  font-size: 5.5px;
+  font-size: 5px;
   letter-spacing: 0.6px;
   color: #e2af0d;
   margin-top: 2px;
@@ -753,11 +924,11 @@
 
 .zk-quo-brand-title {
   font-family: 'Segoe UI', Arial, sans-serif;
-  font-size: 32px;
+  font-size: 31px;
   font-weight: 700;
   letter-spacing: 3px;
   color: #e5e7eb;
-  margin: 0 0 6px;
+  margin: 0 0 5px;
   line-height: 1;
 }
 
@@ -765,18 +936,18 @@
   font-family: 'Segoe UI', Arial, sans-serif;
   font-size: 11.5px;
   color: #f8fafc;
-  line-height: 1.45;
+  line-height: 1.42;
   letter-spacing: 0.25px;
 }
 
 .zk-quo-doc-heading {
   font-family: 'Segoe UI', Arial, sans-serif;
-  font-size: 31px;
+  font-size: 30px;
   font-weight: 600;
   letter-spacing: 1.5px;
   color: #ffffff;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   line-height: 1;
 }
 
@@ -805,7 +976,7 @@
 
 /* A4 Body Container */
 .zk-quo-sheet-body {
-  padding: 20px 48px 14px;
+  padding: 18px 46px 12px;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -815,11 +986,11 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 28px;
-  margin-bottom: 14px;
+  gap: 24px;
+  margin-bottom: 12px;
   font-size: 15px;
-  line-height: 1.42;
-  color: #000000;
+  line-height: 1.38;
+  color: #000000 !important;
 }
 
 .zk-quo-meta-left {
@@ -831,122 +1002,146 @@
 }
 
 .zk-quo-meta-line {
-  margin-bottom: 7px;
+  margin-bottom: 6px;
   word-break: break-word;
+  color: #000000 !important;
 }
 
-/* 12-Row Lined Items Table */
-.zk-quo-sheet-table {
+/* Div-Based CSS Grid Table (100% Immune to Global Table / Theme CSS) */
+.zk-a4-table {
   width: 100%;
-  border-collapse: collapse;
+  display: flex;
+  flex-direction: column;
   font-family: 'Segoe UI', Calibri, Arial, sans-serif;
   font-size: 13.5px;
 }
 
-.zk-quo-sheet-table thead th {
-  background: #e2af0d;
-  color: #ffffff;
-  font-family: 'Times New Roman', Georgia, serif;
-  font-size: 15.5px;
-  font-weight: 700;
-  padding: 8px 12px;
-  border-bottom: 1.5px solid #222222;
+.zk-a4-thead {
+  display: grid !important;
+  grid-template-columns: 52% 14% 17% 17% !important;
+  background: #e2af0d !important;
+  color: #ffffff !important;
+  border-bottom: 1.5px solid #222222 !important;
+  align-items: center;
 }
 
-.zk-quo-sheet-table thead th.col-desc { width: 53%; text-align: center; }
-.zk-quo-sheet-table thead th.col-qty { width: 13%; text-align: center; }
-.zk-quo-sheet-table thead th.col-price { width: 17%; text-align: center; }
-.zk-quo-sheet-table thead th.col-total { width: 17%; text-align: center; }
-
-.zk-quo-sheet-table tbody tr {
-  height: 32px;
-  border-bottom: 1px solid #222222;
+.zk-a4-th {
+  font-family: 'Times New Roman', Georgia, serif !important;
+  font-size: 15.5px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  background: transparent !important;
+  padding: 8px 10px !important;
+  text-align: center !important;
+  line-height: 1.2 !important;
 }
 
-.zk-quo-sheet-table tbody tr.filled {
-  height: auto;
-  min-height: 35px;
+.zk-a4-tbody {
+  display: flex;
+  flex-direction: column;
 }
 
-.zk-quo-sheet-table td {
-  padding: 4px 10px;
-  vertical-align: bottom;
-  color: #000000;
+.zk-a4-trow {
+  display: grid !important;
+  grid-template-columns: 52% 14% 17% 17% !important;
+  min-height: 31px;
+  border-bottom: 1px solid #222222 !important;
+  align-items: stretch;
 }
 
-.zk-quo-sheet-table td.c-desc {
-  background: #ffffff;
-  text-align: left;
-  padding-left: 6px;
+.zk-a4-trow.is-filled {
+  min-height: 36px;
 }
 
-.zk-quo-sheet-table td.c-qty {
-  background: #efefef;
-  text-align: center;
+.zk-a4-td {
+  padding: 4px 10px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
+  color: #000000 !important;
+  box-sizing: border-box !important;
 }
 
-.zk-quo-sheet-table td.c-price {
-  background: #ffffff;
-  text-align: center;
+.zk-a4-td.c-desc {
+  background: #ffffff !important;
+  text-align: left !important;
+  align-items: flex-start !important;
+  padding-left: 6px !important;
 }
 
-.zk-quo-sheet-table td.c-total {
-  background: #efefef;
-  text-align: center;
+.zk-a4-td.c-qty {
+  background: #efefef !important;
+  text-align: center !important;
+  align-items: center !important;
 }
 
-.zk-quo-sheet-table .d-main {
+.zk-a4-td.c-price {
+  background: #ffffff !important;
+  text-align: center !important;
+  align-items: center !important;
+}
+
+.zk-a4-td.c-total {
+  background: #efefef !important;
+  text-align: center !important;
+  align-items: center !important;
+}
+
+.zk-a4-td .d-main {
   font-weight: 500;
-  color: #000000;
-  line-height: 1.28;
+  color: #000000 !important;
+  line-height: 1.24;
 }
 
-.zk-quo-sheet-table .d-sub {
+.zk-a4-td .d-sub {
   font-size: 12.5px;
-  color: #111111;
-  line-height: 1.28;
-  margin-top: 2px;
+  color: #111111 !important;
+  line-height: 1.24;
+  margin-top: 1px;
 }
 
 /* Totals Block */
 .zk-quo-sheet-totals {
   display: flex;
   justify-content: flex-end;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .zk-quo-sheet-totals-box {
   width: 266px;
   font-size: 15.5px;
-  color: #000000;
+  color: #000000 !important;
 }
 
 .zk-quo-tot-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 12px;
-  margin-bottom: 4px;
+  padding: 3px 12px;
+  margin-bottom: 3px;
+  color: #000000 !important;
 }
 
 .zk-quo-tot-row strong {
   font-family: 'Times New Roman', Georgia, serif;
   font-weight: 700;
+  color: #000000 !important;
 }
 
 .zk-quo-tot-val {
   font-family: 'Segoe UI', Calibri, Arial, sans-serif;
   font-size: 13.5px;
+  color: #000000 !important;
 }
 
 .zk-quo-tot-row.grand {
-  background: #e2af0d;
-  padding: 8px 14px;
-  margin-top: 5px;
+  background: #e2af0d !important;
+  padding: 7px 14px;
+  margin-top: 4px;
   font-weight: 700;
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 16px;
-  color: #000000;
+  color: #000000 !important;
 }
 
 /* Signatures & Acceptance Block */
@@ -955,8 +1150,8 @@
   justify-content: space-between;
   align-items: flex-end;
   margin-top: auto;
-  padding: 14px 4px 8px;
-  color: #000000;
+  padding: 10px 4px 6px;
+  color: #000000 !important;
 }
 
 .zk-quo-sig-left {
@@ -972,14 +1167,16 @@
 .zk-quo-sig-dots {
   letter-spacing: 2px;
   font-size: 14px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
+  color: #000000 !important;
 }
 
 .zk-quo-sig-title {
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 15px;
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  color: #000000 !important;
 }
 
 .zk-quo-sig-note {
@@ -987,28 +1184,31 @@
   font-size: 12px;
   font-style: italic;
   font-weight: 600;
-  line-height: 1.6;
+  line-height: 1.5;
+  color: #000000 !important;
 }
 
 .zk-quo-sig-note .thank-you {
   font-weight: 700;
   margin-top: 2px;
+  color: #000000 !important;
 }
 
 .zk-quo-accept-text {
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 15px;
-  line-height: 1.38;
-  margin-bottom: 24px;
+  line-height: 1.35;
+  margin-bottom: 20px;
+  color: #000000 !important;
 }
 
 /* Bottom Black & Gold Address Bar */
 .zk-quo-sheet-footer {
   width: 100%;
-  background: #050505;
-  border-top: 4px solid #e2af0d;
-  color: #ffffff;
-  padding: 11px 24px;
+  background: #050505 !important;
+  border-top: 4px solid #e2af0d !important;
+  color: #ffffff !important;
+  padding: 10px 20px;
   text-align: center;
   font-family: 'Times New Roman', Georgia, serif;
   font-size: 13.5px;
@@ -1020,14 +1220,14 @@
 }
 
 .zk-quo-pin {
-  color: #e2af0d;
+  color: #e2af0d !important;
   font-size: 15px;
   line-height: 1;
 }
 
 .zk-quo-foot-sep {
   font-weight: 900;
-  color: #ffffff;
+  color: #ffffff !important;
 }
 
 /* History Toolbar */
