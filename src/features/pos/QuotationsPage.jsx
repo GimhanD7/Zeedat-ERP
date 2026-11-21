@@ -40,7 +40,7 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { cents, money, ref, timeLabel, today } from '../../utils';
+import { cents, money, ref, timeLabel, today, useSystemLogo } from '../../utils';
 import './quotations.css';
 
 const DEFAULT_HEADER_PHONES = '077 089 4099 | 074 192 8979';
@@ -375,6 +375,7 @@ function HybridProductInput({ value, products, onType, onPickProduct }) {
  */
 function ZeedatA4Sheet({ doc, sheetRef }) {
   const bannerUrl = useMemo(() => getHeaderBannerDataUrl(), []);
+  const { logo: systemLogo } = useSystemLogo();
   const isInvoice = doc.doc_type === 'Invoice';
   const docTitle = isInvoice ? 'INVOICE' : 'QUOTATION';
   const toLabel = isInvoice ? 'INVOICE TO:' : 'QUOTATION TO:';
@@ -430,11 +431,17 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
 
           <div className="zk-quo-hdr-left-content">
             <div className="zk-quo-logo-box">
-              <div className="zk-quo-logo-phone">
-                <span>Z</span>
-              </div>
-              <div className="zk-quo-logo-word">ZEEDAT</div>
-              <div className="zk-quo-logo-tiny">MOBILE &amp; PC</div>
+              {systemLogo ? (
+                <img src={systemLogo} alt="ZEEDAT" className="zk-quo-custom-logo-img" />
+              ) : (
+                <>
+                  <div className="zk-quo-logo-phone">
+                    <span>Z</span>
+                  </div>
+                  <div className="zk-quo-logo-word">ZEEDAT</div>
+                  <div className="zk-quo-logo-tiny">MOBILE &amp; PC</div>
+                </>
+              )}
             </div>
 
             <div className="zk-quo-brand-center">

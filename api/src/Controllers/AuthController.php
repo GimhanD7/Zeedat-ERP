@@ -11,9 +11,19 @@ use Zeedat\Support\Response;
 class AuthController {
     public static function session(): void {
         $user = AuthMiddleware::currentUser();
+        $shopName = 'ZEEDAT POS';
+        $systemLogo = '';
+        try {
+            $settings = UserRepository::getSettings();
+            $shopName = (string) ($settings['shop_name'] ?? 'ZEEDAT POS');
+            $systemLogo = (string) ($settings['system_logo'] ?? '');
+        } catch (\Throwable) {
+        }
         Response::json([
             'user' => $user,
             'csrf' => $user ? ($_SESSION['csrf'] ?? null) : null,
+            'shop_name' => $shopName,
+            'system_logo' => $systemLogo,
         ]);
     }
 
@@ -29,6 +39,12 @@ class AuthController {
                 );
             } catch (\Throwable) {
             }
+        }
+        try {
+            $settings = UserRepository::getSettings();
+            $result['shop_name'] = (string) ($settings['shop_name'] ?? 'ZEEDAT POS');
+            $result['system_logo'] = (string) ($settings['system_logo'] ?? '');
+        } catch (\Throwable) {
         }
         Response::json($result);
     }

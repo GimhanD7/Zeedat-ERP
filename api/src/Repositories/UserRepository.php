@@ -210,6 +210,14 @@ class UserRepository extends BaseRepository {
         $row['delete_pin_configured'] = trim((string) ($row['delete_pin_hash'] ?? '')) !== '';
         unset($row['delete_pin_hash']);
         $row['db_driver'] = \Zeedat\Config\Database::getDriver();
+        $systemLogo = '';
+        if (!empty($row['bill_layout'])) {
+            $decoded = is_string($row['bill_layout']) ? json_decode($row['bill_layout'], true) : $row['bill_layout'];
+            if (is_array($decoded) && !empty($decoded['logo']) && is_string($decoded['logo'])) {
+                $systemLogo = $decoded['logo'];
+            }
+        }
+        $row['system_logo'] = $systemLogo;
         return $row;
     }
 

@@ -1,16 +1,22 @@
 import { ChevronRight, PanelLeftClose, PanelLeftOpen, RefreshCw, Smartphone } from 'lucide-react';
 import { syncManager } from '../../utils/syncManager';
+import { useSystemLogo } from '../../utils/imageCompress';
 
 export function Logo({ collapsed = false }) {
+  const { logo, shopName } = useSystemLogo();
   return (
     <div className={'brand' + (collapsed ? ' collapsed' : '')}>
-      <span className="brand-mark">
-        <Smartphone size={22} strokeWidth={2.4} />
+      <span className={'brand-mark' + (logo ? ' has-logo' : '')}>
+        {logo ? (
+          <img src={logo} alt={shopName || 'ZEEDAT POS'} className="brand-logo-img" />
+        ) : (
+          <Smartphone size={22} strokeWidth={2.4} />
+        )}
       </span>
       {!collapsed && (
         <span className="brand-text">
-          <strong>ZEEDAT POS</strong>
-          <small>Mobile Shop & Repair</small>
+          <strong>{shopName || 'ZEEDAT POS'}</strong>
+          <small>Mobile Shop &amp; Repair</small>
         </span>
       )}
     </div>
@@ -28,6 +34,7 @@ export function Sidebar({
   onToggleCollapse,
 }) {
   const isCompact = collapsed && !menu;
+  const { logo, shopName } = useSystemLogo();
 
   return (
     <>
@@ -89,16 +96,20 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="side-footer" title={isCompact ? `ZEEDAT POS · ${online ? 'Online' : 'Offline'}` : undefined}>
+        <div className="side-footer" title={isCompact ? `${shopName || 'ZEEDAT POS'} · ${online ? 'Online' : 'Offline'}` : undefined}>
           <div className="side-footer-icon">
-            <Smartphone size={19} />
+            {logo ? (
+              <img src={logo} alt={shopName || 'ZEEDAT POS'} className="side-footer-logo-img" />
+            ) : (
+              <Smartphone size={19} />
+            )}
             {isCompact && <span className={'dot mini-dot ' + (!online ? 'offline' : '')} />}
           </div>
           {!isCompact && (
             <>
               <div>
-                <strong>ZEEDAT POS</strong>
-                <small>Retail & Repair Suite</small>
+                <strong>{shopName || 'ZEEDAT POS'}</strong>
+                <small>Retail &amp; Repair Suite</small>
               </div>
               <span className={'dot ' + (!online ? 'offline' : '')} />
             </>

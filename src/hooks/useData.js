@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { syncSystemLogoFromSettings } from '../utils/imageCompress';
 
 export function useData(ctx, specs) {
   const get = ctx?.get;
@@ -25,7 +26,11 @@ export function useData(ctx, specs) {
     )
       .then(result => {
         if (active) {
-          setState({ data: Object.fromEntries(result), error: '', pending: false });
+          const obj = Object.fromEntries(result);
+          if (obj.settings) {
+            syncSystemLogoFromSettings(obj.settings);
+          }
+          setState({ data: obj, error: '', pending: false });
         }
       })
       .catch(error => {

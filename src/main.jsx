@@ -39,7 +39,10 @@ import {
   firstPage,
   managers,
   sellers,
+  setSystemLogo,
   stockRoles,
+  syncSystemLogoFromSettings,
+  useSystemLogo,
 } from './utils';
 
 import './styles/style.css';
@@ -81,6 +84,7 @@ function Login({ onLogin, error: initialError }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(initialError || '');
   const [busy, setBusy] = useState(false);
+  const { logo: systemLogo, shopName: systemShopName } = useSystemLogo();
 
   const submit = async e => {
     e.preventDefault();
@@ -138,9 +142,13 @@ function Login({ onLogin, error: initialError }) {
       <section className="login-main">
         <div className="login-form">
           <span className="login-icon">
-            <ShieldCheck size={26} />
+            {systemLogo ? (
+              <img src={systemLogo} alt={systemShopName || 'ZEEDAT POS'} className="login-logo-img" />
+            ) : (
+              <ShieldCheck size={26} />
+            )}
           </span>
-          <h2>Sign in to ZEEDAT POS</h2>
+          <h2>Sign in to {systemShopName || 'ZEEDAT POS'}</h2>
           <p>Use your staff account to open the workspace.</p>
           <DesktopUpdateNotice />
           <form onSubmit={submit}>
@@ -413,6 +421,9 @@ function Workspace({ session, onLogout }) {
     async (route, query = {}) => {
       try {
         const res = await apiClient(route, { query: { branch: activeBranch, ...query } });
+        if (route === 'settings' && res) {
+          syncSystemLogoFromSettings(res);
+        }
         if (route === 'products' && Array.isArray(res)) {
           offlineStore.cacheProducts(res);
         } else if (route === 'customers' && Array.isArray(res)) {
@@ -657,7 +668,12 @@ function App() {
 
   useEffect(() => {
     apiClient('session')
-      .then(data => setSession(data.user ? data : null))
+      .then(data => {
+        if (data && (data.system_logo !== undefined || data.shop_name)) {
+          setSystemLogo(data.system_logo || '', data.shop_name || 'ZEEDAT POS');
+        }
+        setSession(data?.user ? data : null);
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoaded(true));
   }, []);
@@ -697,6 +713,9 @@ function App() {
   ) : (
     <Login
       onLogin={data => {
+        if (data && (data.system_logo !== undefined || data.shop_name)) {
+          setSystemLogo(data.system_logo || '', data.shop_name || 'ZEEDAT POS');
+        }
         location.hash = firstPage[data.user.role] || 'dashboard';
         setSession(data);
       }}

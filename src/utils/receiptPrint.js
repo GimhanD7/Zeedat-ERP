@@ -1,4 +1,5 @@
 import { dateLabel, money, ref } from './formatters.js';
+import { getSystemLogo } from './imageCompress.js';
 
 /* =====================================================================
    ZEEDAT UNIFIED BILL ENGINE
@@ -105,7 +106,7 @@ export function billLayout(settings = {}) {
 }
 
 export function billLogo(settings) {
-  const logo = billLayout(settings).logo;
+  const logo = billLayout(settings).logo || settings?.system_logo || getSystemLogo();
   return typeof logo === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) ? logo : '';
 }
 

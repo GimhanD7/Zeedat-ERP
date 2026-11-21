@@ -34,7 +34,21 @@ import {
   Table,
 } from '../../components/common';
 import { DataView } from '../../components/feedback';
-import { billLayout, billPaperWidth, buildBillHtml, printBill, cents, printHtmlDocument, timeLabel, today } from '../../utils';
+import {
+  billLayout,
+  billPaperWidth,
+  buildBillHtml,
+  cents,
+  compressSystemLogo,
+  dataUrlByteLength,
+  formatBytesLabel,
+  printBill,
+  printHtmlDocument,
+  setSystemLogo,
+  syncSystemLogoFromSettings,
+  timeLabel,
+  today,
+} from '../../utils';
 import { BackupSyncManager } from './BackupSyncManager';
 
 export function SettingsPage({ ctx }) {
@@ -90,6 +104,43 @@ export function SettingsPage({ ctx }) {
   const [drawerTesting, setDrawerTesting] = useState(false);
   const [savingStore, setSavingStore] = useState(false);
   const [storeMsg, setStoreMsg] = useState(null);
+  const [logoInfo, setLogoInfo] = useState(null);
+  const [logoCompressing, setLogoCompressing] = useState(false);
+
+  const handleUploadSystemLogo = async file => {
+    if (!file) return;
+    setLogoCompressing(true);
+    setStoreMsg(null);
+    try {
+      const compressed = await compressSystemLogo(file);
+      updateBillLayout('logo', compressed.dataUrl);
+      setSystemLogo(compressed.dataUrl, form.shop_name);
+      setLogoInfo({
+        originalBytes: compressed.originalBytes,
+        compressedBytes: compressed.bytes,
+        width: compressed.width,
+        height: compressed.height,
+        mime: compressed.mime,
+      });
+      setStoreMsg({
+        type: 'success',
+        text: `Logo auto-compressed from ${formatBytesLabel(compressed.originalBytes)} → ${formatBytesLabel(compressed.bytes)} (<= 10 KB). Click "Save Settings" to save permanently.`,
+      });
+    } catch (err) {
+      setStoreMsg({
+        type: 'error',
+        text: err.message || 'Could not compress the selected logo image.',
+      });
+    } finally {
+      setLogoCompressing(false);
+    }
+  };
+
+  const handleRemoveSystemLogo = () => {
+    updateBillLayout('logo', '');
+    setSystemLogo('', form.shop_name);
+    setLogoInfo(null);
+  };
 
   // Change Password form
   const [pwdForm, setPwdForm] = useState({
@@ -115,6 +166,12 @@ export function SettingsPage({ ctx }) {
   useEffect(() => {
     const s = state.data?.settings;
     if (s) {
+      syncSystemLogoFromSettings(s);
+      const parsedLayout = billLayout(s);
+      if (parsedLayout.logo) {
+        const bytes = dataUrlByteLength(parsedLayout.logo);
+        setLogoInfo(prev => prev || { originalBytes: bytes, compressedBytes: bytes });
+      }
       setForm({
         shop_name: s.shop_name || 'ZEEDAT POS',
         shop_phone: s.shop_phone || '',
@@ -202,8 +259,9 @@ export function SettingsPage({ ctx }) {
         sms_api_key: form.sms_api_key || '',
         sms_sender_id: form.sms_sender_id || '',
       });
-      setStoreMsg({ type: 'success', text: 'Store & receipt settings saved successfully.' });
-      ctx.setNotice('Store settings updated.');
+      setSystemLogo(form.bill_layout?.logo || '', form.shop_name);
+      setStoreMsg({ type: 'success', text: 'Store, system logo & receipt settings saved successfully.' });
+      ctx.setNotice('Store & system logo updated across all sections.');
       state.refresh();
     } catch (err) {
       setStoreMsg({ type: 'error', text: err.message || 'Failed to save settings.' });
@@ -419,16 +477,26 @@ export function SettingsPage({ ctx }) {
             {/* TOP 4 KPI OVERVIEW CARDS */}
             <div className="zk-kpi-4grid">
               <div className="zk-kpi-card">
-                <div className="zk-kpi-icon-square green">
-                  <Store size={23} />
+                <div className="zk-kpi-icon-square green" style={{ overflow: 'hidden', padding: form.bill_layout?.logo ? '3px' : undefined }}>
+                  {form.bill_layout?.logo ? (
+                    <img
+                      src={form.bill_layout.logo}
+                      alt="System Logo"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '6px' }}
+                    />
+                  ) : (
+                    <Store size={23} />
+                  )}
                 </div>
                 <div className="zk-kpi-content">
-                  <div className="zk-kpi-label">Active Store Name</div>
+                  <div className="zk-kpi-label">Active Store &amp; System Logo</div>
                   <div className="zk-kpi-value" style={{ fontSize: '16.5px' }}>
                     {settings.shop_name || 'ZEEDAT POS'}
                   </div>
                   <div style={{ fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
-                    Prefix: <strong>{settings.invoice_prefix || 'INV-'}</strong>
+                    {form.bill_layout?.logo
+                      ? `Logo: ${formatBytesLabel(dataUrlByteLength(form.bill_layout.logo))} (<= 10 KB)`
+                      : `Prefix: ${settings.invoice_prefix || 'INV-'}`}
                   </div>
                 </div>
               </div>
@@ -601,6 +669,57 @@ export function SettingsPage({ ctx }) {
                               onChange={e => setForm({ ...form, shop_address: e.target.value })}
                             />
                           </div>
+                        </div>
+                      </div>
+
+                      {/* SYSTEM LOGO UPLOADER & 10KB AUTO-COMPRESSOR */}
+                      <div className="zk-system-logo-uploader" style={{ marginTop: '14px' }}>
+                        <div className="zk-system-logo-preview">
+                          {form.bill_layout?.logo ? (
+                            <img src={form.bill_layout.logo} alt="System Logo" />
+                          ) : (
+                            <Store size={26} style={{ color: '#0d9488' }} />
+                          )}
+                        </div>
+                        <div className="zk-system-logo-controls">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: '13.5px', color: '#0f172a' }}>
+                              System &amp; Bill Logo (Used Across All System Logo Sections)
+                            </strong>
+                            <Badge tone="green">Auto-Compress to &le; 10 KB</Badge>
+                            {form.bill_layout?.logo && (
+                              <Badge tone="blue">
+                                Active Size: {formatBytesLabel(dataUrlByteLength(form.bill_layout.logo))}
+                              </Badge>
+                            )}
+                          </div>
+                          <small style={{ color: '#64748b', fontSize: '12px', display: 'block', margin: '3px 0 8px' }}>
+                            Upload any PNG, JPG, or WebP image (even 5 MB or 15 MB). The system automatically compresses it to ~10 KB and applies it to the Sidebar, Login Page, Quotations &amp; Invoices PDF, Thermal/A4 Bills, and Reports.
+                          </small>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <input
+                              type="file"
+                              className="input"
+                              style={{ maxWidth: '310px' }}
+                              accept="image/png,image/jpeg,image/webp,image/*"
+                              disabled={logoCompressing}
+                              onChange={e => handleUploadSystemLogo(e.target.files?.[0])}
+                            />
+                            {form.bill_layout?.logo && (
+                              <Button
+                                type="button"
+                                variant="outline-red"
+                                onClick={handleRemoveSystemLogo}
+                              >
+                                Remove Logo
+                              </Button>
+                            )}
+                          </div>
+                          {logoInfo && logoInfo.originalBytes > logoInfo.compressedBytes && (
+                            <div style={{ marginTop: '6px', fontSize: '11.5px', color: '#0f766e', fontWeight: 700 }}>
+                              Compressed from {formatBytesLabel(logoInfo.originalBytes)} &rarr; {formatBytesLabel(logoInfo.compressedBytes)} ({logoInfo.width}&times;{logoInfo.height}px)
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -848,38 +967,27 @@ export function SettingsPage({ ctx }) {
                       <div className="zk-form-row-2">
                         <div className="zk-field-wrap">
                           <label className="zk-field-label">
-                            Bill Logo <small style={{ fontWeight: 400, color: '#64748b' }}>(PNG, JPEG or WebP · max 130 KB)</small>
+                            System &amp; Bill Logo{' '}
+                            <small style={{ fontWeight: 400, color: '#64748b' }}>
+                              (Any size up to 20 MB · Auto-compressed to &le; 10 KB)
+                            </small>
                           </label>
                           <input
                             type="file"
                             className="input"
-                            accept="image/png,image/jpeg,image/webp"
-                            onChange={async e => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              if (
-                                file.size > 130000 ||
-                                !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
-                              ) {
-                                setStoreMsg({
-                                  type: 'error',
-                                  text: 'Choose a PNG, JPEG or WebP logo under 130 KB.',
-                                });
-                                return;
-                              }
-                              const reader = new FileReader();
-                              reader.onload = () => updateBillLayout('logo', reader.result);
-                              reader.onerror = () =>
-                                setStoreMsg({ type: 'error', text: 'Could not read the logo.' });
-                              reader.readAsDataURL(file);
-                            }}
+                            accept="image/png,image/jpeg,image/webp,image/*"
+                            disabled={logoCompressing}
+                            onChange={e => handleUploadSystemLogo(e.target.files?.[0])}
                           />
                           {form.bill_layout.logo && (
-                            <div style={{ marginTop: '6px' }}>
+                            <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Badge tone="green">
+                                {formatBytesLabel(dataUrlByteLength(form.bill_layout.logo))}
+                              </Badge>
                               <Button
                                 type="button"
                                 variant="outline-red"
-                                onClick={() => updateBillLayout('logo', '')}
+                                onClick={handleRemoveSystemLogo}
                               >
                                 Remove Logo
                               </Button>

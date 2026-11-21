@@ -1,4 +1,4 @@
-import { dateLabel, money, ref, timeLabel } from '../../utils';
+import { dateLabel, getSystemLogo, money, ref, timeLabel } from '../../utils';
 
 const esc = v =>
   String(v ?? '')
@@ -13,6 +13,8 @@ const baseCss = `
   * { box-sizing: border-box; }
   body { margin: 0; font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; font-size: 11px; line-height: 1.45; }
   .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px; }
+  .head-brand { display: flex; align-items: center; gap: 12px; }
+  .head-logo { width: 46px; height: 46px; object-fit: contain; border-radius: 6px; }
   .head h1 { margin: 0 0 2px; font-size: 17px; }
   .head p { margin: 1px 0; color: #475569; font-size: 10px; }
   .meta { text-align: right; font-size: 10px; color: #334155; }
@@ -40,6 +42,7 @@ export function buildCustomerStatementHtml({
   shopName = 'ZEEDAT POS',
 }) {
   const openReceivables = sales.filter(s => Number(s.credit || 0) > 0);
+  const logoUrl = getSystemLogo();
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -50,11 +53,14 @@ export function buildCustomerStatementHtml({
 </head>
 <body>
   <div class="head">
-    <div>
-      <h1>${esc(shopName)}</h1>
-      <p><strong>Customer:</strong> ${esc(customer.name)} (${esc(ref('CUS', customer.id))})</p>
-      <p><strong>Phone:</strong> ${esc(customer.phone)}${customer.email ? ` · ${esc(customer.email)}` : ''}</p>
-      <p><strong>Branch:</strong> ${esc(customer.branch || '—')}</p>
+    <div class="head-brand">
+      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(shopName)}" class="head-logo" />` : ''}
+      <div>
+        <h1>${esc(shopName)}</h1>
+        <p><strong>Customer:</strong> ${esc(customer.name)} (${esc(ref('CUS', customer.id))})</p>
+        <p><strong>Phone:</strong> ${esc(customer.phone)}${customer.email ? ` · ${esc(customer.email)}` : ''}</p>
+        <p><strong>Branch:</strong> ${esc(customer.branch || '—')}</p>
+      </div>
     </div>
     <div class="meta">
       <div class="title">CUSTOMER ACCOUNT STATEMENT</div>
@@ -183,6 +189,7 @@ export function buildCustomerDirectoryHtml(customers = [], { filterLabel = 'All 
   const totWallet = customers.reduce((s, c) => s + Number(c.wallet_balance || 0), 0);
   const totSpent = customers.reduce((s, c) => s + Number(c.total || 0), 0);
   const totPoints = customers.reduce((s, c) => s + Number(c.loyalty_points || 0), 0);
+  const logoUrl = getSystemLogo();
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -193,9 +200,12 @@ export function buildCustomerDirectoryHtml(customers = [], { filterLabel = 'All 
 </head>
 <body>
   <div class="head">
-    <div>
-      <h1>${esc(shopName)}</h1>
-      <p>Customers, Receivables, Wallets & Loyalty Directory</p>
+    <div class="head-brand">
+      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="${esc(shopName)}" class="head-logo" />` : ''}
+      <div>
+        <h1>${esc(shopName)}</h1>
+        <p>Customers, Receivables, Wallets & Loyalty Directory</p>
+      </div>
     </div>
     <div class="meta">
       <div class="title">CUSTOMERS & CREDIT REPORT</div>
