@@ -27,11 +27,15 @@
   gap: 14px;
 }
 
+.zk-quo-kpis.four-cols {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .zk-quo-kpi-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 18px;
+  padding: 14px 16px;
   border-radius: 12px;
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e2e8f0);
@@ -49,6 +53,11 @@
   border-color: #fde68a;
 }
 
+.zk-quo-kpi-card.green {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: #86efac;
+}
+
 .zk-quo-kpi-icon {
   width: 42px;
   height: 42px;
@@ -59,6 +68,16 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.zk-quo-kpi-icon.green {
+  background: #14532d;
+  color: #4ade80;
+}
+
+.zk-quo-kpi-icon.red {
+  background: #7f1d1d;
+  color: #fca5a5;
 }
 
 .zk-quo-kpi-card small {
@@ -872,15 +891,16 @@
 }
 
 .zk-quo-logo-box {
-  width: 58px;
-  height: 74px;
-  border: 1.5px solid #3a2e0b;
-  background: #070707;
+  width: 66px;
+  height: 82px;
+  border: 1px solid #2b220a;
+  background: #050505;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   margin-right: 16px;
+  padding: 4px;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -1258,6 +1278,206 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* Status Summary Banners & Payment Cell Controls */
+.zk-quo-status-summary-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.zk-quo-status-summary-banner.amber {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1.5px solid #f59e0b;
+  color: #78350f;
+}
+
+.zk-quo-status-summary-banner.green {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1.5px solid #22c55e;
+  color: #14532d;
+}
+
+.zk-quo-status-summary-banner.slate {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.zk-quo-status-summary-banner.red {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
+}
+
+.zk-quo-status-summary-banner strong {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.zk-quo-status-summary-banner span {
+  font-size: 12.5px;
+}
+
+.zk-quo-status-summary-banner .summary-total {
+  text-align: right;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.zk-quo-status-summary-banner .summary-total small {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.zk-quo-status-summary-banner .summary-total strong {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.zk-quo-pay-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.zk-quo-mini-pay-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-quo-mini-pay-btn.mark-paid {
+  border: 1px solid #16a34a;
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.zk-quo-mini-pay-btn.mark-paid:hover {
+  background: #15803d;
+}
+
+.zk-quo-mini-pay-btn.unmark {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.zk-quo-mini-pay-btn.unmark:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+/* Monthly Paid Report Bar & Month Cards */
+.zk-quo-report-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+.zk-quo-month-picker-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.zk-quo-month-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.zk-quo-month-label input[type='month'] {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.zk-quo-month-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.zk-quo-month-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zk-quo-month-card:hover {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.zk-quo-month-card.active {
+  border-color: #16a34a;
+  background: #dcfce7;
+  box-shadow: 0 2px 8px rgba(22, 163, 74, 0.14);
+}
+
+.zk-quo-month-card .m-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.zk-quo-month-card .m-top strong {
+  font-size: 12.5px;
+  color: #0f172a;
+}
+
+.zk-quo-month-card .m-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #15803d;
 }
 
 @media (max-width: 1280px) {

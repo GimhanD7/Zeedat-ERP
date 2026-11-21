@@ -41,6 +41,10 @@ final class QuotationService extends BaseRepository
                 po_approved_by TEXT NOT NULL DEFAULT '',
                 po_notes TEXT NOT NULL DEFAULT '',
                 invoice_no TEXT NOT NULL DEFAULT '',
+                payment_status TEXT NOT NULL DEFAULT 'Unpaid',
+                paid_at TEXT NOT NULL DEFAULT '',
+                payment_method TEXT NOT NULL DEFAULT '',
+                payment_reference TEXT NOT NULL DEFAULT '',
                 header_phones TEXT NOT NULL DEFAULT '077 089 4099 | 074 192 8979',
                 header_tagline TEXT NOT NULL DEFAULT 'Mobile Phones|Laptops|Computers|Accessories| Hardware & Software Repair',
                 footer_addresses TEXT NOT NULL DEFAULT 'No. 148, Main Street, Battaramulla | No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)',
@@ -75,6 +79,10 @@ final class QuotationService extends BaseRepository
                 'po_approved_by' => "TEXT NOT NULL DEFAULT ''",
                 'po_notes' => "TEXT NOT NULL DEFAULT ''",
                 'invoice_no' => "TEXT NOT NULL DEFAULT ''",
+                'payment_status' => "TEXT NOT NULL DEFAULT 'Unpaid'",
+                'paid_at' => "TEXT NOT NULL DEFAULT ''",
+                'payment_method' => "TEXT NOT NULL DEFAULT ''",
+                'payment_reference' => "TEXT NOT NULL DEFAULT ''",
             ];
             foreach ($newCols as $col => $def) {
                 if (!in_array($col, $existingCols, true)) {
@@ -101,6 +109,10 @@ final class QuotationService extends BaseRepository
                 po_approved_by VARCHAR(120) NOT NULL DEFAULT '',
                 po_notes TEXT NULL,
                 invoice_no VARCHAR(40) NOT NULL DEFAULT '',
+                payment_status VARCHAR(20) NOT NULL DEFAULT 'Unpaid',
+                paid_at VARCHAR(32) NOT NULL DEFAULT '',
+                payment_method VARCHAR(40) NOT NULL DEFAULT '',
+                payment_reference VARCHAR(120) NOT NULL DEFAULT '',
                 header_phones VARCHAR(160) NOT NULL DEFAULT '077 089 4099 | 074 192 8979',
                 header_tagline VARCHAR(255) NOT NULL DEFAULT 'Mobile Phones|Laptops|Computers|Accessories| Hardware & Software Repair',
                 footer_addresses VARCHAR(255) NOT NULL DEFAULT 'No. 148, Main Street, Battaramulla | No. 163, New Kandy Road, Malabe (Next to SLIIT Campus)',
@@ -134,6 +146,10 @@ final class QuotationService extends BaseRepository
                 'po_approved_by' => "VARCHAR(120) NOT NULL DEFAULT ''",
                 'po_notes' => 'TEXT NULL',
                 'invoice_no' => "VARCHAR(40) NOT NULL DEFAULT ''",
+                'payment_status' => "VARCHAR(20) NOT NULL DEFAULT 'Unpaid'",
+                'paid_at' => "VARCHAR(32) NOT NULL DEFAULT ''",
+                'payment_method' => "VARCHAR(40) NOT NULL DEFAULT ''",
+                'payment_reference' => "VARCHAR(120) NOT NULL DEFAULT ''",
             ];
             foreach ($newCols as $col => $def) {
                 if (!in_array($col, $existingCols, true)) {
@@ -611,6 +627,38 @@ final class QuotationService extends BaseRepository
         }
 
         $operation = (string) ($body['operation'] ?? 'status');
+
+        if ($operation === 'mark_payment') {
+            $payStatus = (($body['payment_status'] ?? 'Paid') === 'Paid') ? 'Paid' : 'Unpaid';
+            $paidAt = $payStatus === 'Paid'
+                ? (trim((string) ($body['paid_at'] ?? '')) ?: date('Y-m-d'))
+                : '';
+            $payMethod = $payStatus === 'Paid'
+                ? (trim((string) ($body['payment_method'] ?? 'Cash')) ?: 'Cash')
+                : '';
+            $payRef = $payStatus === 'Paid'
+                ? trim((string) ($body['payment_reference'] ?? ''))
+                : '';
+
+            $nextStatus = (string) ($existing['status'] ?? 'Saved');
+            if ($payStatus === 'Paid' && in_array($nextStatus, ['Saved', 'Draft', 'Sent', 'Rejected'], true)) {
+                $nextStatus = !empty($existing['po_number']) ? 'PO Accepted' : 'Approved';
+            }
+
+            self::run(
+                'UPDATE quotations SET payment_status = ?, paid_at = ?, payment_method = ?, payment_reference = ?, status = ?, synced = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [$payStatus, $paidAt, $payMethod, $payRef, $nextStatus, $id]
+            );
+            return self::findOne($id) ?? $existing;
+        }
+
+        if ($operation === 'reject') {
+            self::run(
+                "UPDATE quotations SET status = 'Rejected', payment_status = 'Unpaid', paid_at = '', synced = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [$id]
+            );
+            return self::findOne($id) ?? $existing;
+        }
 
         if ($operation === 'accept_po') {
             $poNumber = trim((string) ($body['po_number'] ?? ''));

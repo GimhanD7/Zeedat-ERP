@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  Ban,
+  Banknote,
+  CalendarDays,
   CheckCircle2,
   ClipboardCheck,
+  Clock3,
   Copy,
   Download,
   Eye,
+  FileBarChart2,
   FileCheck2,
   FileSpreadsheet,
   FileText,
@@ -40,7 +45,17 @@ import {
   Table,
 } from '../../components/common';
 import { Alert, DataView } from '../../components/feedback';
-import { cents, money, ref, timeLabel, today, useSystemLogo } from '../../utils';
+import {
+  cents,
+  DEFAULT_ZEEDAT_LOGO,
+  getSystemLogo,
+  money,
+  printHtmlDocument,
+  ref,
+  timeLabel,
+  today,
+  useSystemLogo,
+} from '../../utils';
 import './quotations.css';
 
 const DEFAULT_HEADER_PHONES = '077 089 4099 | 074 192 8979';
@@ -56,6 +71,8 @@ const WARRANTY_PRESETS = [
   '2 Years Company Warranty',
   'No Warranty',
 ];
+
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Card', 'Online Transfer'];
 
 const TOTAL_TABLE_ROWS = 12;
 
@@ -82,6 +99,33 @@ const fmtShortDate = isoDate => {
   return str;
 };
 
+const extractMonthKey = row => {
+  const raw = String(row?.paid_at || row?.quote_date || row?.created_at || '').trim();
+  const match = raw.match(/^(\d{4}-\d{2})/);
+  return match ? match[1] : today().slice(0, 7);
+};
+
+const formatMonthLabel = ym => {
+  if (!ym || ym === 'all') return 'All Months';
+  const match = String(ym).match(/^(\d{4})-(\d{2})$/);
+  if (!match) return ym;
+  const year = Number(match[1]);
+  const monthIdx = Number(match[2]) - 1;
+  const date = new Date(year, monthIdx, 1);
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+};
+
+const isAcceptedRecord = row => {
+  if (!row) return false;
+  if (row.status === 'Rejected') return false;
+  return (
+    row.payment_status === 'Paid' ||
+    row.doc_type === 'Invoice' ||
+    Boolean(row.po_number) ||
+    ['PO Accepted', 'Approved', 'Invoiced'].includes(row.status)
+  );
+};
+
 const createEmptyItem = () => ({
   key: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   product_id: '',
@@ -99,6 +143,127 @@ const statusTone = status => {
   if (s === 'rejected') return 'red';
   return 'slate';
 };
+
+/**
+ * Builds an official printable A4 HTML report for Paid Quotations & Invoices (filtered by month or all months).
+ */
+function buildPaidReportA4Html({ rows, monthKey, shopName = 'ZEEDAT POS', logoUrl = '' }) {
+  const esc = v =>
+    String(v ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  const periodTitle = monthKey === 'all' ? 'All Months' : formatMonthLabel(monthKey);
+  const totalCollected = rows.reduce((sum, r) => sum + Number(r.grand_total || 0), 0);
+  const byMethod = {};
+  for (const r of rows) {
+    const m = r.payment_method || 'Cash';
+    byMethod[m] = (byMethod[m] || 0) + Number(r.grand_total || 0);
+  }
+  const methodSummary = Object.entries(byMethod)
+    .map(([m, amt]) => `${esc(m)}: LKR ${esc(fmtNum(amt))}`)
+    .join(' · ');
+
+  const trs = rows
+    .map(
+      (r, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td><strong>${esc(r.quote_no)}</strong><br/><small>${esc(r.doc_type || 'Quotation')}</small></td>
+        <td>${esc(r.po_number || '—')}</td>
+        <td><strong>${esc(r.client_name)}</strong>${r.client_contact ? `<br/><small>${esc(r.client_contact)}</small>` : ''}</td>
+        <td>${esc((r.items || []).map(i => `${i.description} (x${fmtQty(i.qty)})`).join(', '))}</td>
+        <td>${esc(fmtShortDate(r.paid_at || r.quote_date))}</td>
+        <td><strong>${esc(r.payment_method || 'Cash')}</strong>${r.payment_reference ? `<br/><small>${esc(r.payment_reference)}</small>` : ''}</td>
+        <td style="text-align:right;font-weight:700;">LKR ${esc(fmtNum(r.grand_total))}</td>
+      </tr>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Paid Quotations & Invoices Report — ${esc(periodTitle)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm 10mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #0f172a; margin: 0; }
+    .head { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #e2af0d; padding-bottom: 10px; margin-bottom: 14px; background: #080b12; color: #fff; padding: 12px 16px; border-radius: 8px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { width: 48px; height: 56px; object-fit: contain; }
+    .brand h1 { margin: 0 0 3px; font-size: 18px; letter-spacing: 1px; color: #facc15; }
+    .brand p { margin: 0; font-size: 11px; color: #e2e8f0; }
+    .meta { text-align: right; font-size: 11px; color: #e2e8f0; }
+    .meta strong { font-size: 14px; color: #facc15; display: block; margin-bottom: 2px; }
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .kpi { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: #f8fafc; }
+    .kpi.gold { background: #fef9c3; border-color: #eab308; }
+    .kpi small { display: block; font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; }
+    .kpi strong { display: block; font-size: 16px; margin-top: 3px; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+    th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+    th { background: #e2af0d; color: #050505; font-weight: 800; text-transform: uppercase; font-size: 10px; }
+    tfoot td { background: #fef9c3; font-weight: 800; font-size: 12px; border-top: 2px solid #0f172a; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <div class="brand">
+      ${logoUrl ? `<img src="${esc(logoUrl)}" alt="Logo" />` : ''}
+      <div>
+        <h1>${esc(shopName)} — PAID QUOTATIONS &amp; INVOICES REPORT</h1>
+        <p>Official Monthly Payment Collection Report · Period: <strong>${esc(periodTitle)}</strong></p>
+      </div>
+    </div>
+    <div class="meta">
+      <strong>TOTAL COLLECTED: LKR ${esc(fmtNum(totalCollected))}</strong>
+      <div>Paid Orders: ${rows.length} · Printed: ${esc(new Date().toLocaleString())}</div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <small>Report Period</small>
+      <strong>${esc(periodTitle)}</strong>
+    </div>
+    <div class="kpi">
+      <small>Paid Orders Count</small>
+      <strong>${rows.length} Paid Document(s)</strong>
+    </div>
+    <div class="kpi gold">
+      <small>Total Money Received</small>
+      <strong>LKR ${esc(fmtNum(totalCollected))}</strong>
+      ${methodSummary ? `<div style="font-size:9.5px;margin-top:2px;color:#713f12;">${methodSummary}</div>` : ''}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Doc No</th>
+        <th>PO Number</th>
+        <th>Client / Company</th>
+        <th>Items</th>
+        <th>Paid Date</th>
+        <th>Method / Ref</th>
+        <th style="text-align:right;">Paid Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${trs || '<tr><td colspan="8" style="text-align:center;padding:18px;">No paid records for this period.</td></tr>'}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="7" style="text-align:right;">TOTAL MONEY RECEIVED (${esc(periodTitle)}):</td>
+        <td style="text-align:right;">LKR ${esc(fmtNum(totalCollected))}</td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>`;
+}
 
 /**
  * Generates a high-DPI PNG Data URL of the geometric Black & Gold ZEEDAT header banner using HTML5 Canvas.
@@ -119,7 +284,6 @@ function getHeaderBannerDataUrl() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
 
-    // 1. Bottom-left gold accent bar
     const stripGrad = ctx.createLinearGradient(0, 0, 770, 0);
     stripGrad.addColorStop(0, '#c5970d');
     stripGrad.addColorStop(1, '#e5b81b');
@@ -132,7 +296,6 @@ function getHeaderBannerDataUrl() {
     ctx.closePath();
     ctx.fill();
 
-    // 2. Right angled gold gradient polygon with soft shadow
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
     ctx.shadowBlur = 12;
@@ -152,7 +315,6 @@ function getHeaderBannerDataUrl() {
     ctx.fill();
     ctx.restore();
 
-    // 3. Left/Center angled black polygon with drop shadow
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
     ctx.shadowBlur = 14;
@@ -176,11 +338,6 @@ function getHeaderBannerDataUrl() {
   }
 }
 
-/**
- * Type-and-Click hybrid Customer / Client Name input:
- * Lets the user type any new customer/company name (which auto-saves into `customers` table on save)
- * OR click an existing customer from the live dropdown to auto-fill Name, Contact (Phone), and Address!
- */
 function HybridClientInput({ value, customers, onType, onPickCustomer }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -265,7 +422,15 @@ function HybridClientInput({ value, customers, onType, onPickCustomer }) {
               <div className="zk-quo-hybrid-item-meta">
                 <span className="price">{c.phone || 'No phone'}</span>
                 {c.notes && (
-                  <span className="stock in" style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span
+                    className="stock in"
+                    style={{
+                      maxWidth: '180px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {c.notes}
                   </span>
                 )}
@@ -278,10 +443,6 @@ function HybridClientInput({ value, customers, onType, onPickCustomer }) {
   );
 }
 
-/**
- * Type-and-Click hybrid product input for each row:
- * Allows typing any custom product/service name freely OR clicking any matching catalog product (including 0-stock items).
- */
 function HybridProductInput({ value, products, onType, onPickProduct }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -368,14 +529,10 @@ function HybridProductInput({ value, products, onType, onPickProduct }) {
   );
 }
 
-/**
- * Shared A4 Document Sheet component (`794px × 1123px` exact A4 dimensions).
- * Uses div-based CSS Grid rows (.zk-a4-table) so global table/th/tr/.empty styles NEVER distort the layout.
- * Matches `nokia 105 original mobile 91.pdf` down to every margin, color, and signature line.
- */
 function ZeedatA4Sheet({ doc, sheetRef }) {
   const bannerUrl = useMemo(() => getHeaderBannerDataUrl(), []);
   const { logo: systemLogo } = useSystemLogo();
+  const activeLogo = doc.logo_url || systemLogo || DEFAULT_ZEEDAT_LOGO;
   const isInvoice = doc.doc_type === 'Invoice';
   const docTitle = isInvoice ? 'INVOICE' : 'QUOTATION';
   const toLabel = isInvoice ? 'INVOICE TO:' : 'QUOTATION TO:';
@@ -418,7 +575,6 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
   return (
     <div ref={sheetRef} className="zk-quo-a4-sheet">
       <div className="zk-quo-a4-top">
-        {/* TOP GEOMETRIC BLACK & GOLD HEADER BANNER */}
         <div className="zk-quo-hdr">
           {bannerUrl && (
             <img
@@ -431,17 +587,7 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
 
           <div className="zk-quo-hdr-left-content">
             <div className="zk-quo-logo-box">
-              {systemLogo ? (
-                <img src={systemLogo} alt="ZEEDAT" className="zk-quo-custom-logo-img" />
-              ) : (
-                <>
-                  <div className="zk-quo-logo-phone">
-                    <span>Z</span>
-                  </div>
-                  <div className="zk-quo-logo-word">ZEEDAT</div>
-                  <div className="zk-quo-logo-tiny">MOBILE &amp; PC</div>
-                </>
-              )}
+              <img src={activeLogo} alt="ZEEDAT" className="zk-quo-custom-logo-img" />
             </div>
 
             <div className="zk-quo-brand-center">
@@ -462,9 +608,7 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
           </div>
         </div>
 
-        {/* BODY PADDING CONTAINER */}
         <div className="zk-quo-sheet-body">
-          {/* CLIENT & QUOTATION INFO BLOCK */}
           <div className="zk-quo-meta-grid">
             <div className="zk-quo-meta-left">
               <div className="zk-quo-meta-line">
@@ -506,7 +650,6 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
             </div>
           </div>
 
-          {/* 12-ROW GOLD & GREY LINED ITEMS GRID TABLE (IMMUNE TO GLOBAL TABLE CSS) */}
           <div className="zk-a4-table">
             <div className="zk-a4-thead">
               <div className="zk-a4-th col-desc">Description of Service / Product</div>
@@ -549,7 +692,6 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
             </div>
           </div>
 
-          {/* SUB TOTAL / DISCOUNT / GRAND TOTAL */}
           <div className="zk-quo-sheet-totals">
             <div className="zk-quo-sheet-totals-box">
               <div className="zk-quo-tot-row">
@@ -569,7 +711,6 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
             </div>
           </div>
 
-          {/* SIGNATURES & ACCEPTANCE */}
           <div className="zk-quo-sheet-sigs">
             <div className="zk-quo-sig-left">
               <div className="zk-quo-sig-dots">..............................................</div>
@@ -596,7 +737,6 @@ function ZeedatA4Sheet({ doc, sheetRef }) {
         </div>
       </div>
 
-      {/* BOTTOM BLACK & GOLD ADDRESS BAR */}
       <div className="zk-quo-sheet-footer">
         <span className="zk-quo-pin">&#9906;</span>
         <span>{footerLeft}</span>
@@ -627,6 +767,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
   const hiddenCaptureRef = useRef(null);
   const stageRef = useRef(null);
   const quickSearchRef = useRef(null);
+  const { logo: systemLogo, shopName: systemShopName } = useSystemLogo();
 
   const [previewScale, setPreviewScale] = useState(0.52);
   const [manualScale, setManualScale] = useState(null);
@@ -668,13 +809,22 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     po_notes: '',
   });
 
+  // Payment Received (Mark Paid) Modal state
+  const [payModalRow, setPayModalRow] = useState(null);
+  const [payForm, setPayForm] = useState({
+    paid_at: today(),
+    payment_method: 'Bank Transfer',
+    payment_reference: '',
+  });
+
   // Quick Search & Click to Add Product state
   const [quickQuery, setQuickQuery] = useState('');
   const [quickOpen, setQuickOpen] = useState(false);
 
-  // History tab filters
+  // History tab filters & Monthly Paid Report state
   const [historyFilter, setHistoryFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
+  const [reportMonth, setReportMonth] = useState(() => today().slice(0, 7));
 
   useEffect(() => {
     if (!quickOpen) return undefined;
@@ -687,7 +837,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     return () => document.removeEventListener('mousedown', onOutside);
   }, [quickOpen]);
 
-  // Fit the entire 794x1123 A4 preview vertically AND horizontally inside the viewport so NO scrolling is needed
   useEffect(() => {
     if (activeTab !== 'builder') return undefined;
     const updateScale = () => {
@@ -711,7 +860,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
 
   const effectiveScale = manualScale ?? previewScale;
 
-  // Compute next system-unique ZD0001+ quotation number automatically
   const nextAutoNumber = useMemo(() => {
     let maxSeq = 0;
     for (const q of quotations) {
@@ -767,7 +915,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     [customers]
   );
 
-  // Calculated line totals & summary
   const computedLines = useMemo(
     () =>
       items.map(line => {
@@ -1076,10 +1223,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
-  /**
-   * Captures the exact ZeedatA4Sheet React DOM node into a high-resolution Canvas so that
-   * both PDF Download and Print A4 are 100% identical to the Live A4 PDF Template Preview!
-   */
   const captureSheetToCanvas = async docData => {
     setCaptureDoc(docData);
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -1192,14 +1335,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
-  /**
-   * Opens the "Accept Quotation & Add Purchase Order (PO)" modal for either the active Builder quotation
-   * or any row from the Saved Quotations table.
-   */
   const openAcceptPoModal = async (targetRow = null) => {
     let row = targetRow;
     if (!row) {
-      // Save current builder quotation first if not yet saved
       const saved = await saveToDatabase();
       if (!saved) return;
       row = saved;
@@ -1239,6 +1377,61 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       if (generateInvoiceImmediate) {
         await handleDownloadPdf(updated);
       }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Opens the "Mark Money Received (Paid)" dialog for a row, or unmarks if already Paid.
+   */
+  const openMarkPaidModal = row => {
+    setPayModalRow(row);
+    setPayForm({
+      paid_at: row.paid_at || today(),
+      payment_method: row.payment_method || 'Bank Transfer',
+      payment_reference: row.payment_reference || row.po_number || '',
+    });
+  };
+
+  const submitMarkPayment = async (row, nextPayStatus, details = {}) => {
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await ctx.mutate('quotation.status', {
+        id: row.id,
+        operation: 'mark_payment',
+        payment_status: nextPayStatus,
+        paid_at: details.paid_at || today(),
+        payment_method: details.payment_method || 'Cash',
+        payment_reference: details.payment_reference || '',
+      });
+      setPayModalRow(null);
+      onRefresh?.();
+      ctx.setNotice(
+        nextPayStatus === 'Paid'
+          ? `${updated.quote_no} (${updated.client_name}) marked as PAID (Money Received: LKR ${fmtNum(updated.grand_total)}).`
+          : `${updated.quote_no} marked as Unpaid (Pending Payment).`
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRejectQuotation = async row => {
+    setBusy(true);
+    setError('');
+    try {
+      await ctx.mutate('quotation.status', {
+        id: row.id,
+        operation: 'reject',
+      });
+      onRefresh?.();
+      ctx.setNotice(`${row.quote_no} marked as Rejected.`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1316,54 +1509,149 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
     }
   };
 
-  const kpis = useMemo(() => {
-    let quoteCount = 0;
-    let poCount = 0;
-    let invoiceCount = 0;
-    let totalQuoteValue = 0;
-    let totalInvoiceValue = 0;
+  /**
+   * Categorized lists & totals:
+   * - `unpaidAcceptedList`: Accepted / PO Accepted / Approved / Invoiced records that are still Unpaid (shows Count + Total To Pay)
+   * - `paidList`: Records where `payment_status === 'Paid'` (shows Count + Total Paid)
+   * - `generatedPendingList`: Generated quotations awaiting acceptance (`Saved`, `Draft`, `Sent` and not yet accepted/paid) — Count only!
+   * - `rejectedList`: Rejected quotations (`status === 'Rejected'`) — Count only!
+   */
+  const breakdown = useMemo(() => {
+    const unpaidAcceptedList = [];
+    let unpaidAcceptedTotal = 0;
+
+    const paidList = [];
+    let paidTotal = 0;
+
+    const generatedPendingList = [];
+    const rejectedList = [];
+
     for (const q of quotations) {
-      if (q.po_number || q.status === 'PO Accepted') {
-        poCount++;
-      }
-      if (q.doc_type === 'Invoice') {
-        invoiceCount++;
-        totalInvoiceValue += Number(q.grand_total || 0);
+      if (q.status === 'Rejected') {
+        rejectedList.push(q);
+      } else if (q.payment_status === 'Paid') {
+        paidList.push(q);
+        paidTotal += Number(q.grand_total || 0);
+      } else if (isAcceptedRecord(q)) {
+        unpaidAcceptedList.push(q);
+        unpaidAcceptedTotal += Number(q.grand_total || 0);
       } else {
-        quoteCount++;
-        totalQuoteValue += Number(q.grand_total || 0);
+        generatedPendingList.push(q);
       }
     }
+
     return {
-      totalCount: quotations.length,
-      quoteCount,
-      poCount,
-      invoiceCount,
-      totalQuoteValue,
-      totalInvoiceValue,
+      unpaidAcceptedList,
+      unpaidAcceptedTotal,
+      paidList,
+      paidTotal,
+      generatedPendingList,
+      rejectedList,
     };
   }, [quotations]);
+
+  // Month-by-Month Paid grouping for Monthly Paid Report
+  const monthlyPaidGroups = useMemo(() => {
+    const map = new Map();
+    for (const r of breakdown.paidList) {
+      const ym = extractMonthKey(r);
+      const entry = map.get(ym) || { ym, label: formatMonthLabel(ym), count: 0, total: 0, rows: [] };
+      entry.count += 1;
+      entry.total += Number(r.grand_total || 0);
+      entry.rows.push(r);
+      map.set(ym, entry);
+    }
+    return Array.from(map.values()).sort((a, b) => b.ym.localeCompare(a.ym));
+  }, [breakdown.paidList]);
+
+  const filteredPaidForMonth = useMemo(() => {
+    if (!reportMonth || reportMonth === 'all') {
+      return breakdown.paidList;
+    }
+    return breakdown.paidList.filter(r => extractMonthKey(r) === reportMonth);
+  }, [breakdown.paidList, reportMonth]);
+
+  const selectedMonthPaidTotal = useMemo(
+    () => filteredPaidForMonth.reduce((sum, r) => sum + Number(r.grand_total || 0), 0),
+    [filteredPaidForMonth]
+  );
+
+  const exportPaidReportCsv = rows => {
+    const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = [
+      'System No',
+      'Type',
+      'PO Number',
+      'Client / Company',
+      'Contact',
+      'Address',
+      'Items',
+      'Paid Date',
+      'Payment Method',
+      'Payment Reference',
+      'Paid Amount (LKR)',
+    ];
+    const lines = [
+      headers.map(csvCell).join(','),
+      ...rows.map(r =>
+        [
+          r.quote_no,
+          r.doc_type || 'Quotation',
+          r.po_number || '',
+          r.client_name || '',
+          r.client_contact || '',
+          r.client_address || '',
+          (r.items || []).map(i => `${i.description} (x${fmtQty(i.qty)})`).join('; '),
+          r.paid_at || r.quote_date || '',
+          r.payment_method || 'Cash',
+          r.payment_reference || '',
+          (Number(r.grand_total || 0) / 100).toFixed(2),
+        ]
+          .map(csvCell)
+          .join(',')
+      ),
+    ];
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ZEEDAT_Paid_Report_${reportMonth || 'All'}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   const filteredQuotations = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
     return quotations.filter(row => {
-      if (historyFilter === 'quotations' && row.doc_type === 'Invoice') return false;
-      if (historyFilter === 'po_accepted' && !row.po_number && row.status !== 'PO Accepted') return false;
-      if (historyFilter === 'invoices' && row.doc_type !== 'Invoice') return false;
+      if (historyFilter === 'accepted_unpaid') {
+        if (row.status === 'Rejected' || row.payment_status === 'Paid' || !isAcceptedRecord(row)) {
+          return false;
+        }
+      } else if (historyFilter === 'paid') {
+        if (row.payment_status !== 'Paid') return false;
+      } else if (historyFilter === 'generated') {
+        if (row.status === 'Rejected' || row.payment_status === 'Paid' || isAcceptedRecord(row)) {
+          return false;
+        }
+      } else if (historyFilter === 'rejected') {
+        if (row.status !== 'Rejected') return false;
+      }
+
       if (q) {
         const itemsText = (row.items || []).map(i => `${i.description} ${i.warranty}`).join(' ');
-        const hay = `${row.quote_no} ${row.po_number || ''} ${row.client_name} ${row.client_contact} ${row.client_address} ${itemsText}`.toLowerCase();
+        const hay = `${row.quote_no} ${row.po_number || ''} ${row.client_name} ${row.client_contact} ${row.client_address} ${row.payment_method || ''} ${row.payment_reference || ''} ${itemsText}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
   }, [quotations, historyFilter, historySearch]);
 
-  const workflowStep = docType === 'Invoice' || status === 'Invoiced'
-    ? 3
-    : poNumber || status === 'PO Accepted'
-      ? 2
-      : 1;
+  const workflowStep =
+    docType === 'Invoice' || status === 'Invoiced'
+      ? 3
+      : poNumber || status === 'PO Accepted'
+        ? 2
+        : 1;
 
   return (
     <div className="zk-quo-page">
@@ -1374,7 +1662,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
 
       <Heading
         title="Quotations, Purchase Orders & Corporate Invoices"
-        description="Auto-numbered ZD0001+ quotations, automatic customer saving, Purchase Order (PO) acceptance flow, and exact ZEEDAT A4 PDF invoices"
+        description="Auto-numbered ZD0001+ quotations, accepted unpaid tracking, payment received marking, and month-by-month paid reports"
       >
         <Button
           icon={Plus}
@@ -1397,6 +1685,13 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
           New Direct Invoice
         </Button>
         <Button
+          icon={FileBarChart2}
+          variant={activeTab === 'paid_report' ? 'primary' : 'soft'}
+          onClick={() => setActiveTab('paid_report')}
+        >
+          Monthly Paid Report ({breakdown.paidList.length})
+        </Button>
+        <Button
           icon={History}
           variant={activeTab === 'history' ? 'primary' : 'outline'}
           onClick={() => setActiveTab(activeTab === 'history' ? 'builder' : 'history')}
@@ -1409,12 +1704,52 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
 
       {error && <Alert>{error}</Alert>}
 
-      {/* KPI STRIP */}
-      <div className="zk-quo-kpis">
+      {/* 4 KPI CARDS:
+          1. Accepted & Unpaid (To Pay) — WITH TOTAL LKR
+          2. Paid / Money Received — WITH TOTAL LKR
+          3. Generated / Pending Quotations — COUNT ONLY (NO MONEY TOTAL)
+          4. Rejected Quotations — COUNT ONLY (NO MONEY TOTAL)
+      */}
+      <div className="zk-quo-kpis four-cols">
         <div
           className="zk-quo-kpi-card gold"
           onClick={() => {
-            setHistoryFilter('quotations');
+            setHistoryFilter('accepted_unpaid');
+            setActiveTab('history');
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="zk-quo-kpi-icon">
+            <Clock3 size={20} />
+          </div>
+          <div>
+            <small>Accepted · To Pay ({breakdown.unpaidAcceptedList.length})</small>
+            <strong>{money(breakdown.unpaidAcceptedTotal)}</strong>
+            <span>Accepted &amp; awaiting payment</span>
+          </div>
+        </div>
+
+        <div
+          className="zk-quo-kpi-card green"
+          onClick={() => setActiveTab('paid_report')}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="zk-quo-kpi-icon green">
+            <Banknote size={20} />
+          </div>
+          <div>
+            <small>Paid · Money Received ({breakdown.paidList.length})</small>
+            <strong>{money(breakdown.paidTotal)}</strong>
+            <span>Click for Month-by-Month Paid Report</span>
+          </div>
+        </div>
+
+        <div
+          className="zk-quo-kpi-card"
+          onClick={() => {
+            setHistoryFilter('generated');
             setActiveTab('history');
           }}
           role="button"
@@ -1424,47 +1759,28 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             <FileText size={20} />
           </div>
           <div>
-            <small>1. Quotations ({kpis.quoteCount})</small>
-            <strong>{money(kpis.totalQuoteValue)}</strong>
-            <span>Next Auto ID: {nextAutoNumber}</span>
+            <small>Generated Quotations</small>
+            <strong>{breakdown.generatedPendingList.length} Quotations</strong>
+            <span>Awaiting client acceptance · Next: {nextAutoNumber}</span>
           </div>
         </div>
 
         <div
           className="zk-quo-kpi-card"
           onClick={() => {
-            setHistoryFilter('po_accepted');
+            setHistoryFilter('rejected');
             setActiveTab('history');
           }}
           role="button"
           tabIndex={0}
         >
-          <div className="zk-quo-kpi-icon">
-            <ClipboardCheck size={20} />
+          <div className="zk-quo-kpi-icon red">
+            <Ban size={20} />
           </div>
           <div>
-            <small>2. Accepted Purchase Orders</small>
-            <strong>{kpis.poCount}</strong>
-            <span>Quotations with PO attached</span>
-          </div>
-        </div>
-
-        <div
-          className="zk-quo-kpi-card"
-          onClick={() => {
-            setHistoryFilter('invoices');
-            setActiveTab('history');
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          <div className="zk-quo-kpi-icon">
-            <FileCheck2 size={20} />
-          </div>
-          <div>
-            <small>3. Generated Invoices ({kpis.invoiceCount})</small>
-            <strong>{money(kpis.totalInvoiceValue)}</strong>
-            <span>Official ZEEDAT A4 PDF Invoices</span>
+            <small>Rejected Quotations</small>
+            <strong>{breakdown.rejectedList.length} Rejected</strong>
+            <span>Declined / cancelled quotes</span>
           </div>
         </div>
       </div>
@@ -1481,7 +1797,8 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 ? `Editing ${docType} ${displayQuoteNo}`
                 : `Create ${docType} (${displayQuoteNo}) & Live PDF Preview`,
             ],
-            ['history', `All Saved Quotations, POs & Invoices (${quotations.length})`],
+            ['history', `Saved Quotations, POs & Invoices (${quotations.length})`],
+            ['paid_report', `Monthly Paid Report (${breakdown.paidList.length})`],
           ]}
         />
         {activeTab === 'builder' && (
@@ -1533,7 +1850,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       ========================================================= */}
       {activeTab === 'builder' && (
         <div className="zk-quo-workspace">
-          {/* LEFT: FORM BUILDER */}
           <div className="zk-quo-form-col">
             <Panel
               title={
@@ -1544,9 +1860,12 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
               icon={FileSpreadsheet}
             >
               <div className="zk-quo-form-stack">
-                {/* 3-STAGE WORKFLOW PIPELINE: QUOTATION -> ACCEPT & PO -> GENERATE INVOICE */}
                 <div className="zk-quo-flow-stepper">
-                  <div className={`zk-quo-flow-step ${workflowStep >= 1 ? 'done' : ''} ${workflowStep === 1 ? 'current' : ''}`}>
+                  <div
+                    className={`zk-quo-flow-step ${workflowStep >= 1 ? 'done' : ''} ${
+                      workflowStep === 1 ? 'current' : ''
+                    }`}
+                  >
                     <span className="step-num">1</span>
                     <div className="step-info">
                       <strong>1. Create Quotation</strong>
@@ -1554,7 +1873,11 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     </div>
                   </div>
                   <ArrowRight size={15} className="flow-arrow" />
-                  <div className={`zk-quo-flow-step ${workflowStep >= 2 ? 'done' : ''} ${workflowStep === 2 ? 'current' : ''}`}>
+                  <div
+                    className={`zk-quo-flow-step ${workflowStep >= 2 ? 'done' : ''} ${
+                      workflowStep === 2 ? 'current' : ''
+                    }`}
+                  >
                     <span className="step-num">2</span>
                     <div className="step-info">
                       <strong>2. Accept &amp; Purchase Order</strong>
@@ -1574,7 +1897,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     <span className="step-num">3</span>
                     <div className="step-info">
                       <strong>3. Generate Invoice</strong>
-                      <small>{docType === 'Invoice' ? `Invoice ${displayQuoteNo}` : 'Create A4 Invoice'}</small>
+                      <small>
+                        {docType === 'Invoice' ? `Invoice ${displayQuoteNo}` : 'Create A4 Invoice'}
+                      </small>
                     </div>
                     {docType !== 'Invoice' && (
                       <button
@@ -1589,7 +1914,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </div>
                 </div>
 
-                {/* Document Type Switcher */}
                 <div className="zk-quo-doctype-bar">
                   <div className="zk-quo-doctype-pills">
                     <button
@@ -1615,7 +1939,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </div>
                 </div>
 
-                {/* Auto-Generated System Unique Number (Read-Only) + Date + Valid Until + Status */}
                 <div className="zk-quo-grid-meta">
                   <Field
                     label={`${
@@ -1650,7 +1973,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                       value={status}
                       onChange={e => setStatus(e.target.value)}
                       options={[
-                        ['Saved', 'Saved'],
+                        ['Saved', 'Saved (Generated)'],
                         ['Draft', 'Draft'],
                         ['Sent', 'Sent to Client'],
                         ['PO Accepted', 'PO Accepted'],
@@ -1662,7 +1985,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </Field>
                 </div>
 
-                {/* Customer / Company Info (Auto-Saves New Customers to `customers` Table!) */}
                 <div className="zk-quo-client-box">
                   <div className="zk-quo-section-head">
                     <div>
@@ -1703,7 +2025,9 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         onType={val => {
                           setClientName(val);
                           const matched = customers.find(
-                            c => String(c.name || '').trim().toLowerCase() === val.trim().toLowerCase()
+                            c =>
+                              String(c.name || '').trim().toLowerCase() ===
+                              val.trim().toLowerCase()
                           );
                           setCustomerId(matched ? String(matched.id) : '');
                         }}
@@ -1729,7 +2053,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     />
                   </Field>
 
-                  {/* Purchase Order (PO) Details Box (Shown when PO is entered or in Invoice mode) */}
                   {(poNumber || docType === 'Invoice' || status === 'PO Accepted') && (
                     <div className="zk-quo-po-inline-box">
                       <div className="zk-quo-section-head">
@@ -1773,7 +2096,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   )}
                 </div>
 
-                {/* Line Items Section (Search & Click to Add + Type Custom Items + 0-Stock Allowed) */}
                 <div className="zk-quo-items-box">
                   <div className="zk-quo-section-head">
                     <div>
@@ -1787,7 +2109,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     </Button>
                   </div>
 
-                  {/* QUICK SEARCH & CLICK TO ADD PRODUCT BAR */}
                   <div ref={quickSearchRef} className="zk-quo-quick-add-bar">
                     <div className="zk-quo-quick-search-input">
                       <Search size={16} className="zk-quo-qs-icon" />
@@ -1985,7 +2306,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </div>
                 </div>
 
-                {/* Discount & Totals Summary */}
                 <div className="zk-quo-totals-bar">
                   <div className="zk-quo-discount-inputs">
                     <Field label="Discount Amount (LKR — Optional)">
@@ -2026,7 +2346,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   </div>
                 </div>
 
-                {/* Template Header & Footer Phones/Address Customization (Collapsible) */}
                 <div className="zk-quo-template-config">
                   <button
                     type="button"
@@ -2067,7 +2386,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   )}
                 </div>
 
-                {/* Bottom Action Buttons */}
                 <div className="zk-quo-form-footer">
                   <Button
                     type="button"
@@ -2122,7 +2440,6 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             </Panel>
           </div>
 
-          {/* RIGHT: COMPACT FULL-VIEW LIVE A4 PDF TEMPLATE PREVIEW (NO VERTICAL SCROLL NEEDED) */}
           <div className="zk-quo-preview-col">
             <div className="zk-quo-preview-toolbar">
               <div className="zk-quo-preview-title">
@@ -2222,10 +2539,13 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       )}
 
       {/* =========================================================
-          VIEW 2: ALL SAVED QUOTATIONS, POs & INVOICES DATABASE TABLE
+          VIEW 2: SAVED QUOTATIONS, PURCHASE ORDERS & INVOICES
       ========================================================= */}
       {activeTab === 'history' && (
-        <Panel title={`Saved Quotations, Purchase Orders & Invoices (${filteredQuotations.length})`} icon={History}>
+        <Panel
+          title={`Saved Quotations, Purchase Orders & Invoices (${filteredQuotations.length})`}
+          icon={History}
+        >
           <div className="zk-quo-history-toolbar">
             <div className="zk-quo-history-search">
               <SearchBox
@@ -2240,9 +2560,20 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 onChange={setHistoryFilter}
                 choices={[
                   ['all', `All (${quotations.length})`],
-                  ['quotations', `Quotations (${kpis.quoteCount})`],
-                  ['po_accepted', `PO Accepted (${kpis.poCount})`],
-                  ['invoices', `Invoices (${kpis.invoiceCount})`],
+                  [
+                    'accepted_unpaid',
+                    `Accepted · To Pay (${breakdown.unpaidAcceptedList.length}) · ${money(
+                      breakdown.unpaidAcceptedTotal
+                    )}`,
+                  ],
+                  [
+                    'paid',
+                    `Paid · Money Received (${breakdown.paidList.length}) · ${money(
+                      breakdown.paidTotal
+                    )}`,
+                  ],
+                  ['generated', `Generated / Pending (${breakdown.generatedPendingList.length})`],
+                  ['rejected', `Rejected (${breakdown.rejectedList.length})`],
                 ]}
               />
               <Button icon={RefreshCw} variant="ghost" onClick={onRefresh}>
@@ -2251,9 +2582,81 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
             </div>
           </div>
 
+          {/* CONTEXTUAL SUMMARY BANNER BASED ON SELECTED FILTER */}
+          {historyFilter === 'accepted_unpaid' && (
+            <div className="zk-quo-status-summary-banner amber">
+              <div>
+                <strong>
+                  Accepted &amp; Awaiting Payment ({breakdown.unpaidAcceptedList.length} Orders)
+                </strong>
+                <span>
+                  These clients have accepted quotations / POs / invoices and still need to pay. Click{' '}
+                  <strong>Mark Paid</strong> once money is received.
+                </span>
+              </div>
+              <div className="summary-total">
+                <small>Total Outstanding To Collect</small>
+                <strong>{money(breakdown.unpaidAcceptedTotal)}</strong>
+              </div>
+            </div>
+          )}
+
+          {historyFilter === 'paid' && (
+            <div className="zk-quo-status-summary-banner green">
+              <div>
+                <strong>
+                  Paid Quotations &amp; Invoices ({breakdown.paidList.length} Orders)
+                </strong>
+                <span>
+                  Money has been received for these orders. Open the Monthly Paid Report to filter and print month-by-month.
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div className="summary-total">
+                  <small>Total Money Received</small>
+                  <strong>{money(breakdown.paidTotal)}</strong>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={FileBarChart2}
+                  onClick={() => setActiveTab('paid_report')}
+                >
+                  Open Monthly Paid Report
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {historyFilter === 'generated' && (
+            <div className="zk-quo-status-summary-banner slate">
+              <div>
+                <strong>
+                  Generated Quotations Awaiting Client Decision ({breakdown.generatedPendingList.length} Quotations)
+                </strong>
+                <span>
+                  Click <strong>Accept &amp; PO</strong> when the client approves, or <strong>Reject</strong> if declined.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {historyFilter === 'rejected' && (
+            <div className="zk-quo-status-summary-banner red">
+              <div>
+                <strong>
+                  Rejected Quotations ({breakdown.rejectedList.length} Rejected)
+                </strong>
+                <span>
+                  These quotations were marked as rejected. You can still view, clone, or re-open them if needed.
+                </span>
+              </div>
+            </div>
+          )}
+
           <Table
             rows={filteredQuotations}
-            empty="No quotations or corporate invoices found. Click 'New Quotation' to create and save your first quotation."
+            empty="No records match the selected filter."
             columns={[
               [
                 'System No & Type',
@@ -2284,19 +2687,21 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 ),
               ],
               [
-                'Purchase Order (PO)',
-                r =>
-                  r.po_number ? (
-                    <div>
-                      <Badge tone="blue">PO: {r.po_number}</Badge>
+                'PO & Status',
+                r => (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                      <Badge tone={statusTone(r.status)}>{r.status || 'Saved'}</Badge>
+                      {r.po_number && <Badge tone="blue">PO: {r.po_number}</Badge>}
+                    </div>
+                    {r.po_date && (
                       <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
-                        {r.po_date ? fmtShortDate(r.po_date) : ''}
+                        PO Date: {fmtShortDate(r.po_date)}
                         {r.po_approved_by ? ` · ${r.po_approved_by}` : ''}
                       </div>
-                    </div>
-                  ) : (
-                    <span className="muted">No PO attached yet</span>
-                  ),
+                    )}
+                  </div>
+                ),
               ],
               [
                 'Items',
@@ -2305,7 +2710,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                   return (
                     <div>
                       <strong>{list.length} item(s)</strong>
-                      <div className="muted" style={{ fontSize: '11.5px', maxWidth: '240px' }}>
+                      <div className="muted" style={{ fontSize: '11.5px', maxWidth: '220px' }}>
                         {list
                           .slice(0, 2)
                           .map(i => `${i.description} (x${fmtQty(i.qty)})`)
@@ -2317,19 +2722,65 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                 },
               ],
               [
-                'Grand Total',
-                r => (
-                  <div>
-                    <strong>LKR {fmtNum(r.grand_total)}</strong>
-                    {Number(r.discount) > 0 && (
-                      <div className="muted" style={{ fontSize: '11px' }}>
-                        Disc: LKR {fmtNum(r.discount)}
-                      </div>
-                    )}
-                  </div>
-                ),
+                'Amount',
+                r =>
+                  r.status === 'Rejected' ? (
+                    <span className="muted">Rejected</span>
+                  ) : (
+                    <div>
+                      <strong>LKR {fmtNum(r.grand_total)}</strong>
+                      {Number(r.discount) > 0 && (
+                        <div className="muted" style={{ fontSize: '11px' }}>
+                          Disc: LKR {fmtNum(r.discount)}
+                        </div>
+                      )}
+                    </div>
+                  ),
               ],
-              ['Status', r => <Badge tone={statusTone(r.status)}>{r.status || 'Saved'}</Badge>],
+              [
+                'Payment (Money Received)',
+                r => {
+                  if (r.status === 'Rejected') {
+                    return <Badge tone="red">Rejected</Badge>;
+                  }
+                  const isPaid = r.payment_status === 'Paid';
+                  return (
+                    <div className="zk-quo-pay-cell">
+                      {isPaid ? (
+                        <>
+                          <Badge tone="green">✓ Paid (Money Received)</Badge>
+                          <small className="muted">
+                            {fmtShortDate(r.paid_at || r.quote_date)} · {r.payment_method || 'Cash'}
+                            {r.payment_reference ? ` (${r.payment_reference})` : ''}
+                          </small>
+                          <button
+                            type="button"
+                            className="zk-quo-mini-pay-btn unmark"
+                            disabled={busy}
+                            onClick={() => submitMarkPayment(r, 'Unpaid')}
+                          >
+                            Mark Unpaid
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <Badge tone={isAcceptedRecord(r) ? 'amber' : 'slate'}>
+                            {isAcceptedRecord(r) ? 'Unpaid · To Pay' : 'Not Paid Yet'}
+                          </Badge>
+                          <button
+                            type="button"
+                            className="zk-quo-mini-pay-btn mark-paid"
+                            disabled={busy}
+                            onClick={() => openMarkPaidModal(r)}
+                          >
+                            <Banknote size={12} /> Mark Paid
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                },
+              ],
               [
                 'Actions',
                 r => (
@@ -2352,7 +2803,7 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                     >
                       Print
                     </Button>
-                    {r.doc_type !== 'Invoice' && (
+                    {r.doc_type !== 'Invoice' && r.status !== 'Rejected' && (
                       <Button
                         size="sm"
                         variant="soft"
@@ -2360,10 +2811,10 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         disabled={busy}
                         onClick={() => openAcceptPoModal(r)}
                       >
-                        {r.po_number ? 'PO / Invoice' : 'Accept & PO'}
+                        {r.po_number ? 'Edit PO' : 'Accept & PO'}
                       </Button>
                     )}
-                    {r.doc_type !== 'Invoice' && (
+                    {r.doc_type !== 'Invoice' && r.status !== 'Rejected' && (
                       <Button
                         size="sm"
                         variant="soft"
@@ -2371,7 +2822,20 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
                         disabled={busy}
                         onClick={() => handleConvertToInvoice(r)}
                       >
-                        Generate Invoice
+                        To Invoice
+                      </Button>
+                    )}
+                    {r.status !== 'Rejected' && r.payment_status !== 'Paid' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={Ban}
+                        className="text-red"
+                        title="Mark Quotation as Rejected"
+                        disabled={busy}
+                        onClick={() => handleRejectQuotation(r)}
+                      >
+                        Reject
                       </Button>
                     )}
                     <Button
@@ -2408,12 +2872,223 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
       )}
 
       {/* =========================================================
-          MODAL: ACCEPT QUOTATION & RECORD PURCHASE ORDER (PO) FLOW
+          VIEW 3: MONTH-BY-MONTH PAID REPORT (ගෙවපු ඒවගේ Report එක)
+      ========================================================= */}
+      {activeTab === 'paid_report' && (
+        <Panel
+          title={`Month-by-Month Paid Quotations & Invoices Report (${
+            reportMonth === 'all' ? 'All Months' : formatMonthLabel(reportMonth)
+          })`}
+          icon={FileBarChart2}
+        >
+          {/* MONTH SELECTOR & EXPORT TOOLBAR */}
+          <div className="zk-quo-report-bar">
+            <div className="zk-quo-month-picker-group">
+              <label className="zk-quo-month-label">
+                <CalendarDays size={16} />
+                <span>Select Month:</span>
+                <input
+                  type="month"
+                  value={reportMonth === 'all' ? '' : reportMonth}
+                  onChange={e => setReportMonth(e.target.value || 'all')}
+                />
+              </label>
+              <Button
+                size="sm"
+                variant={reportMonth === 'all' ? 'primary' : 'outline'}
+                onClick={() => setReportMonth('all')}
+              >
+                All Months ({breakdown.paidList.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={reportMonth === today().slice(0, 7) ? 'primary' : 'soft'}
+                onClick={() => setReportMonth(today().slice(0, 7))}
+              >
+                This Month ({formatMonthLabel(today().slice(0, 7))})
+              </Button>
+            </div>
+
+            <div className="zk-quo-top-actions">
+              <Button
+                size="sm"
+                variant="outline"
+                icon={Download}
+                disabled={filteredPaidForMonth.length === 0}
+                onClick={() => exportPaidReportCsv(filteredPaidForMonth)}
+              >
+                Export CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={Printer}
+                onClick={() =>
+                  printHtmlDocument(
+                    buildPaidReportA4Html({
+                      rows: filteredPaidForMonth,
+                      monthKey: reportMonth,
+                      shopName: systemShopName || 'ZEEDAT POS',
+                      logoUrl: systemLogo || getSystemLogo(),
+                    })
+                  )
+                }
+              >
+                Print Monthly Paid Report (A4)
+              </Button>
+            </div>
+          </div>
+
+          {/* CLICKABLE MONTH-BY-MONTH BREAKDOWN CARDS */}
+          {monthlyPaidGroups.length > 0 && (
+            <div className="zk-quo-month-cards">
+              {monthlyPaidGroups.map(m => (
+                <button
+                  key={m.ym}
+                  type="button"
+                  className={`zk-quo-month-card ${reportMonth === m.ym ? 'active' : ''}`}
+                  onClick={() => setReportMonth(m.ym)}
+                >
+                  <div className="m-top">
+                    <strong>{m.label}</strong>
+                    <Badge tone={reportMonth === m.ym ? 'green' : 'slate'}>
+                      {m.count} Paid
+                    </Badge>
+                  </div>
+                  <div className="m-val">{money(m.total)}</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* SELECTED PERIOD SUMMARY BANNER */}
+          <div className="zk-quo-status-summary-banner green" style={{ marginBottom: '14px' }}>
+            <div>
+              <strong>
+                Paid Report Period:{' '}
+                {reportMonth === 'all' ? 'All Months' : formatMonthLabel(reportMonth)}
+              </strong>
+              <span>
+                Showing {filteredPaidForMonth.length} paid quotation(s) / invoice(s) where payment was received.
+              </span>
+            </div>
+            <div className="summary-total">
+              <small>
+                Total Collected ({reportMonth === 'all' ? 'All Months' : formatMonthLabel(reportMonth)})
+              </small>
+              <strong>{money(selectedMonthPaidTotal)}</strong>
+            </div>
+          </div>
+
+          <Table
+            rows={filteredPaidForMonth}
+            empty={`No paid quotations or invoices recorded for ${
+              reportMonth === 'all' ? 'any month yet' : formatMonthLabel(reportMonth)
+            }. Click "Mark Paid" on any accepted quotation/invoice when payment is received.`}
+            columns={[
+              [
+                'Paid Date',
+                r => (
+                  <div>
+                    <strong>{fmtShortDate(r.paid_at || r.quote_date)}</strong>
+                    <div className="muted" style={{ fontSize: '11px' }}>
+                      {formatMonthLabel(extractMonthKey(r))}
+                    </div>
+                  </div>
+                ),
+              ],
+              [
+                'System No & PO',
+                r => (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong>{r.quote_no}</strong>
+                      <Badge tone={r.doc_type === 'Invoice' ? 'green' : 'amber'}>
+                        {r.doc_type || 'Quotation'}
+                      </Badge>
+                    </div>
+                    {r.po_number && <small className="muted">PO: {r.po_number}</small>}
+                  </div>
+                ),
+              ],
+              [
+                'Client / Company',
+                r => (
+                  <div>
+                    <strong>{r.client_name}</strong>
+                    <div className="muted" style={{ fontSize: '11.5px' }}>
+                      {r.client_contact || ''}
+                    </div>
+                  </div>
+                ),
+              ],
+              [
+                'Items',
+                r => {
+                  const list = r.items || [];
+                  return (
+                    <div style={{ maxWidth: '250px', fontSize: '12px' }}>
+                      {list.map(i => `${i.description} (x${fmtQty(i.qty)})`).join(', ')}
+                    </div>
+                  );
+                },
+              ],
+              [
+                'Payment Method & Ref',
+                r => (
+                  <div>
+                    <Badge tone="green">{r.payment_method || 'Cash'}</Badge>
+                    {r.payment_reference && (
+                      <div className="muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                        Ref: {r.payment_reference}
+                      </div>
+                    )}
+                  </div>
+                ),
+              ],
+              [
+                'Paid Amount',
+                r => <strong className="text-green">LKR {fmtNum(r.grand_total)}</strong>,
+              ],
+              [
+                'Invoice / PDF',
+                r => (
+                  <div className="row-actions">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={Download}
+                      disabled={pdfBusy}
+                      onClick={() => handleDownloadPdf(r)}
+                    >
+                      PDF
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      icon={Printer}
+                      disabled={pdfBusy}
+                      onClick={() => handlePrintA4(r)}
+                    >
+                      Print
+                    </Button>
+                  </div>
+                ),
+              ],
+            ]}
+          />
+        </Panel>
+      )}
+
+      {/* =========================================================
+          MODAL 1: ACCEPT QUOTATION & RECORD PURCHASE ORDER (PO)
       ========================================================= */}
       {poModalOpen && poModalTarget && (
         <Modal
           title={`Accept Quotation ${poModalTarget.quote_no} & Record Purchase Order (PO)`}
-          description={`Client: ${poModalTarget.client_name} · Grand Total: LKR ${fmtNum(poModalTarget.grand_total)}`}
+          description={`Client: ${poModalTarget.client_name} · Grand Total: LKR ${fmtNum(
+            poModalTarget.grand_total
+          )}`}
           busy={busy}
           onClose={() => setPoModalOpen(false)}
         >
@@ -2487,6 +3162,78 @@ function QuotationsWorkspace({ ctx, data, onRefresh }) {
               onClick={() => submitPoAcceptance(true)}
             >
               {busy ? 'Generating…' : 'Save PO & Generate Official Invoice PDF'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* =========================================================
+          MODAL 2: MARK PAYMENT RECEIVED (සල්ලි ලැබුණා / PAID)
+      ========================================================= */}
+      {payModalRow && (
+        <Modal
+          title={`Mark Payment Received · ${payModalRow.quote_no}`}
+          description={`Client: ${payModalRow.client_name} · Amount: LKR ${fmtNum(
+            payModalRow.grand_total
+          )}`}
+          busy={busy}
+          onClose={() => setPayModalRow(null)}
+        >
+          <div className="modal-body" style={{ display: 'grid', gap: '14px' }}>
+            <div className="zk-quo-status-summary-banner green">
+              <div>
+                <strong>Confirm Payment Collection</strong>
+                <span>
+                  This order will be marked as <strong>Paid (Money Received)</strong> and included in the{' '}
+                  <strong>{formatMonthLabel((payForm.paid_at || today()).slice(0, 7))}</strong> Paid Report.
+                </span>
+              </div>
+              <div className="summary-total">
+                <small>Amount Received</small>
+                <strong>LKR {fmtNum(payModalRow.grand_total)}</strong>
+              </div>
+            </div>
+
+            <div className="zk-quo-grid-2">
+              <Field label="Payment Received Date *">
+                <input
+                  type="date"
+                  required
+                  value={payForm.paid_at}
+                  onChange={e => setPayForm({ ...payForm, paid_at: e.target.value })}
+                />
+              </Field>
+              <Field label="Payment Method *">
+                <Select
+                  value={payForm.payment_method}
+                  onChange={e => setPayForm({ ...payForm, payment_method: e.target.value })}
+                  options={PAYMENT_METHODS.map(m => [m, m])}
+                />
+              </Field>
+            </div>
+
+            <Field label="Payment Reference / Cheque # / Bank Slip # (Optional)">
+              <input
+                type="text"
+                placeholder="e.g. Bank transfer reference, cheque number, or PO #"
+                value={payForm.payment_reference}
+                onChange={e => setPayForm({ ...payForm, payment_reference: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="modal-footer">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setPayModalRow(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              icon={CheckCircle2}
+              disabled={busy}
+              onClick={() => submitMarkPayment(payModalRow, 'Paid', payForm)}
+            >
+              {busy ? 'Saving…' : `Confirm Money Received (LKR ${fmtNum(payModalRow.grand_total)})`}
             </Button>
           </div>
         </Modal>

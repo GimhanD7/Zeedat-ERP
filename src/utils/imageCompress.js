@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DEFAULT_ZEEDAT_LOGO } from './defaultLogo';
 
 export const MAX_PRODUCT_IMAGE_BYTES = 10 * 1024; // 10 KB
 export const MAX_SYSTEM_LOGO_BYTES = 10 * 1024; // 10 KB
@@ -9,9 +10,11 @@ const SHOP_NAME_STORAGE_KEY = 'zeedat_system_shop_name_v1';
 let currentLogoDataUrl = (() => {
   try {
     const val = localStorage.getItem(LOGO_STORAGE_KEY) || '';
-    return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(val) ? val : '';
+    return /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(val)
+      ? val
+      : DEFAULT_ZEEDAT_LOGO;
   } catch {
-    return '';
+    return DEFAULT_ZEEDAT_LOGO;
   }
 })();
 
@@ -45,7 +48,7 @@ if (currentLogoDataUrl) {
 }
 
 export function getSystemLogo() {
-  return currentLogoDataUrl;
+  return currentLogoDataUrl || DEFAULT_ZEEDAT_LOGO;
 }
 
 export function getSystemShopName() {
@@ -53,11 +56,10 @@ export function getSystemShopName() {
 }
 
 export function setSystemLogo(dataUrl, shopName) {
-  const validLogo =
+  const isCustomValid =
     typeof dataUrl === 'string' &&
-    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)
-      ? dataUrl
-      : '';
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl);
+  const validLogo = isCustomValid ? dataUrl : DEFAULT_ZEEDAT_LOGO;
   const nextName =
     typeof shopName === 'string' && shopName.trim() ? shopName.trim() : currentShopName;
 
@@ -66,7 +68,7 @@ export function setSystemLogo(dataUrl, shopName) {
   currentShopName = nextName;
 
   try {
-    if (validLogo) {
+    if (isCustomValid) {
       localStorage.setItem(LOGO_STORAGE_KEY, validLogo);
     } else {
       localStorage.removeItem(LOGO_STORAGE_KEY);

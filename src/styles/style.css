@@ -5675,7 +5675,8 @@
 .brand-mark.has-logo {
   padding: 2px;
   overflow: hidden;
-  background: #ffffff !important;
+  background: #080b12 !important;
+  border: 1px solid rgba(226, 175, 13, 0.35);
 }
 
 .brand-logo-img {
@@ -5695,11 +5696,13 @@
 }
 
 .login-logo-img {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   border-radius: 8px;
   display: block;
+  background: #080b12;
+  padding: 3px;
 }
 
 .zk-system-logo-uploader {
@@ -5716,15 +5719,15 @@
   width: 68px;
   height: 68px;
   border-radius: 12px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: #080b12;
+  border: 1px solid #334155;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
-  padding: 4px;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  padding: 5px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.14);
 }
 
 .zk-system-logo-preview img {
